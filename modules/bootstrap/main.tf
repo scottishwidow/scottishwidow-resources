@@ -7,7 +7,7 @@ resource "aws_s3_bucket_ownership_controls" "terraform_state_bucket_ownership" {
   bucket = aws_s3_bucket.terraform_state_bucket.id
 
   rule {
-    object_ownership = "BucketOwneerPreferred"
+    object_ownership = "BucketOwnerPreferred"
   }
 }
 
