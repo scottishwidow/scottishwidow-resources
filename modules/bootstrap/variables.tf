@@ -15,3 +15,8 @@ variable "env" {
   description = "Environment name"
   default = "test-assignment"
 }
+
+variable "tags" {
+  description = "Project tags"
+  type = map(any)
+}
