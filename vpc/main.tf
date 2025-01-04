@@ -6,7 +6,7 @@ module "vpc" {
 terraform {
   backend "s3" {
     bucket = "tf-state-wordpress-test-assignment"
-    key = "backend.tfstate"
+    key = "vpc.tfstate"
     region = "eu-west-1"
     dynamodb_table = "tf-state-lock"
     encrypt = true

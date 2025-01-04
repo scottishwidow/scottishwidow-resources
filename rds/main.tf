@@ -8,7 +8,7 @@ module "rds" {
 terraform {
   backend "s3" {
     bucket = "tf-state-wordpress-test-assignment"
-    key = "backend.tfstate/rds"
+    key = "rds.tfstate"
     region = "eu-west-1"
     dynamodb_table = "tf-state-lock"
     encrypt = true
