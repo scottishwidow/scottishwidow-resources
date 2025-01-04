@@ -36,3 +36,9 @@ variable "tags" {
   type = map(any)
   description = "RDS Instance Tags"
 }
+
+variable "region" {
+  type = string
+  description = "AWS Region for RDS"
+  default = "eu-west-1"
+}
