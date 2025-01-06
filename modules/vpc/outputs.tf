@@ -9,3 +9,7 @@ output "public_zone-1" {
 output "private_zone-1" {
   value = aws_subnet.private_zone-1.id
 }
+
+output "private_zone-2" {
+  value = aws_subnet.private_zone-2.id
+}

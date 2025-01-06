@@ -13,3 +13,12 @@ data "aws_ami" "ubuntu" {
 
   owners = ["099720109477"] # Canonical
 }
+
+data "terraform_remote_state" "vpc" {
+  backend = "s3"
+  config = {
+    bucket = "tf-state-wordpress-test-assignment"
+    key = "vpc.tfstate"
+    region = "eu-west-1"
+  }
+}
