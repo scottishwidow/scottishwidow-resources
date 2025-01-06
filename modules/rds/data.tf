@@ -1,7 +1,14 @@
-data "aws_subnet" "selected" {
+data "aws_subnet" "selected_one" {
   filter {
-    name = "tag:RDS"
-    values = ["true"]
+    name = "tag:Identifier"
+    values = ["1"]
+  }
+}
+
+data "aws_subnet" "selected_two" {
+  filter {
+    name = "tag:Identifier"
+    values = ["2"]
   }
 }
 

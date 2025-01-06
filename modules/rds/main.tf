@@ -1,6 +1,6 @@
 resource "aws_db_subnet_group" "rds_subnet_group" { # todo add one more private subnet for HA 
   name = "rds-subnet-group"
-  subnet_ids = [ data.aws_subnet.selected.id ]
+  subnet_ids = [ data.aws_subnet.selected_one.id, data.aws_subnet.selected_two.id ]
 }
 
 resource "aws_security_group" "rds_security_group" {
@@ -21,7 +21,7 @@ resource "aws_db_instance" "rds_instance" {
   engine_version          = var.mysql_engine_version
   skip_final_snapshot     = true
   final_snapshot_identifier = var.final_snapshot_identifier
-  instance_class          = "db.t2.micro"
+  instance_class          = "db.t3.micro"
   allocated_storage       = 20
   identifier              = var.instance_identifier
   db_name                 = var.db_name
