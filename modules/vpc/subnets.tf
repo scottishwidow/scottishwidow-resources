@@ -25,4 +25,8 @@ resource "aws_subnet" "public_zone-1" {
   cidr_block = var.public_subnet_cidr_block
   availability_zone = var.az-2
   map_public_ip_on_launch = true
+
+  tags = {
+    EC2 = true
+  }
 }

@@ -9,3 +9,8 @@ variable "key_name" {
   type = string
   default = "k.michael"
 }
+
+variable "tags" {
+  description = "Project tags"
+  type = map(any)
+}
