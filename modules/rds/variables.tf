@@ -19,7 +19,7 @@ variable "instance_identifier" {
 variable "db_name" {
   type = string
   description = "MySQL Database Name"
-  default = "value"
+  default = "wordpress_db"
 }
 
 variable "db_username" {

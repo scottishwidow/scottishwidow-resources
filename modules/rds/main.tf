@@ -12,7 +12,7 @@ resource "aws_security_group" "rds_security_group" {
     from_port = 3306
     to_port = 3306
     protocol = "tcp"
-    cidr_blocks = ["0.0.0.0/0"] # todo (must be EC2 security group)
+    security_groups = [ data.aws_security_group.wordpress_sg.id ]
   }
 }
 

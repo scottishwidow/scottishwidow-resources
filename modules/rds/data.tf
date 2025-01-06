@@ -18,3 +18,10 @@ data "aws_vpc" "selected" {
     values = [ "172.16.0.0/16" ]
   }
 }
+
+data "aws_security_group" "wordpress_sg" {
+  filter {
+    name = "tag:RDS"
+    values = [ "true" ]
+  }
+}
