@@ -1,5 +1,5 @@
 module "ec2" {
-  source = "../modules/ec2"
+  source = "../modules/1-ec2"
   tags = { env = "test-assignment", management = "terraform" }
 }
 

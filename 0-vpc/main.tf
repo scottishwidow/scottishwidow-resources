@@ -1,5 +1,5 @@
 module "vpc" {
-  source = "../modules/vpc"
+  source = "../modules/0-vpc"
   tags = { env = "test-assignment", management = "terraform" } 
 }
 

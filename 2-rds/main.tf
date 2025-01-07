@@ -1,5 +1,5 @@
 module "rds" {
-  source = "../modules/rds"
+  source = "../modules/2-rds"
   tags = { env = "test-assignment", management = "terraform" }
   db_username = var.db_username
   db_password = var.db_password
