@@ -42,5 +42,7 @@ resource "aws_instance" "wordpress_host" {
     volume_type = "gp3"
   }
 
+  user_data = "${file("./user-data.sh")}"
+
   tags = var.tags
 }
