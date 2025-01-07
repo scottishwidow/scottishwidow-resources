@@ -17,6 +17,8 @@
 7. [Configuration Options](#configuration-options)
 8. [Troubleshooting and Common Issues](#troubleshooting-and-common-issues)
 
+#### Each module includes separate README generated using [terraform-docs](https://github.com/terraform-docs/terraform-docs)
+
 ## Introduction
 
 This project demonstrates the deployment of a typical web application infrastructure on AWS using Terraform for Infrastructure as Code (IaC) and bash scripts for application deployment. The setup includes:
