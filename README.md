@@ -17,7 +17,13 @@
 7. [Configuration Options](#configuration-options)
 8. [Troubleshooting and Common Issues](#troubleshooting-and-common-issues)
 
-#### Each module includes separate README generated using [terraform-docs](https://github.com/terraform-docs/terraform-docs)
+#### Each module includes separate README generated using [terraform-docs](https://github.com/terraform-docs/terraform-docs):
+
+- [bootstrap](https://github.com/scottishwidow/test-assignment/blob/main/modules/bootstrap/README.md)
+- [vpc](https://github.com/scottishwidow/test-assignment/blob/main/modules/0-vpc/README.md)
+- [ec2](https://github.com/scottishwidow/test-assignment/blob/main/modules/1-ec2/README.md)
+- [rds](https://github.com/scottishwidow/test-assignment/blob/main/modules/2-rds/README.md)
+- [elasticache](https://github.com/scottishwidow/test-assignment/blob/main/modules/3-elasticache/README.md)
 
 ## Introduction
 
