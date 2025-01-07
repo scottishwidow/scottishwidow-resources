@@ -114,4 +114,6 @@ The repository is organized as follows:
 - **Issue**: Sessions not persisting.
   - **Solution**: Check the connection to the Redis instance and verify that the appropriate PHP extensions for Redis are installed.
 
+- **Note**: Lots of issues were faced when working with remote state, so the decision for this particular project was made towards using Provider's Data Sources for retrieving dynamic values and dependency management.
+
 For more detailed information, refer to the comments within the Terraform configuration files and the deployment script.
