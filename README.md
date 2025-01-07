@@ -79,28 +79,22 @@ The deployment process is automated using a bash script that performs the follow
 
 1. Installs necessary dependencies (e.g., Apache, PHP)
 2. Downloads and configures WordPress
-3. Sets up environment variables for database and Redis connections
+3. Sets up environment variables for database
 4. Starts the web server
 
-The deployment script is located in the `bootstrap` directory of the repository.
-
-## External Modules and Tools
-
-- **Terraform AWS VPC Module**:
-  - Source: [terraform-aws-modules/vpc/aws](https://registry.terraform.io/modules/terraform-aws-modules/vpc/aws)
-  - **Reason for Use**: Simplifies VPC creation and management by providing a well-tested and community-supported module.
-
-- **Terraform AWS EC2 Instance Module**:
-  - Source: [terraform-aws-modules/ec2-instance/aws](https://registry.terraform.io/modules/terraform-aws-modules/ec2-instance/aws)
-  - **Reason for Use**: Provides a flexible and easy way to provision EC2 instances with common configurations.
+The deployment script is located in the `modules/1-ec2/` directory of the repository.
 
 ## Code Structure Overview
 
 The repository is organized as follows:
 
-- `bootstrap/`: Contains the bash deployment script for WordPress.
 - `modules/`: Includes custom Terraform modules used in the infrastructure setup.
-- `vpc/`: Contains Terraform configurations specific to VPC setup.
+- `bootstrap/`: Calls the `bootstrap` module to create AWS Resources for Remote Backend.
+- `0-vpc`: Calls the `vpc` module to create required Network Infrastructure.
+- `1-ec2`: Calls the `ec2` module for creating Wordpress Host and necessary configuration.
+- `2-rds`: Calls the `rds` module for creating Database Instance and necessary configuration.
+- `3-elasticache`: Calls the `elasticache` module for creating Single Node Redis Cluster and necessary configuration.
+
 - `.gitignore`: Specifies files and directories to be ignored by git.
 - `README.md`: Provides an overview and instructions for the project.
 
@@ -109,16 +103,13 @@ The repository is organized as follows:
 - **Terraform Variables**:
   - Variables for customizing the infrastructure (e.g., instance types, database settings) are defined in the Terraform configuration files.
 
-- **Deployment Script Parameters**:
-  - The bash script accepts environment variables for database and Redis connection details, allowing for customization without modifying the script.
-
 ## Troubleshooting and Common Issues
 
 - **Issue**: EC2 instance not reachable.
   - **Solution**: Verify that the security group associated with the EC2 instance allows inbound traffic on the required ports (e.g., 80 for HTTP).
 
 - **Issue**: WordPress cannot connect to the database.
-  - **Solution**: Ensure that the RDS instance is accessible from the EC2 instance and that the correct environment variables are set for database credentials.
+  - **Solution**: Ensure that the RDS instance is accessible from the EC2 instance and that the correct environment variables are set for database credentials. Also, keep in mind the web server-centric nature of PHP when configuring WordPress to read from `wp-config.php`.
 
 - **Issue**: Sessions not persisting.
   - **Solution**: Check the connection to the Redis instance and verify that the appropriate PHP extensions for Redis are installed.
