@@ -1,5 +1,3 @@
-### DevOps Test Assignment
-
 # DevOps Test Assignment Documentation
 
 ## Table of Contents
