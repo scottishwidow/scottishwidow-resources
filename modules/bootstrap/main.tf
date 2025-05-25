@@ -1,6 +1,6 @@
 resource "aws_s3_bucket" "terraform_state_bucket" {
   bucket = "tf-state-${local.environment_prefix}"
-  tags = var.tags
+  tags   = var.tags
 }
 
 resource "aws_s3_bucket_ownership_controls" "terraform_state_bucket_ownership" {
@@ -12,10 +12,10 @@ resource "aws_s3_bucket_ownership_controls" "terraform_state_bucket_ownership" {
 }
 
 resource "aws_s3_bucket_acl" "terraform_state_bucket_acl" {
-  depends_on = [ aws_s3_bucket_ownership_controls.terraform_state_bucket_ownership ]
+  depends_on = [aws_s3_bucket_ownership_controls.terraform_state_bucket_ownership]
 
   bucket = aws_s3_bucket.terraform_state_bucket.id
-  acl = "private"
+  acl    = "private"
 }
 
 resource "aws_s3_bucket_versioning" "terraform_state_bucket_versioning" {
@@ -26,19 +26,13 @@ resource "aws_s3_bucket_versioning" "terraform_state_bucket_versioning" {
   }
 }
 
-resource "aws_dynamodb_table" "terraform_state_lock" {
-  name = "tf-state-lock"
-  billing_mode = "PROVISIONED" # for predictable workloads
+resource "aws_s3_bucket_object_lock_configuration" "terraform_state_bucket" {
+  bucket = aws_s3_bucket.terraform_state_bucket.id
 
-  hash_key = "LockID" # primary key attribute used to uniquely identify items in the table
-
-  attribute { # Defines the schema for the primary key attributes in the table
-    name = "LockID"
-    type = "S" # S for string
+  rule {
+    default_retention {
+      mode = "COMPLIANCE"
+      days = 5
+    }
   }
-
-  read_capacity = 1
-  write_capacity = 1
-
-  tags = var.tags
 }
