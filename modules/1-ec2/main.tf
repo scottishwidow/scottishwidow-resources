@@ -1,26 +1,26 @@
 resource "aws_security_group" "wordpress_sg" {
-  name = "wordpress_security_group"
+  name        = "wordpress_security_group"
   description = "Security Group for Wordpress Host"
-  vpc_id = data.aws_vpc.main.id
+  vpc_id      = data.aws_vpc.main.id
 
   ingress {
-    from_port = 22
-    to_port = 22
-    protocol = "tcp"
+    from_port   = 22
+    to_port     = 22
+    protocol    = "tcp"
     cidr_blocks = ["0.0.0.0/0"]
   }
 
   ingress {
-    from_port = 80
-    to_port = 80
-    protocol = "tcp"
+    from_port   = 80
+    to_port     = 80
+    protocol    = "tcp"
     cidr_blocks = ["0.0.0.0/0"]
   }
 
   egress {
-    from_port = 0
-    to_port = 0
-    protocol = "-1"
+    from_port   = 0
+    to_port     = 0
+    protocol    = "-1"
     cidr_blocks = ["0.0.0.0/0"]
   }
 
@@ -72,7 +72,7 @@ resource "aws_iam_policy" "wordpress_ssm_policy" {
 }
 
 resource "aws_iam_role_policy_attachment" "wordpress_ssm_policy_attachment" {
-  role = aws_iam_role.wordpress_ssm_role.name
+  role       = aws_iam_role.wordpress_ssm_role.name
   policy_arn = aws_iam_policy.wordpress_ssm_policy.arn
 }
 
@@ -82,12 +82,12 @@ resource "aws_iam_instance_profile" "wordpress_ssm_profile" {
 }
 
 resource "aws_instance" "wordpress_host" {
-  ami = data.aws_ami.ubuntu.id
-  instance_type = "t2.micro"
+  ami                         = data.aws_ami.ubuntu.id
+  instance_type               = "t2.micro"
   associate_public_ip_address = true
-  key_name = var.key_name
-  security_groups = [ aws_security_group.wordpress_sg.id ]
-  subnet_id = data.aws_subnet.selected_public.id
+  key_name                    = var.key_name
+  security_groups             = [aws_security_group.wordpress_sg.id]
+  subnet_id                   = data.aws_subnet.selected_public.id
 
   root_block_device {
     volume_size = 15
@@ -96,7 +96,8 @@ resource "aws_instance" "wordpress_host" {
 
   iam_instance_profile = aws_iam_instance_profile.wordpress_ssm_profile.name
 
-  user_data = "${file("${path.module}/user-data.sh")}"
+  user_data = file("${path.module}/user-data.sh")
 
   tags = var.tags
 }
+
