@@ -1,5 +1,5 @@
 **/.terraform/*
-
+bootstrap/.terraform.lock.hcl
 *.tfstate
 *.tfstate.*
 
