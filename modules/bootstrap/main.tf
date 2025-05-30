@@ -1,6 +1,7 @@
 resource "aws_s3_bucket" "terraform_state_bucket" {
-  bucket = "tf-state-${local.environment_prefix}"
-  tags   = var.tags
+  bucket              = "tf-state-${local.environment_prefix}"
+  object_lock_enabled = var.object_lock_enabled
+  tags                = var.tags
 }
 
 resource "aws_s3_bucket_ownership_controls" "terraform_state_bucket_ownership" {

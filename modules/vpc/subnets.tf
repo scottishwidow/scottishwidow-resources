@@ -4,7 +4,7 @@ resource "aws_subnet" "private_zone-1" {
   availability_zone = var.az-1
 
   tags = {
-    availability = private
+    availability = "private"
   }
 }
 
@@ -14,7 +14,7 @@ resource "aws_subnet" "private_zone-2" {
   availability_zone = var.az-2
 
   tags = {
-    availability = private
+    availability = "private"
   }
 }
 
@@ -25,6 +25,6 @@ resource "aws_subnet" "public_zone-1" {
   map_public_ip_on_launch = true
 
   tags = {
-    availability = public
+    availability = "public"
   }
 }

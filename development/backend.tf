@@ -1,6 +1,6 @@
 terraform {
   backend "s3" {
-    bucket       = ""
+    bucket       = "tf-state-scottishwidow-dev"
     key          = "dev/terraform.tfstate"
     region       = "eu-central-1"
     encrypt      = true

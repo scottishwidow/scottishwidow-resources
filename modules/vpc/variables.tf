@@ -30,13 +30,13 @@ variable "private_subnet_cidr_block-2" {
 variable "az-1" {
   type        = string
   description = "Private AZ"
-  default     = "eu-west-1a"
+  default     = "eu-central-1a"
 }
 
 variable "az-2" {
   type        = string
   description = "Public AZ"
-  default     = "eu-west-1b"
+  default     = "eu-central-1b"
 }
 
 variable "region" {
