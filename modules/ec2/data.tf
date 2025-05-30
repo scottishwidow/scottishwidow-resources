@@ -13,17 +13,3 @@ data "aws_ami" "ubuntu" {
 
   owners = ["099720109477"] # Canonical
 }
-
-data "aws_vpc" "main" {
-  filter {
-    name = "tag:env"
-    values = [ "test-assignment" ]
-  }
-}
-
-data "aws_subnet" "selected_public" {
-  filter {
-    name = "tag:EC2"
-    values = ["true"]
-  }
-}

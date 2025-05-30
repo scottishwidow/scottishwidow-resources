@@ -1,22 +1,28 @@
 variable "region" {
   description = "AWS region for bootstrap"
-  type = string
-  default = "eu-west-1"
+  type        = string
+  default     = "eu-central-1"
 }
 
 variable "project_name" {
-  type = string
+  type        = string
   description = "Project name"
-  default = "wordpress"
+  default     = "scottishwidow"
 }
 
 variable "env" {
-  type = string
+  type        = string
   description = "Environment name"
-  default = "test-assignment"
+  default     = "dev"
 }
 
 variable "tags" {
   description = "Project tags"
-  type = map(any)
+  type        = map(any)
+}
+
+variable "object_lock_enabled" {
+  description = "Enable object S3 object locking"
+  type        = bool
+  default     = true
 }
