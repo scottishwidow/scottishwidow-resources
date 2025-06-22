@@ -7,5 +7,5 @@ output "subnet_group_id" {
 }
 
 output "database_instance_id" {
-  value = aws_db_instance.postgres.id
+  value = aws_db_instance.postgres[0].id
 }

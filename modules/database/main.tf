@@ -25,13 +25,18 @@ resource "aws_db_subnet_group" "postgres" {
 }
 
 resource "aws_db_instance" "postgres" {
+  count = var.create_postgres ? 1 : 0
   identifier = var.postgres_instance_identifier
   db_subnet_group_name = aws_db_subnet_group.postgres.name
+  publicly_accessible = var.is_public
   instance_class = var.postgres_instance_class
   allocated_storage = var.postgres_storage
+  availability_zone = var.postgres_az
   engine = "postgres"
   username = var.postgres_username
   skip_final_snapshot = var.postgres_skip_final_snapshot
   password_wo = ephemeral.aws_secretsmanager_secret_version.db_password.secret_string
   password_wo_version = aws_secretsmanager_secret_version.db_password.secret_string_wo_version
 }
+
+# TODO Security Group for Postgres

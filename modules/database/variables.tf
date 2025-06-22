@@ -16,7 +16,7 @@ variable "subnet_ids" {
 
 variable "postgres_instance_class" {
   type = string
-  default = "t2.micro"
+  default = "db.t3.micro"
 }
 
 variable "postgres_storage" {
@@ -31,5 +31,20 @@ variable "postgres_username" {
 
 variable "postgres_skip_final_snapshot" {
   type = bool
+  default = true
+}
+
+variable "is_public" {
+  type = bool
+  default = true
+}
+
+variable "create_postgres" {
+  type = bool
   default = false
+}
+
+variable "postgres_az" {
+  type = string
+  default = "eu-central-1b"
 }
