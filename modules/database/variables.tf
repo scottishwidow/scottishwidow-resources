@@ -48,3 +48,12 @@ variable "postgres_az" {
   type = string
   default = "eu-central-1b"
 }
+
+variable "vpc_id" {
+  type = string
+}
+
+variable "postgres_sg_name" {
+  type = string
+  description = "Name for AWS Security Group for Postgres RDS"
+}
