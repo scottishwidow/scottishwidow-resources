@@ -24,6 +24,13 @@ resource "aws_db_subnet_group" "postgres" {
   tags = var.tags
 }
 
+resource "aws_security_group" "postgres" {
+  name = var.postgres_sg_name
+  description = "Allow traffic to RDS for Postgres"
+  vpc_id = var.vpc_id
+  tags = var.tags
+}
+
 resource "aws_db_instance" "postgres" {
   count = var.create_postgres ? 1 : 0
   identifier = var.postgres_instance_identifier
@@ -31,6 +38,7 @@ resource "aws_db_instance" "postgres" {
   publicly_accessible = var.is_public
   instance_class = var.postgres_instance_class
   allocated_storage = var.postgres_storage
+  vpc_security_group_ids = [ aws_security_group.postgres.id ]
   availability_zone = var.postgres_az
   engine = "postgres"
   username = var.postgres_username
