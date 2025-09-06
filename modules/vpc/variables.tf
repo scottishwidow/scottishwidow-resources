@@ -9,22 +9,28 @@ variable "vpc_cidr_block" {
   default     = "172.16.0.0/16"
 }
 
-variable "public_subnet_cidr_block" {
+variable "public_subnet_cidr_block_1" {
   description = "CIDR Block for Public Subnet"
   type        = string
-  default     = "172.16.0.0/19"
+  default     = "172.16.128.0/19"
 }
 
-variable "private_subnet_cidr_block-1" {
-  description = "CIDR Block for Private Subnet"
-  type        = string
-  default     = "172.16.32.0/19"
+variable "public_subnet_cidr_block_2" {
+  description = "CIDR Block for Public Subnet"
+  type = string
+  default = "172.16.160.0/19"
 }
 
-variable "private_subnet_cidr_block-2" {
+variable "private_subnet_cidr_block_1" {
   description = "CIDR Block for Private Subnet"
   type        = string
-  default     = "172.16.64.0/19"
+  default     = "172.16.192.0/19"
+}
+
+variable "private_subnet_cidr_block_2" {
+  description = "CIDR Block for Private Subnet"
+  type        = string
+  default     = "172.16.224.0/19"
 }
 
 variable "az-1" {
