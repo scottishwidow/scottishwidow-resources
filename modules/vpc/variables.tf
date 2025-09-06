@@ -33,16 +33,22 @@ variable "private_subnet_cidr_block_2" {
   default     = "172.16.224.0/19"
 }
 
-variable "az-1" {
+variable "az_1" {
   type        = string
   description = "Private AZ"
   default     = "eu-central-1a"
 }
 
-variable "az-2" {
+variable "az_2" {
   type        = string
   description = "Public AZ"
   default     = "eu-central-1b"
+}
+
+variable "az_3" {
+  type = string 
+  description = "Public AZ"
+  default = "eu-central-1c"
 }
 
 variable "region" {
