@@ -1,27 +1,73 @@
-resource "aws_security_group" "wordpress_sg" {
-  name        = "wordpress_security_group"
-  description = "Security Group for Wordpress Host"
-  vpc_id      = data.aws_vpc.main.id
+resource "aws_security_group" "swarm" {
+  name        = var.security_group_name
+  description = "Security group for Docker Swarm nodes"
+  vpc_id      = var.vpc_id
+
+  ingress {
+    description = "SSH"
+    from_port   = 22
+    to_port     = 22
+    protocol    = "tcp"
+    cidr_blocks = var.ssh_cidr_blocks
+  }
+
+  ingress {
+    description = "Swarm manager"
+    from_port   = 2377
+    to_port     = 2377
+    protocol    = "tcp"
+    self        = true
+  }
+
+  ingress {
+    description = "Swarm node communication"
+    from_port   = 7946
+    to_port     = 7946
+    protocol    = "tcp"
+    self        = true
+  }
+
+  ingress {
+    description = "Swarm node communication (UDP)"
+    from_port   = 7946
+    to_port     = 7946
+    protocol    = "udp"
+    self        = true
+  }
+
+  ingress {
+    description = "Overlay network"
+    from_port   = 4789
+    to_port     = 4789
+    protocol    = "udp"
+    self        = true
+  }
+
+  egress {
+    from_port   = 0
+    to_port     = 0
+    protocol    = "-1"
+    cidr_blocks = ["0.0.0.0/0"]
+  }
+
+  tags = var.tags
 }
 
-
-
-resource "aws_instance" "demo_host" {
+resource "aws_instance" "node" {
+  count                       = var.instance_count
   ami                         = data.aws_ami.ubuntu.id
   instance_type               = var.instance_type
   associate_public_ip_address = var.public_ip_associate
   key_name                    = var.key_name
-  security_groups             = [aws_security_group.wordpress_sg.id]
-  subnet_id                   = data.aws_subnet.selected_public.id
+  vpc_security_group_ids      = [aws_security_group.swarm.id]
+  subnet_id                   = element(var.subnet_ids, count.index % length(var.subnet_ids))
 
   root_block_device {
     volume_size = 15
     volume_type = "gp3"
   }
 
-  iam_instance_profile = aws_iam_instance_profile.wordpress_ssm_profile.name
-
   user_data = file("${path.module}/user-data.sh")
 
-  tags = var.tags
+  tags = merge(var.tags, { Name = "${var.ec2_instance_name}-${count.index + 1}" })
 }

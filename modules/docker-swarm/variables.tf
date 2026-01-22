@@ -3,6 +3,16 @@ variable "region" {
   type        = string
 }
 
+variable "vpc_id" {
+  description = "VPC ID for the Docker Swarm nodes"
+  type        = string
+}
+
+variable "subnet_ids" {
+  description = "Subnet IDs for the Docker Swarm nodes"
+  type        = list(string)
+}
+
 variable "key_name" {
   description = "Name of the SSH Key"
   type        = string
@@ -26,4 +36,22 @@ variable "public_ip_associate" {
 variable "ec2_instance_name" {
   description = "Name for the EC2 Instance"
   type        = string
+}
+
+variable "instance_count" {
+  description = "Number of Docker Swarm nodes to create"
+  type        = number
+  default     = 4
+}
+
+variable "security_group_name" {
+  description = "Name for the Docker Swarm security group"
+  type        = string
+  default     = "docker-swarm-sg"
+}
+
+variable "ssh_cidr_blocks" {
+  description = "CIDR blocks allowed to reach SSH and Swarm ports"
+  type        = list(string)
+  default     = ["0.0.0.0/0"]
 }
