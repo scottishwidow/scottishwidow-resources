@@ -32,7 +32,7 @@ resource "aws_s3_bucket_object_lock_configuration" "terraform_state_bucket" {
 
   rule {
     default_retention {
-      mode = "COMPLIANCE"
+      mode = "GOVERNANCE"
       days = 5
     }
   }
