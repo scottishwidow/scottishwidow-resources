@@ -55,3 +55,15 @@ variable "ssh_cidr_blocks" {
   type        = list(string)
   default     = ["0.0.0.0/0"]
 }
+
+variable "create_instance_profile" {
+  description = "Create and attach an IAM instance profile for Swarm nodes"
+  type        = bool
+  default     = false
+}
+
+variable "instance_profile_policy_arns" {
+  description = "Policy ARNs to attach to the Swarm instance role"
+  type        = list(string)
+  default     = ["arn:aws:iam::aws:policy/AmazonSSMManagedInstanceCore"]
+}

@@ -55,6 +55,26 @@ resource "aws_security_group_rule" "all_egress" {
   cidr_blocks       = ["0.0.0.0/0"]
 }
 
+resource "aws_iam_role" "swarm" {
+  count              = var.create_instance_profile ? 1 : 0
+  name               = "${var.ec2_instance_name}-role"
+  assume_role_policy = data.aws_iam_policy_document.swarm_assume_role.json
+  tags               = var.tags
+}
+
+resource "aws_iam_role_policy_attachment" "swarm" {
+  for_each   = var.create_instance_profile ? toset(var.instance_profile_policy_arns) : []
+  role       = aws_iam_role.swarm[0].name
+  policy_arn = each.value
+}
+
+resource "aws_iam_instance_profile" "swarm" {
+  count = var.create_instance_profile ? 1 : 0
+  name  = "${var.ec2_instance_name}-profile"
+  role  = aws_iam_role.swarm[0].name
+  tags  = var.tags
+}
+
 resource "aws_instance" "node" {
   count                       = var.instance_count
   ami                         = data.aws_ami.ubuntu.id
@@ -63,6 +83,7 @@ resource "aws_instance" "node" {
   key_name                    = var.key_name
   vpc_security_group_ids      = [aws_security_group.swarm.id]
   subnet_id                   = element(var.subnet_ids, count.index % length(var.subnet_ids))
+  iam_instance_profile        = var.create_instance_profile ? aws_iam_instance_profile.swarm[0].name : null
 
   root_block_device {
     volume_size = 15
