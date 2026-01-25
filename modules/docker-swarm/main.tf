@@ -6,16 +6,6 @@ resource "aws_security_group" "swarm" {
   tags = var.tags
 }
 
-resource "aws_security_group_rule" "ssh" {
-  type              = "ingress"
-  security_group_id = aws_security_group.swarm.id
-  description       = "SSH"
-  from_port         = 22
-  to_port           = 22
-  protocol          = "tcp"
-  cidr_blocks       = var.ssh_cidr_blocks
-}
-
 resource "aws_security_group_rule" "swarm_manager" {
   type              = "ingress"
   security_group_id = aws_security_group.swarm.id
