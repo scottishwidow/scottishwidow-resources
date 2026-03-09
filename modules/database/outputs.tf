@@ -1,5 +1,5 @@
 output "subnet_group_arn" {
-  value =  var.create_postgres ? aws_db_subnet_group.postgres[0].arn : null
+  value = var.create_postgres ? aws_db_subnet_group.postgres[0].arn : null
 }
 
 output "subnet_group_id" {

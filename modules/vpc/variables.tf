@@ -17,8 +17,8 @@ variable "public_subnet_cidr_block_1" {
 
 variable "public_subnet_cidr_block_2" {
   description = "CIDR Block for Public Subnet"
-  type = string
-  default = "172.16.160.0/19"
+  type        = string
+  default     = "172.16.160.0/19"
 }
 
 variable "private_subnet_cidr_block_1" {
@@ -46,9 +46,9 @@ variable "az_2" {
 }
 
 variable "az_3" {
-  type = string 
+  type        = string
   description = "Public AZ"
-  default = "eu-central-1c"
+  default     = "eu-central-1c"
 }
 
 variable "region" {
