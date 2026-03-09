@@ -16,6 +16,7 @@ No providers.
 
 | Name | Source | Version |
 |------|--------|---------|
+| github\_actions\_iam | ../../modules/iam-github-oidc | n/a |
 | vpc | terraform-aws-modules/vpc/aws | 6.6.0 |
 
 ## Resources
@@ -30,5 +31,8 @@ No resources.
 
 ## Outputs
 
-No outputs.
+| Name | Description |
+|------|-------------|
+| github\_actions\_oidc\_provider\_arn | n/a |
+| github\_actions\_role\_arn | n/a |
 <!-- END_TF_DOCS -->

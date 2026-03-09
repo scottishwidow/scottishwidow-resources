@@ -1,14 +1,21 @@
-name: Terraform PR Checks
+name: Terraform CI
 
 on:
   pull_request:
+    paths:
+      - ".github/workflows/terraform-cd.yml"
+      - ".github/workflows/terraform-ci.yml"
+      - ".pre-commit-config.yaml"
+      - "**/*.tf"
+      - "**/*.tfvars"
+      - "**/*.tfvars.hcl"
 
 permissions:
-  contents: write
+  contents: read
 
 jobs:
-  pre_commit:
-    name: Pre-commit Terraform Checks
+  validate:
+    name: Validate Terraform
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
@@ -22,7 +29,7 @@ jobs:
       - name: Setup Python
         uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405 # v6.2.0
         with:
-          python-version: '3.13'
+          python-version: "3.13"
 
       - name: Install pre-commit
         run: |
@@ -31,3 +38,28 @@ jobs:
 
       - name: Run pre-commit hooks
         run: SKIP=terraform_docs pre-commit run --all-files --show-diff-on-failure
+
+      - name: Terraform fmt check
+        run: terraform fmt -check -recursive
+
+      - name: Terraform init and validate
+        run: |
+          set -euo pipefail
+          roots=(
+            "live/development"
+            "live/development/bootstrap"
+            "live/management"
+            "live/management/bootstrap"
+            "modules/alb"
+            "modules/bootstrap"
+            "modules/database"
+            "modules/docker-swarm"
+            "modules/ec2"
+            "modules/iam-github-oidc"
+            "modules/vpc"
+          )
+          for root in "${roots[@]}"; do
+            echo "Validating ${root}"
+            terraform -chdir="${root}" init -backend=false -input=false
+            terraform -chdir="${root}" validate
+          done

@@ -21,3 +21,16 @@ module "vpc" {
     environment = "development"
   }
 }
+
+module "github_actions_iam" {
+  source = "../../modules/iam-github-oidc"
+
+  role_name            = "github-actions-terraform-development"
+  github_repository    = "scottishwidow/scottishwidow-resources"
+  github_branches      = ["main"]
+  create_oidc_provider = true
+  tags = {
+    management  = "terraform"
+    environment = "development"
+  }
+}

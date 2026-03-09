@@ -2,13 +2,18 @@ name: Generate Terraform Documentation
 
 on:
   pull_request:
+    paths:
+      - "**/*.tf"
+      - ".terraform-docs.yml"
+      - ".github/workflows/documentation.yml"
 
 permissions:
-  contents: read
+  contents: write
 
 jobs:
   docs:
     name: Generate Terraform Documentation
+    if: ${{ github.event.pull_request.head.repo.full_name == github.repository }}
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
@@ -16,7 +21,7 @@ jobs:
         with:
           ref: ${{ github.event.pull_request.head.ref }}
 
-      - name: Check Terraform docs
+      - name: Render Terraform docs and push changes
         uses: terraform-docs/gh-actions@v1.4.1
         with:
           working-dir: .
@@ -24,3 +29,25 @@ jobs:
           output-method: inject
           recursive: true
           git-push: true
+
+  docs_check_forks:
+    name: Check Terraform Documentation (Fork PRs)
+    if: ${{ github.event.pull_request.head.repo.full_name != github.repository }}
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - name: Checkout
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+
+      - name: Render Terraform docs
+        uses: terraform-docs/gh-actions@v1.4.1
+        with:
+          working-dir: .
+          config-file: .terraform-docs.yml
+          output-method: inject
+          recursive: true
+          git-push: false
+
+      - name: Ensure docs are up to date
+        run: git diff --exit-code

@@ -1,0 +1,105 @@
+name: Terraform CD (Development)
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - ".github/workflows/terraform-cd.yml"
+      - "live/development/**"
+      - "modules/**"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  id-token: write
+
+concurrency:
+  group: terraform-development-apply
+  cancel-in-progress: false
+
+jobs:
+  plan:
+    name: Plan Development
+    runs-on: ubuntu-latest
+    environment: development
+    env:
+      AWS_REGION: ${{ vars.AWS_REGION != '' && vars.AWS_REGION || 'eu-central-1' }}
+      AWS_ROLE_ARN: ${{ vars.AWS_ROLE_ARN }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+
+      - name: Setup Terraform
+        uses: hashicorp/setup-terraform@5e8dbf3c6d9deaf4193ca7a8fb23f2ac83bb6c85 # v4.0.0
+        with:
+          terraform_version: 1.14.6
+
+      - name: Ensure required environment variables are set
+        run: |
+          test -n "${AWS_ROLE_ARN}" || {
+            echo "Environment variable AWS_ROLE_ARN is required."
+            exit 1
+          }
+
+      - name: Configure AWS credentials (OIDC)
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ vars.AWS_ROLE_ARN }}
+          role-session-name: gh-terraform-cd-development-plan
+          aws-region: ${{ vars.AWS_REGION }}
+
+      - name: Terraform init
+        run: terraform -chdir=live/development init -input=false
+
+      - name: Terraform plan
+        run: terraform -chdir=live/development plan -input=false -no-color -out=tfplan
+
+      - name: Upload apply plan
+        uses: actions/upload-artifact@v4
+        with:
+          name: development-apply-plan
+          path: live/development/tfplan
+
+  apply:
+    name: Apply Development
+    runs-on: ubuntu-latest
+    needs: plan
+    environment: development
+    env:
+      AWS_REGION: ${{ vars.AWS_REGION != '' && vars.AWS_REGION || 'eu-central-1' }}
+      AWS_ROLE_ARN: ${{ vars.AWS_ROLE_ARN }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+
+      - name: Setup Terraform
+        uses: hashicorp/setup-terraform@5e8dbf3c6d9deaf4193ca7a8fb23f2ac83bb6c85 # v4.0.0
+        with:
+          terraform_version: 1.14.6
+
+      - name: Ensure required environment variables are set
+        run: |
+          test -n "${AWS_ROLE_ARN}" || {
+            echo "Environment variable AWS_ROLE_ARN is required."
+            exit 1
+          }
+
+      - name: Configure AWS credentials (OIDC)
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ vars.AWS_ROLE_ARN }}
+          role-session-name: gh-terraform-cd-development-apply
+          aws-region: ${{ vars.AWS_REGION }}
+
+      - name: Terraform init
+        run: terraform -chdir=live/development init -input=false
+
+      - name: Download apply plan
+        uses: actions/download-artifact@v4
+        with:
+          name: development-apply-plan
+          path: live/development
+
+      - name: Terraform apply
+        run: terraform -chdir=live/development apply -input=false -auto-approve tfplan
