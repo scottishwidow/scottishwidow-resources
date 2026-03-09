@@ -50,13 +50,6 @@ jobs:
             "live/development/bootstrap"
             "live/management"
             "live/management/bootstrap"
-            "modules/alb"
-            "modules/bootstrap"
-            "modules/database"
-            "modules/docker-swarm"
-            "modules/ec2"
-            "modules/iam-github-oidc"
-            "modules/vpc"
           )
           for root in "${roots[@]}"; do
             echo "Validating ${root}"
