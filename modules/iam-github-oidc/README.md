@@ -36,6 +36,7 @@ No modules.
 |------|-------------|------|---------|:--------:|
 | create\_oidc\_provider | Whether to create the GitHub OIDC provider in this account | `bool` | `true` | no |
 | github\_branches | Branch names allowed to assume this role | `list(string)` | ```[ "main" ]``` | no |
+| github\_environments | GitHub Environment names allowed to assume this role | `list(string)` | `[]` | no |
 | github\_repository | GitHub repository in owner/repo format | `string` | n/a | yes |
 | oidc\_client\_id\_list | Allowed OIDC audiences | `list(string)` | ```[ "sts.amazonaws.com" ]``` | no |
 | oidc\_provider\_url | OIDC provider URL for GitHub Actions | `string` | `"https://token.actions.githubusercontent.com"` | no |

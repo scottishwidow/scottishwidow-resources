@@ -1,8 +1,10 @@
 locals {
-  oidc_provider_arn  = var.create_oidc_provider ? aws_iam_openid_connect_provider.github[0].arn : data.aws_iam_openid_connect_provider.github[0].arn
-  oidc_provider_host = trimsuffix(trimprefix(var.oidc_provider_url, "https://"), "/")
-  allowed_subjects   = [for branch in var.github_branches : "repo:${var.github_repository}:ref:refs/heads/${branch}"]
-  policy_name        = var.permissions_policy_name != "" ? var.permissions_policy_name : "${var.role_name}-permissions"
+  oidc_provider_arn            = var.create_oidc_provider ? aws_iam_openid_connect_provider.github[0].arn : data.aws_iam_openid_connect_provider.github[0].arn
+  oidc_provider_host           = trimsuffix(trimprefix(var.oidc_provider_url, "https://"), "/")
+  allowed_branch_subjects      = [for branch in var.github_branches : "repo:${var.github_repository}:ref:refs/heads/${branch}"]
+  allowed_environment_subjects = [for environment in var.github_environments : "repo:${var.github_repository}:environment:${environment}"]
+  allowed_subjects             = distinct(concat(local.allowed_branch_subjects, local.allowed_environment_subjects))
+  policy_name                  = var.permissions_policy_name != "" ? var.permissions_policy_name : "${var.role_name}-permissions"
 }
 
 resource "aws_iam_openid_connect_provider" "github" {

@@ -19,9 +19,15 @@ variable "github_branches" {
   default     = ["main"]
 
   validation {
-    condition     = length(var.github_branches) > 0
-    error_message = "github_branches must contain at least one branch."
+    condition     = length(var.github_branches) > 0 || length(var.github_environments) > 0
+    error_message = "At least one of github_branches or github_environments must be configured."
   }
+}
+
+variable "github_environments" {
+  description = "GitHub Environment names allowed to assume this role"
+  type        = list(string)
+  default     = []
 }
 
 variable "permissions_policy_name" {
