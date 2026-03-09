@@ -46,7 +46,7 @@ variable "az_2" {
 }
 
 variable "az_3" {
-  type = string 
+  type = string
   description = "Public AZ"
   default = "eu-central-1c"
 }

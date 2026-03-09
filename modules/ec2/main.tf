@@ -25,4 +25,3 @@ resource "aws_instance" "demo_host" {
 
   tags = var.tags
 }
-
