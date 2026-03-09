@@ -15,37 +15,37 @@ variable "subnet_ids" {
 }
 
 variable "postgres_instance_class" {
-  type = string
+  type    = string
   default = "db.t3.micro"
 }
 
 variable "postgres_storage" {
-  type = number
+  type    = number
   default = 10
 }
 
 variable "postgres_username" {
-  type = string
+  type    = string
   default = "postgres"
 }
 
 variable "postgres_skip_final_snapshot" {
-  type = bool
+  type    = bool
   default = true
 }
 
 variable "is_public" {
-  type = bool
+  type    = bool
   default = true
 }
 
 variable "create_postgres" {
-  type = bool
+  type    = bool
   default = false
 }
 
 variable "postgres_az" {
-  type = string
+  type    = string
   default = "eu-central-1b"
 }
 
@@ -54,6 +54,6 @@ variable "vpc_id" {
 }
 
 variable "postgres_sg_name" {
-  type = string
+  type        = string
   description = "Name for AWS Security Group for Postgres RDS"
 }

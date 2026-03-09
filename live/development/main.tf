@@ -17,7 +17,7 @@ module "vpc" {
   enable_vpn_gateway = false
 
   tags = {
-    management = "terraform"
+    management  = "terraform"
     environment = "development"
   }
 }

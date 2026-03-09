@@ -2,7 +2,7 @@ resource "aws_vpc" "main" {
   cidr_block = var.vpc_cidr_block
 
   enable_dns_hostnames = true
-  enable_dns_support = true
+  enable_dns_support   = true
 
   tags = var.tags
 }
@@ -39,9 +39,9 @@ resource "aws_subnet" "public_zone_1" {
 }
 
 resource "aws_subnet" "public_zone_2" {
-  vpc_id = aws_vpc.main.id
-  cidr_block = var.public_subnet_cidr_block_2
-  availability_zone = var.az_3
+  vpc_id                  = aws_vpc.main.id
+  cidr_block              = var.public_subnet_cidr_block_2
+  availability_zone       = var.az_3
   map_public_ip_on_launch = true
 
   tags = {
@@ -77,17 +77,17 @@ resource "aws_route_table_association" "public_zone_1" {
 }
 
 resource "aws_route_table_association" "public_zone_2" {
-  subnet_id = aws_subnet.public_zone_2.id
+  subnet_id      = aws_subnet.public_zone_2.id
   route_table_id = aws_route_table.public.id
 }
 
 resource "aws_route_table_association" "private_zone_1" {
-  subnet_id = aws_subnet.private_zone_1.id
+  subnet_id      = aws_subnet.private_zone_1.id
   route_table_id = aws_route_table.private.id
 }
 
 resource "aws_route_table_association" "private_zone_2" {
-  subnet_id = aws_subnet.private_zone_2.id
+  subnet_id      = aws_subnet.private_zone_2.id
   route_table_id = aws_route_table.private.id
 }
 

@@ -1,5 +1,5 @@
 module "bootstrap" {
   source = "../../../modules/bootstrap"
-  env = "management"
+  env    = "management"
   tags   = { env = "management", management = "bootstrap" }
 }

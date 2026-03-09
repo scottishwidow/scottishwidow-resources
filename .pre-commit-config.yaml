@@ -6,3 +6,9 @@ repos:
     -   id: end-of-file-fixer
     -   id: trailing-whitespace
     -   id: check-merge-conflict
+
+- repo: https://github.com/antonbabenko/pre-commit-terraform
+  rev: v1.105.0 # Get the latest from: https://github.com/antonbabenko/pre-commit-terraform/releases
+  hooks:
+    - id: terraform_fmt
+    - id: terraform_docs
