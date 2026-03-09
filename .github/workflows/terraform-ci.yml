@@ -24,15 +24,6 @@ jobs:
         with:
           python-version: '3.13'
 
-      - name: Check Terraform docs
-        uses: terraform-docs/gh-actions@v1.4.1
-        with:
-          working-dir: .
-          config-file: .terraform-docs.yml
-          output-method: inject
-          recursive: true
-          git-push: true
-
       - name: Install pre-commit
         run: |
           python -m pip install --upgrade pip
