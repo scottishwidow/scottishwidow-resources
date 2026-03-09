@@ -28,6 +28,7 @@ module "github_actions_iam" {
   role_name            = "github-actions-terraform-development"
   github_repository    = "scottishwidow/scottishwidow-resources"
   github_branches      = ["main"]
+  github_environments  = ["development"]
   create_oidc_provider = true
   tags = {
     management  = "terraform"
