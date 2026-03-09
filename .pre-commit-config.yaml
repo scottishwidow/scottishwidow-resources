@@ -12,3 +12,6 @@ repos:
   hooks:
     - id: terraform_fmt
     - id: terraform_docs
+      args:
+        - --args=--config=.terraform-docs.yml
+        - --hook-config=--create-file-if-not-exist=true
