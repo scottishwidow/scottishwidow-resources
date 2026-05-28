@@ -18,3 +18,6 @@ override.tf.json
 
 .terraformrc
 terraform.rc
+
+# Agents
+settings.local.json
