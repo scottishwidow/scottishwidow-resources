@@ -1,0 +1,13 @@
+{
+  "mcpServers": {
+    "awslabs.aws-api-mcp-server": {
+      "command": "uvx",
+      "args": [
+        "awslabs.aws-api-mcp-server@latest"
+      ],
+      "env": {
+        "AWS_REGION": "${AWS_REGION}"
+      }
+    }
+  }
+}
