@@ -37,11 +37,5 @@ variable "next_cloud_instance_name" {
 variable "next_cloud_instance_type" {
   description = "EC2 instance type for the Nextcloud server"
   type        = string
-  default     = "t3.small"
-}
-
-variable "next_cloud_key_name" {
-  description = "Name of an existing EC2 key pair to attach (null attaches none)"
-  type        = string
-  default     = null
+  default     = "t3g.nano"
 }

@@ -12,7 +12,6 @@ module "next_cloud" {
 
   ami                         = data.aws_ssm_parameter.ubuntu.value
   instance_type               = var.next_cloud_instance_type
-  key_name                    = var.next_cloud_key_name
   subnet_id                   = module.vpc.public_zone_1
   vpc_security_group_ids      = [module.next_cloud_sg.security_group_id]
   associate_public_ip_address = true
