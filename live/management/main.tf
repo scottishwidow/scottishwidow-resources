@@ -22,6 +22,14 @@ module "next_cloud" {
   user_data                   = file("${path.module}/user_data.sh")
   user_data_replace_on_change = true
 
+  # The AMI's default root volume is too small for the AIO container images,
+  # data dir, and Postgres. Size it explicitly (~30 GB gp3). See ADR-0002.
+  root_block_device = {
+    type      = "gp3"
+    size      = 30
+    encrypted = true
+  }
+
   # Create an instance profile and attach AmazonSSMManagedInstanceCore so
   # sessions open via Session Manager — no SSH key or inbound port 22 required.
   create_iam_instance_profile = true

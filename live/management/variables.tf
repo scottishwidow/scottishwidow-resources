@@ -37,7 +37,7 @@ variable "next_cloud_instance_name" {
 variable "next_cloud_instance_type" {
   description = "EC2 instance type for the Nextcloud server (Graviton/arm64 — must match the arm64 AMI in data.tf)"
   type        = string
-  default     = "t4g.nano"
+  default     = "t4g.small"
 }
 
 variable "ingress_cidr_blocks" {
