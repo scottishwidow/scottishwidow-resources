@@ -45,3 +45,24 @@ variable "ingress_cidr_blocks" {
   type        = list(string)
 }
 
+#########################
+# SSM scratch bucket
+#########################
+
+variable "ssm_scratch_bucket_prefix" {
+  description = "Name prefix for the aws_ssm scratch bucket. The account ID, region, and `-an` namespace suffix are appended (final name: <prefix>-<account-id>-<region>-an)."
+  type        = string
+  default     = "scottishwidow-ssm-scratch"
+}
+
+variable "ssm_scratch_expiration_days" {
+  description = "Days after which scratch-bucket objects (and stalled multipart uploads) are expired. Contents are transient transfer artifacts."
+  type        = number
+  default     = 1
+
+  validation {
+    condition     = var.ssm_scratch_expiration_days >= 1
+    error_message = "Lifecycle expiration must be at least 1 day."
+  }
+}
+

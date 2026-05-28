@@ -62,3 +62,56 @@ module "next_cloud_sg" {
   tags = var.tags
 }
 
+# Scratch bucket for the amazon.aws.aws_ssm Ansible connection plugin.
+#
+# The plugin moves module .py files to the instance through S3 via presigned
+# URLs generated on the control node. Contents are throwaway artifacts, so a
+# lifecycle rule expires them after a short window. The instance role gets NO
+# S3 permissions — only the control node's credentials touch this bucket. See
+# ADR-0001.
+#
+# The bucket lives in the account regional namespace: its name is reserved to
+# this account in this region and can never be taken or re-created by another
+# account. Name format is `<prefix>-<account-id>-<region>-an`.
+# https://docs.aws.amazon.com/AmazonS3/latest/userguide/gpbucketnamespaces.html
+module "ssm_scratch" {
+  source  = "terraform-aws-modules/s3-bucket/aws"
+  version = "~> 5.13"
+
+  bucket           = format("%s-%s-%s-an", var.ssm_scratch_bucket_prefix, data.aws_caller_identity.current.account_id, data.aws_region.current.region)
+  bucket_namespace = "account-regional"
+
+  # Transient, controller-side-only artifacts: no public exposure ever.
+  block_public_acls       = true
+  block_public_policy     = true
+  ignore_public_acls      = true
+  restrict_public_buckets = true
+
+  server_side_encryption_configuration = {
+    rule = {
+      apply_server_side_encryption_by_default = {
+        sse_algorithm = "AES256"
+      }
+      bucket_key_enabled = true
+    }
+  }
+
+  # Expire the throwaway transfer artifacts (empty filter == all objects) and
+  # sweep any stalled multipart uploads on the same clock.
+  lifecycle_rule = [
+    {
+      id      = "expire-scratch-objects"
+      enabled = true
+      filter  = {}
+
+      expiration = {
+        days = var.ssm_scratch_expiration_days
+      }
+
+      abort_incomplete_multipart_upload_days = var.ssm_scratch_expiration_days
+    }
+  ]
+
+  tags = var.tags
+}
+
