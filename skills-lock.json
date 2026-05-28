@@ -1,0 +1,11 @@
+{
+  "version": 1,
+  "skills": {
+    "terraform-skill": {
+      "source": "antonbabenko/terraform-skill",
+      "sourceType": "github",
+      "skillPath": "skills/terraform-skill/SKILL.md",
+      "computedHash": "d6addbf053e18f292674182ff2b5cf92f5fc569bd12938631650256ca1138389"
+    }
+  }
+}
