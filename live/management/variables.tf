@@ -13,3 +13,35 @@ variable "env" {
   type        = string
   default     = "management"
 }
+
+variable "tags" {
+  description = "Tags applied to all resources in this environment"
+  type        = map(string)
+  default = {
+    environment = "management"
+    management  = "terraform"
+    Name        = "scottishwidow"
+  }
+}
+
+#########################
+# Nextcloud
+#########################
+
+variable "next_cloud_instance_name" {
+  description = "Name tag for the Nextcloud EC2 instance"
+  type        = string
+  default     = "nextcloud"
+}
+
+variable "next_cloud_instance_type" {
+  description = "EC2 instance type for the Nextcloud server"
+  type        = string
+  default     = "t3.small"
+}
+
+variable "next_cloud_key_name" {
+  description = "Name of an existing EC2 key pair to attach (null attaches none)"
+  type        = string
+  default     = null
+}
