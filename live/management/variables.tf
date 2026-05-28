@@ -39,3 +39,9 @@ variable "next_cloud_instance_type" {
   type        = string
   default     = "t4g.nano"
 }
+
+variable "ingress_cidr_blocks" {
+  description = "List of allowed CIDR Blocks for Inbound Traffic"
+  type        = list(string)
+}
+

@@ -41,3 +41,7 @@ apt-get install -y \
 # 4. Ensure the daemon is enabled and running (systemd enables it by default,
 #    but make it explicit so a reboot brings Docker back up).
 systemctl enable --now docker
+
+# 5. Let the default 'ubuntu' user run Docker without sudo. The group change
+#    takes effect on their next login/session.
+usermod -aG docker ubuntu
