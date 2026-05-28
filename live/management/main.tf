@@ -17,6 +17,14 @@ module "next_cloud" {
   vpc_security_group_ids      = [module.next_cloud_sg.security_group_id]
   associate_public_ip_address = true
 
+  # Create an instance profile and attach AmazonSSMManagedInstanceCore so
+  # sessions open via Session Manager — no SSH key or inbound port 22 required.
+  create_iam_instance_profile = true
+  iam_role_description        = "Instance role for ${var.next_cloud_instance_name}: enables SSM Session Manager (no SSH)."
+  iam_role_policies = {
+    AmazonSSMManagedInstanceCore = "arn:aws:iam::aws:policy/AmazonSSMManagedInstanceCore"
+  }
+
   tags = var.tags
 }
 
