@@ -16,6 +16,12 @@ module "next_cloud" {
   vpc_security_group_ids      = [module.next_cloud_sg.security_group_id]
   associate_public_ip_address = true
 
+  # Bootstrap: update packages and install Docker Engine on first boot.
+  # User data only runs once at launch, so changing the script must replace the
+  # instance for the change to take effect.
+  user_data                   = file("${path.module}/user_data.sh")
+  user_data_replace_on_change = true
+
   # Create an instance profile and attach AmazonSSMManagedInstanceCore so
   # sessions open via Session Manager — no SSH key or inbound port 22 required.
   create_iam_instance_profile = true
@@ -24,7 +30,12 @@ module "next_cloud" {
     AmazonSSMManagedInstanceCore = "arn:aws:iam::aws:policy/AmazonSSMManagedInstanceCore"
   }
 
-  tags = var.tags
+  tags = {
+    environment = "management"
+    management  = "terraform"
+    Name        = "scottishwidow"
+  }
+
 }
 
 module "next_cloud_sg" {
