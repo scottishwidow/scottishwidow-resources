@@ -1,0 +1,28 @@
+---
+# Connection wiring for the discovered `nextcloud` group. Every task runs over the
+# amazon.aws.aws_ssm connection plugin — the only transport this host accepts
+# (no SSH, no inbound port 22). See ADR-0001.
+
+ansible_connection: amazon.aws.aws_ssm
+
+# Address the host by its EC2 instance ID, supplied by the aws_ec2 inventory
+# plugin as a hostvar (also the inventory_hostname; set explicitly for clarity).
+ansible_aws_ssm_instance_id: "{{ instance_id }}"
+
+# Region of both the instance and the scratch bucket (same region). Honour the
+# control node's AWS_REGION if exported, else default to the management region.
+ansible_aws_ssm_region: >-
+  {{ lookup('ansible.builtin.env', 'AWS_REGION') | default('eu-central-1', true) }}
+
+# S3 scratch bucket used as the file-transfer side-channel: module .py files move
+# through it via presigned URLs generated on the control node (see ADR-0001).
+# Read from the environment so the account-scoped bucket name stays out of version
+# control. Export it from the Terraform output before running (see README):
+#   export SSM_SCRATCH_BUCKET="$(terraform -chdir=.. output -raw ssm_scratch_bucket_name)"
+ansible_aws_ssm_bucket_name: >-
+  {{ lookup('ansible.builtin.env', 'SSM_SCRATCH_BUCKET')
+     or undef(hint='SSM_SCRATCH_BUCKET is required: export it from `terraform output -raw ssm_scratch_bucket_name`') }}
+
+# The scratch bucket enforces server-side encryption (AES256); send the matching
+# header so the plugin's uploads are accepted.
+ansible_aws_ssm_bucket_sse_mode: AES256

@@ -1,0 +1,16 @@
+---
+# Tracer bullet: prove the full SSM transport path end-to-end.
+#
+# To reach this trivial ping, every integration layer has to work: the dynamic
+# inventory discovers the host by tag, the amazon.aws.aws_ssm plugin opens an SSM
+# channel to it, and the ping module's .py file round-trips through the scratch
+# bucket. If this play succeeds, the transport is sound. See ADR-0001.
+- name: Verify SSM connectivity to the Nextcloud instance
+  hosts: nextcloud
+  # Skip fact gathering: the tracer only needs to confirm the channel, and the
+  # ping module itself already exercises the S3 module-transfer round-trip.
+  gather_facts: false
+
+  tasks:
+    - name: Ping the instance over the SSM transport
+      ansible.builtin.ping:

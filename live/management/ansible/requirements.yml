@@ -1,0 +1,16 @@
+---
+# Pinned collection dependencies for the management Ansible project.
+# Install (or refresh) with:
+#   ansible-galaxy collection install -r requirements.yml
+#
+# Pins are compatible-release ranges: floor at the version this project was
+# validated against, ceiling below the next major to keep breaking changes out.
+collections:
+  # Provides the amazon.aws.aws_ssm connection plugin (the only transport to the
+  # instance) and the amazon.aws.aws_ec2 dynamic inventory plugin. See ADR-0001.
+  - name: amazon.aws
+    version: ">=10.3.1,<11.0.0"
+
+  # Docker modules used by the later Nextcloud AIO configuration plays.
+  - name: community.docker
+    version: ">=5.2.0,<6.0.0"
