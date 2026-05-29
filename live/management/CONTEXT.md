@@ -34,3 +34,29 @@ _Avoid_: state bucket (that is the separate Terraform backend bucket).
 **SSM connection**:
 The `amazon.aws.aws_ssm` Ansible connection plugin. The only transport to the
 instance — no SSH, no inbound 22. See ADR-0001.
+
+**Public address**:
+An Elastic IP (the ec2-instance module's `create_eip`) gives the instance a stable
+address that survives the instance replacement triggered by `user_data` edits. The data plane
+is world-facing: the security group opens 80/443 to `0.0.0.0/0` so AIO can serve
+clients and complete Let's Encrypt HTTP-01 validation. The control plane stays
+SSM-only.
+_Avoid_: confusing this with the auto-assigned public IP (not durable).
+
+## Out-of-band: Route 53 A record
+
+Route 53 is **not** managed by Terraform here (importing the existing zone is out
+of scope — see issue #20). After `terraform apply`, point the `domain` at the EIP
+manually. This is a HITL follow-up step, run once the EIP exists:
+
+```sh
+cd live/management
+DOMAIN=$(terraform output -raw next_cloud_domain)
+EIP=$(terraform output -raw next_cloud_public_ip)
+aws route53 change-resource-record-sets \
+  --hosted-zone-id Z01225632CGMCYQJ151NK \
+  --change-batch "{\"Changes\":[{\"Action\":\"UPSERT\",\"ResourceRecordSet\":{\"Name\":\"${DOMAIN}\",\"Type\":\"A\",\"TTL\":300,\"ResourceRecords\":[{\"Value\":\"${EIP}\"}]}}]}"
+```
+
+`UPSERT` is idempotent — safe to re-run if the EIP ever changes. Verify with
+`dig +short ${DOMAIN}` once propagated.

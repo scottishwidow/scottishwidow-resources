@@ -30,6 +30,14 @@ module "next_cloud" {
     encrypted = true
   }
 
+  # Stable public address. `user_data_replace_on_change` replaces the instance on
+  # any bootstrap-script edit, so its auto-assigned public IP is not durable. The
+  # EIP allocation persists across replacement (only its instance binding updates),
+  # keeping the Route 53 A record valid. See issue #20.
+  create_eip = true
+  eip_domain = "vpc"
+  eip_tags   = { Name = var.next_cloud_instance_name }
+
   # Create an instance profile and attach AmazonSSMManagedInstanceCore so
   # sessions open via Session Manager — no SSH key or inbound port 22 required.
   create_iam_instance_profile = true
@@ -54,7 +62,10 @@ module "next_cloud_sg" {
   description = "Nextcloud instance: HTTP/HTTPS inbound only"
   vpc_id      = module.vpc.vpc_id
 
-  ingress_cidr_blocks = var.ingress_cidr_blocks
+  # Data plane is intentionally world-facing: AIO terminates TLS and needs 80/443
+  # reachable from anywhere for HTTP-01 cert issuance and normal client access.
+  # The control plane stays SSM-only (no inbound 22). See issue #20.
+  ingress_cidr_blocks = ["0.0.0.0/0"]
   ingress_rules       = ["http-80-tcp", "https-443-tcp"]
 
   egress_rules = ["all-all"]
