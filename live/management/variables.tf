@@ -40,9 +40,9 @@ variable "next_cloud_instance_type" {
   default     = "t4g.small"
 }
 
-variable "ingress_cidr_blocks" {
-  description = "List of allowed CIDR Blocks for Inbound Traffic"
-  type        = list(string)
+variable "domain" {
+  description = "Public domain for the Nextcloud instance. Points at the Elastic IP via a Route 53 A record (created out-of-band; see CONTEXT.md) and is the name AIO requests a Let's Encrypt cert for. Set in secret.auto.tfvars."
+  type        = string
 }
 
 #########################
