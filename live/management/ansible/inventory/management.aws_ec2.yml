@@ -1,0 +1,26 @@
+---
+# Dynamic inventory: discover the Nextcloud instance by tag — never by a
+# hardcoded instance ID or IP. Terraform (../..) provisions the host and tags it
+# Name=nextcloud. See ADR-0001 and ../../CONTEXT.md.
+#
+# The filename ends in `aws_ec2.yml` so the plugin auto-detects this source.
+plugin: amazon.aws.aws_ec2
+
+# The management environment lives in eu-central-1 (var.aws_region).
+regions:
+  - eu-central-1
+
+# Discovery key: the Name tag, restricted to the running instance.
+filters:
+  tag:Name: nextcloud
+  instance-state-name: running
+
+# Place every matched host in a stable `nextcloud` group so group_vars/nextcloud.yml
+# applies by a fixed name (independent of tag-derived auto group names).
+groups:
+  nextcloud: true
+
+# Address hosts by EC2 instance ID: the aws_ssm connection plugin connects by
+# instance ID over SSM, not by DNS name or IP (there is no SSH).
+hostnames:
+  - instance-id
