@@ -12,7 +12,11 @@ ansible/
 ├── inventory/
 │   ├── management.aws_ec2.yml           # dynamic inventory (discovers by tag)
 │   └── group_vars/nextcloud.yml         # aws_ssm connection wiring
-└── playbooks/ping.yml                   # SSM connectivity tracer
+├── roles/
+│   └── nextcloud_aio/                   # AIO mastercontainer (base stack)
+└── playbooks/
+    ├── ping.yml                         # SSM connectivity tracer
+    └── nextcloud-aio.yml                # deploy the AIO mastercontainer
 ```
 
 `group_vars/` sits next to the inventory file so Ansible loads it for the
@@ -70,3 +74,41 @@ ansible-playbook playbooks/ping.yml
 A successful `ansible.builtin.ping` (`pong`) confirms all three integration
 layers: tag-based discovery, the SSM channel, and module-file transfer through
 the scratch bucket.
+
+## Deploy the AIO mastercontainer
+
+Brings up the Nextcloud AIO mastercontainer in its default built-in-Apache mode,
+base stack only (Apache + Nextcloud + PostgreSQL + Redis). The AIO admin interface
+on 8080 is bound to `127.0.0.1` — never internet-exposed. See the
+[`nextcloud_aio` role](roles/nextcloud_aio/README.md).
+
+```sh
+cd live/management/ansible
+ansible-playbook playbooks/nextcloud-aio.yml
+```
+
+Re-running is idempotent: the play reports `ok` (not `changed`) once the
+mastercontainer is up.
+
+### Verify the AIO mastercontainer
+
+The admin interface is bound to localhost on the instance, so reach it with an
+SSM **port-forward** — no public exposure, no SSH:
+
+```sh
+# Discover the instance by tag (same key the inventory uses):
+INSTANCE_ID=$(aws ec2 describe-instances \
+  --filters Name=tag:Name,Values=nextcloud Name=instance-state-name,Values=running \
+  --query 'Reservations[].Instances[].InstanceId' --output text)
+
+# Forward local 8080 -> instance 8080 over SSM (leave this running):
+aws ssm start-session \
+  --target "$INSTANCE_ID" \
+  --document-name AWS-StartPortForwardingSession \
+  --parameters '{"portNumber":["8080"],"localPortNumber":["8080"]}'
+```
+
+Then open <https://localhost:8080> in a browser. AIO serves the admin interface
+over HTTPS with a self-signed certificate, so accept the browser warning; the
+**AIO setup page** (showing the initial admin password) confirms the
+mastercontainer is up.

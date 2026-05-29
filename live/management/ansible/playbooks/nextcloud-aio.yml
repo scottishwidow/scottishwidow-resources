@@ -1,0 +1,13 @@
+---
+# Deploy the Nextcloud AIO mastercontainer (base stack) on the instance.
+#
+# Runs over the SSM transport (see ADR-0001). become escalates to root for the
+# apt install and Docker socket access — the SSM session's ssm-user has
+# passwordless sudo.
+- name: Deploy Nextcloud AIO mastercontainer
+  hosts: nextcloud
+  gather_facts: false
+  become: true
+
+  roles:
+    - nextcloud_aio

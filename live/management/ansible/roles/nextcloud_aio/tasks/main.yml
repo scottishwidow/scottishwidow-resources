@@ -1,0 +1,50 @@
+---
+# Bring up the Nextcloud AIO mastercontainer (base stack, default built-in-Apache
+# mode). Docker Engine itself is installed by user_data at first boot, not here;
+# this role asserts it is present, adds the Python Docker SDK the community.docker
+# modules need, then reconciles the mastercontainer.
+
+- name: Probe for the Docker daemon
+  # Docker is installed by live/management/user_data.sh at first boot, not by
+  # Ansible. Probe non-fatally so the next task can emit a clear, actionable
+  # failure rather than an opaque socket error from docker_container.
+  ansible.builtin.command: docker info
+  register: nextcloud_aio_docker_info
+  changed_when: false
+  failed_when: false
+
+- name: Assert Docker Engine is present and reachable
+  ansible.builtin.assert:
+    that:
+      - nextcloud_aio_docker_info.rc == 0
+    fail_msg: >-
+      Docker Engine is not available on the Nextcloud instance. It is installed by
+      user_data at first boot (live/management/user_data.sh), not by Ansible.
+      `docker info` exited {{ nextcloud_aio_docker_info.rc }}. Confirm the instance
+      bootstrapped successfully before re-running this play.
+    success_msg: Docker Engine is present and reachable.
+
+- name: Install the Python Docker SDK (required by the community.docker modules)
+  ansible.builtin.apt:
+    name: "{{ nextcloud_aio_docker_sdk_package }}"
+    state: present
+    update_cache: true
+    cache_valid_time: 3600
+
+- name: Run the Nextcloud AIO mastercontainer
+  # Default built-in-Apache mode: no APACHE_PORT / reverse-proxy env, no optional
+  # containers. The mastercontainer manages the inner stack via the Docker socket
+  # (mounted read-only) and serves the AIO admin interface on 8080, bound to
+  # localhost only. Idempotent: on re-run the container already matches this spec,
+  # so the module reports ok rather than recreating it.
+  community.docker.docker_container:
+    name: "{{ nextcloud_aio_mastercontainer_name }}"
+    image: "{{ nextcloud_aio_image }}"
+    state: started
+    restart_policy: always
+    init: true
+    published_ports:
+      - "{{ nextcloud_aio_admin_bind }}:{{ nextcloud_aio_admin_port }}:8080"
+    volumes:
+      - "{{ nextcloud_aio_config_volume }}:/mnt/docker-aio-config"
+      - /var/run/docker.sock:/var/run/docker.sock:ro
