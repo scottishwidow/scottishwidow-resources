@@ -24,10 +24,6 @@ module "song_vault" {
   vpc_security_group_ids      = [module.song_vault_sg.security_group_id]
   associate_public_ip_address = true
 
-  # AMI tracks Canonical's "current" Ubuntu, which rolls forward on every new
-  # publish. Without this, each new AMI ID would force-replace the running
-  # instance. ignore_ami_changes pins the instance to whatever AMI it launched
-  # with; upgrade deliberately via `terraform apply -replace=...`.
   ignore_ami_changes = true
 
   user_data                   = file("${path.module}/user_data_song_vault.sh")
@@ -84,10 +80,6 @@ module "next_cloud" {
   vpc_security_group_ids      = [module.next_cloud_sg.security_group_id]
   associate_public_ip_address = true
 
-  # AMI tracks Canonical's "current" Ubuntu, which rolls forward on every new
-  # publish. Without this, each new AMI ID would force-replace the running
-  # instance. ignore_ami_changes pins the instance to whatever AMI it launched
-  # with; upgrade deliberately via `terraform apply -replace=...`.
   ignore_ami_changes = true
 
   user_data                   = file("${path.module}/user_data_next_cloud.sh")
