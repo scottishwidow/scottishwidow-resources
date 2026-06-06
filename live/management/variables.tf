@@ -25,6 +25,22 @@ variable "tags" {
 }
 
 #########################
+# Song Vault
+#########################
+
+variable "song_vault_instance_name" {
+  description = "Name tag for the Song Vault EC2 instance"
+  type        = string
+  default     = "song-vault"
+}
+
+variable "song_vault_instance_type" {
+  description = "EC2 instance type for the Song Vault server (amd64/x86_64 — must match the amd64 AMI in data.tf)"
+  type        = string
+  default     = "t3.micro"
+}
+
+#########################
 # Nextcloud
 #########################
 
@@ -65,4 +81,3 @@ variable "ssm_scratch_expiration_days" {
     error_message = "Lifecycle expiration must be at least 1 day."
   }
 }
-

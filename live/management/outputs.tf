@@ -1,5 +1,16 @@
-# Stable public address. Consumed by the out-of-band Route 53 step (A record
-# domain -> this IP) and by Ansible/AIO as the host's reachable address.
+#########################
+# Song Vault
+#########################
+
+output "song_vault_public_ip" {
+  description = "Public IP address associated with the Song Vault instance."
+  value       = module.song_vault.public_ip
+}
+
+#########################
+# Nextcloud
+#########################
+
 output "next_cloud_public_ip" {
   description = "Elastic IP address associated with the Nextcloud instance."
   value       = module.next_cloud.public_ip
@@ -10,8 +21,10 @@ output "next_cloud_domain" {
   value       = var.domain
 }
 
-# Consumed by the Ansible layer to point the amazon.aws.aws_ssm connection
-# plugin at its file-transfer side-channel. See ADR-0001.
+#########################
+# SSM scratch bucket
+#########################
+
 output "ssm_scratch_bucket_name" {
   description = "Name of the S3 scratch bucket for the aws_ssm Ansible connection plugin."
   value       = module.ssm_scratch.s3_bucket_id
