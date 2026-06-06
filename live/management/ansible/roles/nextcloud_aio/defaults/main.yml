@@ -1,32 +1,12 @@
 ---
-# Defaults for the nextcloud_aio role: bring up the Nextcloud AIO mastercontainer
-# in its default built-in-Apache mode, base stack only (Apache + Nextcloud +
-# PostgreSQL + Redis). See ../../README.md and ../../../CONTEXT.md.
-
-# AIO mastercontainer image. Nextcloud ships AIO as a self-updating stack pinned
-# by *channel* tag, not by a frozen version: the mastercontainer pulls and manages
-# the inner containers itself. `latest` is the stable channel Nextcloud documents
-# for production. Multi-arch, so it runs on this Graviton/arm64 host.
 nextcloud_aio_image: nextcloud/all-in-one:latest
 
-# Container name. Kept stable so re-runs reconcile the same container.
 nextcloud_aio_mastercontainer_name: nextcloud-aio-mastercontainer
 
-# Named volume holding the mastercontainer's own config/state. AIO hardcodes this
-# exact name internally — do NOT change it, or the mastercontainer will not find
-# its state. See https://github.com/nextcloud/all-in-one#how-to-use-this.
 nextcloud_aio_config_volume: nextcloud_aio_mastercontainer
 
-# Host interface the AIO admin interface (8080) binds to. 127.0.0.1 keeps the
-# admin interface off the internet entirely — it is reached only via an SSM
-# port-forward, never the public address. The public data plane (80/443) is a
-# separate slice.
 nextcloud_aio_admin_bind: "127.0.0.1"
 
-# Admin interface port inside the container and on the bound interface.
 nextcloud_aio_admin_port: 8080
 
-# APT package providing the Python Docker SDK that the community.docker modules
-# import on the host. Installed from Ubuntu's archive (not pip) to stay clear of
-# PEP 668 externally-managed-environment errors on the system interpreter.
 nextcloud_aio_docker_sdk_package: python3-docker

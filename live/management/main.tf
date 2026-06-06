@@ -16,30 +16,19 @@ module "next_cloud" {
   vpc_security_group_ids      = [module.next_cloud_sg.security_group_id]
   associate_public_ip_address = true
 
-  # Bootstrap: update packages and install Docker Engine on first boot.
-  # User data only runs once at launch, so changing the script must replace the
-  # instance for the change to take effect.
   user_data                   = file("${path.module}/user_data.sh")
   user_data_replace_on_change = true
 
-  # The AMI's default root volume is too small for the AIO container images,
-  # data dir, and Postgres. Size it explicitly (~30 GB gp3). See ADR-0002.
   root_block_device = {
     type      = "gp3"
     size      = 30
     encrypted = true
   }
 
-  # Stable public address. `user_data_replace_on_change` replaces the instance on
-  # any bootstrap-script edit, so its auto-assigned public IP is not durable. The
-  # EIP allocation persists across replacement (only its instance binding updates),
-  # keeping the Route 53 A record valid. See issue #20.
   create_eip = true
   eip_domain = "vpc"
   eip_tags   = { Name = var.next_cloud_instance_name }
 
-  # Create an instance profile and attach AmazonSSMManagedInstanceCore so
-  # sessions open via Session Manager — no SSH key or inbound port 22 required.
   create_iam_instance_profile = true
   iam_role_description        = "Instance role for ${var.next_cloud_instance_name}: enables SSM Session Manager (no SSH)."
   iam_role_policies = {
@@ -51,7 +40,6 @@ module "next_cloud" {
     management  = "terraform"
     Name        = "scottishwidow"
   }
-
 }
 
 module "next_cloud_sg" {
@@ -62,9 +50,6 @@ module "next_cloud_sg" {
   description = "Nextcloud instance: HTTP/HTTPS inbound only"
   vpc_id      = module.vpc.vpc_id
 
-  # Data plane is intentionally world-facing: AIO terminates TLS and needs 80/443
-  # reachable from anywhere for HTTP-01 cert issuance and normal client access.
-  # The control plane stays SSM-only (no inbound 22). See issue #20.
   ingress_cidr_blocks = ["0.0.0.0/0"]
   ingress_rules       = ["http-80-tcp", "https-443-tcp"]
 
@@ -73,18 +58,6 @@ module "next_cloud_sg" {
   tags = var.tags
 }
 
-# Scratch bucket for the amazon.aws.aws_ssm Ansible connection plugin.
-#
-# The plugin moves module .py files to the instance through S3 via presigned
-# URLs generated on the control node. Contents are throwaway artifacts, so a
-# lifecycle rule expires them after a short window. The instance role gets NO
-# S3 permissions — only the control node's credentials touch this bucket. See
-# ADR-0001.
-#
-# The bucket lives in the account regional namespace: its name is reserved to
-# this account in this region and can never be taken or re-created by another
-# account. Name format is `<prefix>-<account-id>-<region>-an`.
-# https://docs.aws.amazon.com/AmazonS3/latest/userguide/gpbucketnamespaces.html
 module "ssm_scratch" {
   source  = "terraform-aws-modules/s3-bucket/aws"
   version = "~> 5.13"
@@ -92,7 +65,6 @@ module "ssm_scratch" {
   bucket           = format("%s-%s-%s-an", var.ssm_scratch_bucket_prefix, data.aws_caller_identity.current.account_id, data.aws_region.current.region)
   bucket_namespace = "account-regional"
 
-  # Transient, controller-side-only artifacts: no public exposure ever.
   block_public_acls       = true
   block_public_policy     = true
   ignore_public_acls      = true
@@ -107,8 +79,6 @@ module "ssm_scratch" {
     }
   }
 
-  # Expire the throwaway transfer artifacts (empty filter == all objects) and
-  # sweep any stalled multipart uploads on the same clock.
   lifecycle_rule = [
     {
       id      = "expire-scratch-objects"
@@ -125,4 +95,3 @@ module "ssm_scratch" {
 
   tags = var.tags
 }
-
