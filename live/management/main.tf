@@ -1,8 +1,16 @@
+#########################
+# Common
+#########################
+
 module "vpc" {
   source = "../../modules/vpc"
   tags   = { environment = "management", management = "terraform", Name = "scottishwidow" }
   region = var.aws_region
 }
+
+#########################
+# Song Vault
+#########################
 
 module "song_vault" {
   source  = "terraform-aws-modules/ec2-instance/aws"
@@ -13,7 +21,7 @@ module "song_vault" {
   ami                         = data.aws_ssm_parameter.ubuntu.value
   instance_type               = var.song_vault_instance_type
   subnet_id                   = module.vpc.public_zone_1
-  vpc_security_group_ids      = [module.] # TODO
+  vpc_security_group_ids      = [module.song_vault_sg.security_group_id]
   associate_public_ip_address = true
 
   user_data                   = file("${path.module}/user_data.sh") # TODO?
@@ -53,6 +61,10 @@ module "song_vault_sg" {
 
   tags = var.tags
 }
+
+#########################
+# Nextcloud
+#########################
 
 module "next_cloud" {
   source  = "terraform-aws-modules/ec2-instance/aws"
@@ -107,6 +119,10 @@ module "next_cloud_sg" {
 
   tags = var.tags
 }
+
+#########################
+# SSM scratch bucket
+#########################
 
 module "ssm_scratch" {
   source  = "terraform-aws-modules/s3-bucket/aws"

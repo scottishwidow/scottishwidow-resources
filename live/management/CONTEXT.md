@@ -1,14 +1,23 @@
 # Management
 
-The `management` AWS environment. It hosts a single self-managed **Nextcloud
-instance** and contains both the Terraform that provisions it and the standalone
-Ansible that configures it.
+The `management` AWS environment. It hosts two self-managed EC2 instances — the
+**Nextcloud instance** and the **Song Vault instance** — and contains the
+Terraform that provisions them and the standalone Ansible that configures
+Nextcloud.
 
 ## Language
 
 **Nextcloud instance**:
 The single EC2 host (Graviton/arm64, `t4g.small`) that runs Nextcloud. Tagged
 `Name=nextcloud`, reachable only via SSM.
+_Avoid_: server, box, VM (in docs/code).
+
+**Song Vault instance**:
+A second EC2 host (Graviton/arm64, `t4g.small`) tagged `Name=song-vault`,
+reachable only via SSM. Its data plane opens 80/443 to the world via its own
+security group, but — unlike the Nextcloud instance — it has no Elastic IP and no
+`domain`, so it carries only an auto-assigned (non-durable) public IP. Currently a
+Terraform skeleton with no Ansible configuration yet.
 _Avoid_: server, box, VM (in docs/code).
 
 **Nextcloud AIO**:

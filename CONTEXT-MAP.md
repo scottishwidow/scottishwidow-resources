@@ -3,7 +3,8 @@
 ## Contexts
 
 - [Management](./live/management/CONTEXT.md) — the `management` AWS environment:
-  the Nextcloud instance, its Terraform, and the Ansible that configures it.
+  the Nextcloud and Song Vault instances, their Terraform, and the Ansible that
+  configures Nextcloud.
 
 ## Relationships
 
