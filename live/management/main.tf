@@ -18,7 +18,7 @@ module "song_vault" {
 
   name = var.song_vault_instance_name
 
-  ami                         = data.aws_ssm_parameter.ubuntu.value
+  ami                         = data.aws_ssm_parameter.ubuntu_amd64.value
   instance_type               = var.song_vault_instance_type
   subnet_id                   = module.vpc.public_zone_1
   vpc_security_group_ids      = [module.song_vault_sg.security_group_id]

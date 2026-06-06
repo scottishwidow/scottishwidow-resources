@@ -13,7 +13,7 @@ The single EC2 host (Graviton/arm64, `t4g.small`) that runs Nextcloud. Tagged
 _Avoid_: server, box, VM (in docs/code).
 
 **Song Vault instance**:
-A second EC2 host (Graviton/arm64, `t4g.small`) tagged `Name=song-vault`,
+A second EC2 host (amd64/x86_64, `t3.micro`) tagged `Name=song-vault`,
 reachable only via SSM. Its data plane opens 80/443 to the world via its own
 security group, but — unlike the Nextcloud instance — it has no Elastic IP and no
 `domain`, so it carries only an auto-assigned (non-durable) public IP. Currently a

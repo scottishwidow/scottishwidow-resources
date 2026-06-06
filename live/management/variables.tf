@@ -35,9 +35,9 @@ variable "song_vault_instance_name" {
 }
 
 variable "song_vault_instance_type" {
-  description = "EC2 instance type for the Song Vault server (Graviton/arm64 — must match the arm64 AMI in data.tf)"
+  description = "EC2 instance type for the Song Vault server (amd64/x86_64 — must match the amd64 AMI in data.tf)"
   type        = string
-  default     = "t4g.micro"
+  default     = "t3.micro"
 }
 
 #########################
