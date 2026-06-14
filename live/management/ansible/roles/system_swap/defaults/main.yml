@@ -1,0 +1,6 @@
+---
+system_swap_file: /swapfile
+
+system_swap_size_mb: 2048
+
+system_swap_swappiness: 10

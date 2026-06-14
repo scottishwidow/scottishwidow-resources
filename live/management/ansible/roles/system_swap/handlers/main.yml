@@ -1,0 +1,5 @@
+---
+- name: Reload swappiness sysctl
+  ansible.builtin.command:
+    cmd: sysctl -p /etc/sysctl.d/99-swappiness.conf
+  changed_when: false
