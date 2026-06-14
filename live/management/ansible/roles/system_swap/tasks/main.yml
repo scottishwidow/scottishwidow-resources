@@ -1,0 +1,58 @@
+---
+- name: Check whether the swap file already exists
+  ansible.builtin.stat:
+    path: "{{ system_swap_file }}"
+  register: system_swap_stat
+
+- name: Allocate the swap file
+  ansible.builtin.command:
+    cmd: "dd if=/dev/zero of={{ system_swap_file }} bs=1M count={{ system_swap_size_mb }}"
+  args:
+    creates: "{{ system_swap_file }}"
+  when: not system_swap_stat.stat.exists
+
+- name: Secure the swap file (root-only, 0600)
+  ansible.builtin.file:
+    path: "{{ system_swap_file }}"
+    owner: root
+    group: root
+    mode: "0600"
+
+- name: Detect an existing swap signature on the file
+  ansible.builtin.command:
+    cmd: "blkid -t TYPE=swap {{ system_swap_file }}"
+  register: system_swap_sig
+  changed_when: false
+  failed_when: false
+
+- name: Format the swap file
+  ansible.builtin.command:
+    cmd: "mkswap {{ system_swap_file }}"
+  when: system_swap_sig.rc != 0
+
+- name: Persist the swap file in /etc/fstab
+  ansible.builtin.lineinfile:
+    path: /etc/fstab
+    line: "{{ system_swap_file }} none swap sw 0 0"
+    regexp: "^{{ system_swap_file | regex_escape }}\\s"
+    state: present
+
+- name: Check whether the swap file is currently active
+  ansible.builtin.command:
+    cmd: swapon --noheadings --show=NAME
+  register: system_swap_active
+  changed_when: false
+
+- name: Enable the swap file
+  ansible.builtin.command:
+    cmd: "swapon {{ system_swap_file }}"
+  when: system_swap_file not in system_swap_active.stdout
+
+- name: Set vm.swappiness (persisted)
+  ansible.builtin.copy:
+    dest: /etc/sysctl.d/99-swappiness.conf
+    content: "vm.swappiness={{ system_swap_swappiness }}\n"
+    owner: root
+    group: root
+    mode: "0644"
+  notify: Reload swappiness sysctl
