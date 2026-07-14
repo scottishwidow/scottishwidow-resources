@@ -32,9 +32,11 @@ resource "aws_dlm_lifecycle_policy" "this" {
     resource_types = ["INSTANCE"]
     target_tags    = var.target_tags
 
+    # no_reboot is an AMI-policy (IMAGE_MANAGEMENT) parameter; DLM drops it from
+    # EBS_SNAPSHOT_MANAGEMENT policies, so setting it here would drift on every plan.
+    # Snapshot policies never reboot the instance regardless.
     parameters {
       exclude_boot_volume = var.exclude_boot_volume
-      no_reboot           = var.no_reboot
     }
 
     dynamic "schedule" {
