@@ -30,8 +30,10 @@ makes a Nextcloud backup restorable, and here we get it for free.
 
 Nightly **EBS snapshots** of the whole instance, driven by **AWS Data Lifecycle Manager**,
 on a **7 daily / 4 weekly / 6 monthly** retention ladder in a single region
-(`eu-central-1`). Roughly **€3–6/month**. Implemented in `live/management/backup.tf` as an
-IAM service role plus one `aws_dlm_lifecycle_policy`, targeted by the tag `Name=nextcloud`.
+(`eu-central-1`). Roughly **€3–6/month**. Implemented as a reusable `modules/dlm_backup`
+module — an IAM service role plus one `aws_dlm_lifecycle_policy` — called from
+`live/management/main.tf` as `module.next_cloud_backup` and targeted by the tag
+`Name=nextcloud`.
 
 Alongside it, a `pg_dumpall` **escape hatch** (`nextcloud_pg_dump` Ansible role) writes a
 gzipped logical dump to `/var/backups/nextcloud` on the root disk at 04:00 UTC, 30 minutes

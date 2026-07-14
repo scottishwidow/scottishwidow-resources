@@ -65,55 +65,18 @@ variable "domain" {
 # Nextcloud backups
 #########################
 
-variable "next_cloud_backup_daily_cron" {
-  description = "Cron expression (UTC) for the daily DLM snapshot. Runs 30 min after the pg_dumpall timer so the dump lands inside the same snapshot."
-  type        = string
-  default     = "cron(30 4 * * ? *)"
-}
-
-variable "next_cloud_backup_weekly_cron" {
-  description = "Cron expression (UTC) for the weekly DLM snapshot. Staggered off the daily so schedules do not collide."
-  type        = string
-  default     = "cron(30 5 ? * SUN *)"
-}
-
-variable "next_cloud_backup_monthly_cron" {
-  description = "Cron expression (UTC) for the monthly DLM snapshot, on the 1st. Staggered off the daily and weekly."
-  type        = string
-  default     = "cron(30 6 1 * ? *)"
-}
-
-variable "next_cloud_backup_daily_count" {
-  description = "Number of daily Nextcloud snapshots to retain."
-  type        = number
-  default     = 7
-
-  validation {
-    condition     = var.next_cloud_backup_daily_count >= 1 && var.next_cloud_backup_daily_count <= 1000
-    error_message = "DLM retain_rule.count must be between 1 and 1000."
-  }
-}
-
-variable "next_cloud_backup_weekly_count" {
-  description = "Number of weekly Nextcloud snapshots to retain."
-  type        = number
-  default     = 4
-
-  validation {
-    condition     = var.next_cloud_backup_weekly_count >= 1 && var.next_cloud_backup_weekly_count <= 1000
-    error_message = "DLM retain_rule.count must be between 1 and 1000."
-  }
-}
-
-variable "next_cloud_backup_monthly_count" {
-  description = "Number of monthly Nextcloud snapshots to retain."
-  type        = number
-  default     = 6
-
-  validation {
-    condition     = var.next_cloud_backup_monthly_count >= 1 && var.next_cloud_backup_monthly_count <= 1000
-    error_message = "DLM retain_rule.count must be between 1 and 1000."
-  }
+variable "next_cloud_backup_schedules" {
+  description = "DLM snapshot schedules for the Nextcloud instance. The daily cron runs 30 min after the pg_dumpall timer so the dump lands inside the same snapshot; weekly and monthly are staggered off it so schedules do not collide."
+  type = list(object({
+    name            = string
+    cron_expression = string
+    retain_count    = number
+  }))
+  default = [
+    { name = "daily", cron_expression = "cron(30 4 * * ? *)", retain_count = 7 },
+    { name = "weekly", cron_expression = "cron(30 5 ? * SUN *)", retain_count = 4 },
+    { name = "monthly", cron_expression = "cron(30 6 1 * ? *)", retain_count = 6 },
+  ]
 }
 
 #########################
