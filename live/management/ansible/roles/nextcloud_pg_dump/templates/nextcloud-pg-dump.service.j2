@@ -1,4 +1,3 @@
-# Managed by Ansible (role: nextcloud_pg_dump). Do not edit on the host.
 [Unit]
 Description=Nextcloud Postgres logical dump (escape hatch — not the restore path)
 Documentation=https://github.com/scottishwidow/scottishwidow-resources/blob/main/docs/runbooks/nextcloud-restore.md
@@ -9,6 +8,4 @@ After=docker.service
 Type=oneshot
 ExecStart=/usr/local/bin/nextcloud-pg-dump.sh
 
-# The dump is best-effort: a failure must never wedge the boot or the stack.
-# It surfaces in `systemctl status` and the journal instead.
 SuccessExitStatus=0

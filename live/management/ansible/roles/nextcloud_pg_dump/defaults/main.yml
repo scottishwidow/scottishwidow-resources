@@ -3,7 +3,6 @@ nextcloud_pg_dump_dir: /var/backups/nextcloud
 
 nextcloud_pg_dump_container: nextcloud-aio-database
 
-# 30 min before the 04:30 UTC DLM snapshot, so the dump lands inside it.
 nextcloud_pg_dump_oncalendar: "*-*-* 04:00:00"
 
 nextcloud_pg_dump_keep: 3

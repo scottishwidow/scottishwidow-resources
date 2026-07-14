@@ -128,23 +128,15 @@ module "next_cloud_sg" {
 # Nextcloud backups
 #########################
 
-# All Nextcloud state — Postgres metadata and the file blobs alike — lives in Docker
-# volumes on the instance's single root volume. One EBS snapshot therefore captures the
-# database and the files at the same instant, which is what makes a restore coherent.
-# Snapshots are crash-consistent, not application-quiesced: Postgres WAL-replays on
-# restore exactly as it would after a power cut. See docs/adr/0003.
 module "next_cloud_backup" {
   source = "../../modules/dlm_backup"
 
   name        = var.next_cloud_instance_name
   description = "Nextcloud EBS snapshots - ${join(" ", [for s in var.next_cloud_backup_schedules : "${s.retain_count} ${s.name}"])}"
 
-  # The ec2-instance module's `name` argument wins over the `Name` key in `tags`, so the
-  # instance is tagged Name=nextcloud (not Name=scottishwidow). Exactly one matches.
   target_tags = { Name = var.next_cloud_instance_name }
   schedules   = var.next_cloud_backup_schedules
 
-  # The boot volume IS the data volume — excluding it would back up nothing.
   exclude_boot_volume = false
   no_reboot           = true
 

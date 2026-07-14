@@ -1,14 +1,11 @@
-# Managed by Ansible (role: nextcloud_pg_dump). Do not edit on the host.
 [Unit]
 Description=Daily Nextcloud Postgres logical dump
 
 [Timer]
 OnCalendar={{ nextcloud_pg_dump_oncalendar }}
 
-# Fire on next boot if the instance was down when the timer was due.
 Persistent=true
 
-# Spread the run slightly so it never lands exactly on the DLM snapshot boundary.
 RandomizedDelaySec=120
 
 [Install]

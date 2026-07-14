@@ -18,9 +18,6 @@ resource "aws_iam_role" "this" {
   tags = var.tags
 }
 
-# No SSM permissions are attached: the policy runs no pre/post scripts. AWS ships no
-# Linux app-consistent snapshot document (only Windows VSS and SAP HANA), and freezing
-# the root filesystem risks deadlocking the agent meant to thaw it.
 resource "aws_iam_role_policy_attachment" "this" {
   role       = aws_iam_role.this.name
   policy_arn = "arn:aws:iam::aws:policy/service-role/AWSDataLifecycleManagerServiceRole"

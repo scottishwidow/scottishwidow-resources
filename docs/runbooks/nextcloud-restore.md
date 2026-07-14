@@ -126,7 +126,7 @@ to the damaged-but-known state, having lost nothing.
 
 ---
 
-# ⚠️ Escape hatch — restoring from the `pg_dumpall` (degraded)
+# Escape hatch — restoring from the `pg_dumpall` (degraded)
 
 **Do not use this as a restore path.** It exists for exactly one situation: the Postgres
 cluster itself is corrupt and will not WAL-replay, so the snapshot's database is unusable

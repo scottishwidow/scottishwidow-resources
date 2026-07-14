@@ -1,10 +1,5 @@
 #!/usr/bin/env bash
-# Managed by Ansible (role: nextcloud_pg_dump). Do not edit on the host.
-#
-# Logical Postgres dump for the Nextcloud AIO stack. This is an ESCAPE HATCH for a
-# corrupt Postgres cluster — NOT the restore path. Restoring this dump against a
-# filesystem snapshot taken at a different moment reintroduces DB/file skew.
-# See docs/runbooks/nextcloud-restore.md.
+
 set -euo pipefail
 
 dump_dir="{{ nextcloud_pg_dump_dir }}"
@@ -17,14 +12,8 @@ out="${dump_dir}/pg-$(date -u +%F).sql.gz"
 tmp="${out}.partial"
 trap 'rm -f "${tmp}"' EXIT
 
-# The AIO database username is read from the container's own environment rather than
-# hardcoded — AIO has changed it before. `pipefail` is what makes this safe: without it
-# a failing pg_dumpall would still exit 0 through gzip and leave a truncated dump that
-# looks valid.
 docker exec "${container}" sh -c 'pg_dumpall -U "$POSTGRES_USER"' | gzip -c >"${tmp}"
 
-# A valid dump ends with the PostgreSQL "\.\n--\n-- PostgreSQL database cluster dump complete"
-# trailer. Checking it catches a dump that died halfway with a zero exit somewhere.
 if ! gzip -cd "${tmp}" | tail -5 | grep -q "PostgreSQL database cluster dump complete"; then
   echo "nextcloud-pg-dump: dump is incomplete or corrupt, refusing to publish it" >&2
   exit 1
@@ -34,7 +23,6 @@ mv "${tmp}" "${out}"
 trap - EXIT
 echo "nextcloud-pg-dump: wrote ${out} ($(du -h "${out}" | cut -f1))"
 
-# Prune all but the newest ${keep} dumps.
 find "${dump_dir}" -maxdepth 1 -name 'pg-*.sql.gz' -printf '%T@ %p\0' |
   sort -zrn |
   tail -zn "+$((keep + 1))" |
