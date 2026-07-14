@@ -21,6 +21,11 @@ output "next_cloud_domain" {
   value       = var.domain
 }
 
+output "next_cloud_backup_policy_id" {
+  description = "ID of the DLM lifecycle policy taking Nextcloud EBS snapshots. Inspect with: aws dlm get-lifecycle-policy --policy-id <id>."
+  value       = aws_dlm_lifecycle_policy.next_cloud.id
+}
+
 #########################
 # SSM scratch bucket
 #########################
