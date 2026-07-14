@@ -1,0 +1,11 @@
+[Unit]
+Description=Nextcloud Postgres logical dump (escape hatch — not the restore path)
+Documentation=https://github.com/scottishwidow/scottishwidow-resources/blob/main/docs/runbooks/nextcloud-restore.md
+Requires=docker.service
+After=docker.service
+
+[Service]
+Type=oneshot
+ExecStart=/usr/local/bin/nextcloud-pg-dump.sh
+
+SuccessExitStatus=0

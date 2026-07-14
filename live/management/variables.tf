@@ -62,6 +62,24 @@ variable "domain" {
 }
 
 #########################
+# Nextcloud backups
+#########################
+
+variable "next_cloud_backup_schedules" {
+  description = "DLM snapshot schedules for the Nextcloud instance. The daily cron runs 30 min after the pg_dumpall timer so the dump lands inside the same snapshot; weekly and monthly are staggered off it so schedules do not collide."
+  type = list(object({
+    name            = string
+    cron_expression = string
+    retain_count    = number
+  }))
+  default = [
+    { name = "daily", cron_expression = "cron(30 4 * * ? *)", retain_count = 7 },
+    { name = "weekly", cron_expression = "cron(30 5 ? * SUN *)", retain_count = 4 },
+    { name = "monthly", cron_expression = "cron(30 6 1 * ? *)", retain_count = 6 },
+  ]
+}
+
+#########################
 # SSM scratch bucket
 #########################
 

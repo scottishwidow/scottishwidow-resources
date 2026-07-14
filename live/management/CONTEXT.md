@@ -52,6 +52,23 @@ clients and complete Let's Encrypt HTTP-01 validation. The control plane stays
 SSM-only.
 _Avoid_: confusing this with the auto-assigned public IP (not durable).
 
+**Backup policy**:
+`module.next_cloud_backup` (`modules/dlm_backup`), the DLM policy that takes nightly EBS
+snapshots of the Nextcloud instance (7 daily / 4 weekly / 6 monthly, single region). It targets the tag
+`Name=nextcloud` — the same tag the Ansible dynamic inventory filters on. Because all
+Nextcloud state (Postgres *and* file blobs) sits on the single root volume, one snapshot
+is **atomic**: database and files captured at the same instant. That coherence is what
+makes the backup restorable. See ADR-0003 and the restore runbook.
+_Avoid_: "backup" alone when you mean the `pg_dumpall` (below) — they are not the same thing.
+
+**Escape-hatch dump**:
+The gzipped `pg_dumpall` written by the `nextcloud_pg_dump` role to `/var/backups/nextcloud`
+on the **root disk** (deliberately — so it is captured inside the nightly snapshot), at 04:00
+UTC, 30 min before the 04:30 snapshot. It is **not a restore path**: pairing a 04:00 dump with
+a 04:30 filesystem reintroduces the DB/file skew the snapshot eliminates. It is for a corrupt
+Postgres cluster that will not WAL-replay, and its use requires `occ files:scan --all`.
+_Avoid_: calling it "the backup", or treating it as co-equal with the snapshot.
+
 ## Out-of-band: Route 53 A record
 
 Route 53 is **not** managed by Terraform here (importing the existing zone is out

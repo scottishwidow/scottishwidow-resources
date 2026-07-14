@@ -1,0 +1,44 @@
+---
+- name: Create the dump directory (root-only, 0700)
+  ansible.builtin.file:
+    path: "{{ nextcloud_pg_dump_dir }}"
+    state: directory
+    owner: root
+    group: root
+    mode: "0700"
+
+- name: Install the dump script
+  ansible.builtin.template:
+    src: nextcloud-pg-dump.sh.j2
+    dest: /usr/local/bin/nextcloud-pg-dump.sh
+    owner: root
+    group: root
+    mode: "0700"
+
+- name: Install the systemd service unit
+  ansible.builtin.template:
+    src: nextcloud-pg-dump.service.j2
+    dest: /etc/systemd/system/nextcloud-pg-dump.service
+    owner: root
+    group: root
+    mode: "0644"
+  notify: Reload systemd
+
+- name: Install the systemd timer unit
+  ansible.builtin.template:
+    src: nextcloud-pg-dump.timer.j2
+    dest: /etc/systemd/system/nextcloud-pg-dump.timer
+    owner: root
+    group: root
+    mode: "0644"
+  notify: Reload systemd
+
+- name: Flush handlers so the units are loaded before the timer is enabled
+  ansible.builtin.meta: flush_handlers
+
+- name: Enable and start the dump timer
+  ansible.builtin.systemd_service:
+    name: nextcloud-pg-dump.timer
+    enabled: true
+    state: started
+    daemon_reload: true

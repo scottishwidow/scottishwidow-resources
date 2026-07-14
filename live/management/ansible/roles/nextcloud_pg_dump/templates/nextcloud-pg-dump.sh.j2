@@ -1,0 +1,30 @@
+#!/usr/bin/env bash
+
+set -euo pipefail
+
+dump_dir="{{ nextcloud_pg_dump_dir }}"
+container="{{ nextcloud_pg_dump_container }}"
+keep="{{ nextcloud_pg_dump_keep }}"
+
+umask 077
+
+out="${dump_dir}/pg-$(date -u +%F).sql.gz"
+tmp="${out}.partial"
+trap 'rm -f "${tmp}"' EXIT
+
+docker exec "${container}" sh -c 'pg_dumpall -U "$POSTGRES_USER"' | gzip -c >"${tmp}"
+
+if ! gzip -cd "${tmp}" | tail -5 | grep -q "PostgreSQL database cluster dump complete"; then
+  echo "nextcloud-pg-dump: dump is incomplete or corrupt, refusing to publish it" >&2
+  exit 1
+fi
+
+mv "${tmp}" "${out}"
+trap - EXIT
+echo "nextcloud-pg-dump: wrote ${out} ($(du -h "${out}" | cut -f1))"
+
+find "${dump_dir}" -maxdepth 1 -name 'pg-*.sql.gz' -printf '%T@ %p\0' |
+  sort -zrn |
+  tail -zn "+$((keep + 1))" |
+  cut -z -d' ' -f2- |
+  xargs -0r rm -f --

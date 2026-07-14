@@ -1,0 +1,12 @@
+[Unit]
+Description=Daily Nextcloud Postgres logical dump
+
+[Timer]
+OnCalendar={{ nextcloud_pg_dump_oncalendar }}
+
+Persistent=true
+
+RandomizedDelaySec=120
+
+[Install]
+WantedBy=timers.target

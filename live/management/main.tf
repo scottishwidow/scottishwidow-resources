@@ -125,6 +125,26 @@ module "next_cloud_sg" {
 }
 
 #########################
+# Nextcloud backups
+#########################
+
+module "next_cloud_backup" {
+  source = "../../modules/dlm_backup"
+
+  name        = var.next_cloud_instance_name
+  description = "Nextcloud EBS snapshots - ${join(" ", [for s in var.next_cloud_backup_schedules : "${s.retain_count} ${s.name}"])}"
+
+  target_tags = { Name = var.next_cloud_instance_name }
+  schedules   = var.next_cloud_backup_schedules
+
+  exclude_boot_volume = false
+  no_reboot           = true
+
+  snapshot_tags = var.tags
+  tags          = var.tags
+}
+
+#########################
 # SSM scratch bucket
 #########################
 
