@@ -1,15 +1,3 @@
-data "aws_iam_policy_document" "assume_role" {
-  statement {
-    effect  = "Allow"
-    actions = ["sts:AssumeRole"]
-
-    principals {
-      type        = "Service"
-      identifiers = ["dlm.amazonaws.com"]
-    }
-  }
-}
-
 resource "aws_iam_role" "this" {
   name               = "${var.name}-dlm-lifecycle"
   description        = "Assumed by Data Lifecycle Manager to snapshot the ${var.name} instance."
@@ -34,15 +22,20 @@ resource "aws_dlm_lifecycle_policy" "this" {
 
     parameters {
       exclude_boot_volume = var.exclude_boot_volume
-      no_reboot           = var.no_reboot
     }
 
     dynamic "schedule" {
       for_each = var.schedules
 
       content {
-        name      = schedule.value.name
-        copy_tags = true
+        name = schedule.value.name
+        # copy_tags must stay false: it copies the source volume's tags onto the
+        # snapshot, and DLM rejects the run if tags_to_add then repeats any of
+        # them ("Tag (X) is already defined"). The volume already carries
+        # environment/management, which tags_to_add re-adds, so copying would
+        # collide and push the policy into ERROR. tags_to_add supplies every tag
+        # the snapshots need (Name, Schedule, plus the environment/management set).
+        copy_tags = false
 
         create_rule {
           cron_expression = schedule.value.cron_expression
