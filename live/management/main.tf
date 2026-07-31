@@ -138,7 +138,6 @@ module "next_cloud_backup" {
   schedules   = var.next_cloud_backup_schedules
 
   exclude_boot_volume = false
-  no_reboot           = true
 
   snapshot_tags = var.tags
   tags          = var.tags

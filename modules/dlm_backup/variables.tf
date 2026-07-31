@@ -43,12 +43,6 @@ variable "exclude_boot_volume" {
   default     = false
 }
 
-variable "no_reboot" {
-  description = "Whether DLM may reboot the instance to take a snapshot. Defaults to true (never reboot production for a backup), which makes snapshots crash-consistent rather than quiesced."
-  type        = bool
-  default     = true
-}
-
 variable "snapshot_tags" {
   description = "Tags added to each snapshot, alongside a Name of <name>-backup and the schedule name."
   type        = map(string)
