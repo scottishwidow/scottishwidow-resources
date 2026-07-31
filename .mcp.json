@@ -1,13 +1,17 @@
 {
   "mcpServers": {
-    "awslabs.aws-api-mcp-server": {
+    "aws-mcp": {
       "command": "uvx",
+      "timeout": 100000,
+      "transport": "stdio",
       "args": [
-        "awslabs.aws-api-mcp-server@latest"
-      ],
-      "env": {
-        "AWS_REGION": "${AWS_REGION}"
-      }
+        "mcp-proxy-for-aws@1.6.3",
+        "https://aws-mcp.us-east-1.api.aws/mcp",
+        "--metadata",
+        "AWS_REGION=${AWS_REGION}",
+        "--profile",
+        "${AWS_API_MCP_PROFILE_NAME}"
+      ]
     }
   }
 }
