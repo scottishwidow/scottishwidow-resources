@@ -2,7 +2,6 @@
 # Common
 #########################
 
-# Verifies IaC security scan CI (add-iac-security-triage task 1.1).
 variable "aws_region" {
   type        = string
   description = "AWS Region to deploy to"

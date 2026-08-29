@@ -2,6 +2,7 @@
 # Common
 #########################
 
+# Verifies IaC security scan CI annotates this PR (add-iac-security-triage task 1.1).
 module "vpc" {
   source = "../../modules/vpc"
   tags   = { environment = "management", management = "terraform", Name = "scottishwidow" }
