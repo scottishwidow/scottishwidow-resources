@@ -4,15 +4,18 @@ previous one is verified.
 
 ## 1. Scanning and alert publication
 
-- [ ] 1.1 Add a CI workflow that runs Trivy config scanning over the repository and
+- [x] 1.1 Add a CI workflow that runs Trivy config scanning over the repository and
       uploads SARIF to code scanning; verify by opening a pull request that touches a
       `.tf` file and confirming alerts appear annotated on the changed lines
 - [ ] 1.2 Confirm the workflow requests only `security-events: write` and no cloud
       credentials, and verify a fork pull request completes successfully with findings
       reported
-- [ ] 1.3 Verify a documentation-only pull request does not re-report existing findings
+      (permissions confirmed by inspection: `contents: read` + `security-events: write`
+      only, no cloud credentials referenced; fork-PR behaviour not yet verified against a
+      real fork PR)
+- [x] 1.3 Verify a documentation-only pull request does not re-report existing findings
       as new, by comparing alert numbers before and after
-- [ ] 1.4 Record the baseline scan output as a committed fixture; verify it contains 20
+- [x] 1.4 Record the baseline scan output as a committed fixture; verify it contains 20
       findings across 11 rule IDs, matching the corpus described in `design.md - Context`
 
 ## 2. Normalisation, identity and ownership
