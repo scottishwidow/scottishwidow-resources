@@ -1,4 +1,4 @@
-"""Tests for the finding normaliser, ownership partition and fingerprint.
+"""Tests for the finding normaliser, ownership partition and finding key.
 
 Run from the repository root with `python3 -m unittest discover -s
 security/iac-security-triage/tests`.
@@ -77,27 +77,30 @@ class BaselineCorpus(unittest.TestCase):
 
     def test_every_record_carries_its_identifying_fields(self) -> None:
         for record in self.all_records:
-            with self.subTest(fingerprint=record["fingerprint"]):
+            with self.subTest(key=record["key"]):
                 self.assertTrue(record["rule_id"])
                 self.assertTrue(record["module_address"])
                 self.assertTrue(record["resource_type"])
                 self.assertTrue(record["resource_name"])
                 self.assertTrue(record["owner_path"])
 
-    def test_fingerprints_are_distinct(self) -> None:
-        fingerprints = [record["fingerprint"] for record in self.all_records]
-        self.assertEqual(len(set(fingerprints)), 20)
+    def test_first_party_keys_are_distinct(self) -> None:
+        """The only place a key carries a verdict, so the only place it must be unique."""
+        keys = [record["key"] for record in self.normalised["first_party"]]
+        self.assertEqual(len(set(keys)), 12)
+        self.assertEqual(self.normalised["duplicate_first_party_keys"], [])
 
-    def test_colliding_aws_0104_findings_are_separated(self) -> None:
-        """Four AWS-0104 findings share rule, file and line; identity must not."""
-        colliding = [
-            record
-            for record in self.all_records
-            if record["rule_id"] == "AWS-0104"
-            and record["resource_address"] == "aws_security_group_rule.egress_rules"
-        ]
-        self.assertEqual(len(colliding), 4)
-        self.assertEqual(len({record["fingerprint"] for record in colliding}), 4)
+    def test_every_colliding_aws_0104_finding_is_vendored(self) -> None:
+        """The corpus's only key collision lies entirely in code we do not own.
+
+        This is what retires the ordinal (`design.md - Decision 3`): the sibling
+        egress rules that a rule-plus-resource key cannot separate are never
+        triaged, so they never need separating.
+        """
+        colliding = [r for r in self.all_records if r["rule_id"] == "AWS-0104"]
+        self.assertEqual(len(colliding), 8)
+        self.assertTrue(all(r["ownership"] == normalise.VENDORED for r in colliding))
+        self.assertTrue(all(".terraform/modules/" in r["owner_path"] for r in colliding))
 
     def test_ownership_partition(self) -> None:
         self.assertEqual(len(self.normalised["first_party"]), 12)
@@ -108,7 +111,7 @@ class BaselineCorpus(unittest.TestCase):
         for record in self.normalised["vendored"]:
             self.assertIn(".terraform/modules/", record["owner_path"])
 
-    def test_fingerprints_survive_line_number_drift(self) -> None:
+    def test_keys_survive_line_number_drift(self) -> None:
         """A finding that moves down the file keeps the identity it had."""
         shifted = json.loads(json.dumps(self.report))
         for result in shifted["Results"]:
@@ -122,15 +125,15 @@ class BaselineCorpus(unittest.TestCase):
                     occurrence["Location"]["StartLine"] += 10
                     occurrence["Location"]["EndLine"] += 10
 
-        before = [record["fingerprint"] for record in self.all_records]
+        before = [record["key"] for record in self.all_records]
         after_normalised = normalise.normalise(shifted)
         after = [
-            record["fingerprint"]
+            record["key"]
             for record in after_normalised["first_party"] + after_normalised["vendored"]
         ]
         self.assertEqual(before, after)
 
-    def test_renaming_a_resource_changes_only_that_resources_fingerprints(self) -> None:
+    def test_renaming_a_resource_changes_only_that_resources_keys(self) -> None:
         renamed = json.loads(json.dumps(self.report))
         for result in renamed["Results"]:
             for misconf in result.get("Misconfigurations") or []:
@@ -141,10 +144,10 @@ class BaselineCorpus(unittest.TestCase):
 
         after = normalise.normalise(renamed)
         before = {
-            (record["fingerprint"], record["resource_address"]) for record in self.all_records
+            (record["key"], record["resource_address"]) for record in self.all_records
         }
         after_pairs = {
-            (record["fingerprint"], record["resource_address"])
+            (record["key"], record["resource_address"])
             for record in after["first_party"] + after["vendored"]
         }
         touched = {address for _, address in before ^ after_pairs}
@@ -167,6 +170,40 @@ class UnrecognisedLocation(unittest.TestCase):
 
         self.assertEqual(normalised["first_party"][0]["owner_path"], "modules/vpc/main.tf")
         self.assertTrue(normalised["first_party"][0]["ownership_recognised"])
+
+
+class DuplicateFirstPartyKey(unittest.TestCase):
+    """Without an ordinal, two first-party findings could share a key.
+
+    That would silently apply one verdict to two judgments, so it is reported
+    rather than absorbed. It does not occur in the current corpus.
+    """
+
+    def test_shared_key_is_surfaced(self) -> None:
+        report = synthetic_report(target="modules/x/main.tf", filename="modules/x/main.tf")
+        misconfs = report["Results"][0]["Misconfigurations"]
+        misconfs.append(json.loads(json.dumps(misconfs[0])))
+        misconfs[1]["CauseMetadata"]["StartLine"] = 40
+
+        normalised = normalise.normalise(report)
+
+        self.assertEqual(len(normalised["first_party"]), 2)
+        self.assertEqual(
+            normalised["duplicate_first_party_keys"],
+            ["AWS-0089:module.example:aws_s3_bucket.example"],
+        )
+
+    def test_vendored_shared_key_is_not_reported(self) -> None:
+        """Vendored siblings sharing a key is the expected case, not a fault."""
+        path = "live/management/.terraform/modules/x/main.tf"
+        report = synthetic_report(target=path, filename=path)
+        misconfs = report["Results"][0]["Misconfigurations"]
+        misconfs.append(json.loads(json.dumps(misconfs[0])))
+
+        normalised = normalise.normalise(report)
+
+        self.assertEqual(len(normalised["vendored"]), 2)
+        self.assertEqual(normalised["duplicate_first_party_keys"], [])
 
 
 if __name__ == "__main__":

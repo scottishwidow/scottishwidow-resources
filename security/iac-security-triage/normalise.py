@@ -6,9 +6,11 @@ partitioning the findings by ownership::
 
     {"first_party": [...], "vendored": [...], "unrecognised_locations": [...]}
 
-Identity follows ``design.md - Decision 3``: a core of rule ID, module address
-and resource address, plus an ordinal that separates sibling findings the core
-cannot. Ownership follows ``Decision 2`` and is a path check, never a judgment.
+Identity follows ``design.md - Decision 3``: the key is the readable composite
+``ruleId:module_address:resource_type.resource_name``. It survives line-number
+drift, and it is unique across first-party findings, which is the only place a
+key is used to carry a verdict. Ownership follows ``Decision 2`` and is a path
+check, never a judgment.
 
 Usage::
 
@@ -19,7 +21,7 @@ Usage::
 from __future__ import annotations
 
 import argparse
-import hashlib
+import collections
 import json
 import re
 import sys
@@ -93,17 +95,38 @@ def classify(path: str) -> tuple[str, bool]:
     return FIRST_PARTY, False
 
 
-def fingerprint(core: str, ordinal: int) -> str:
-    return hashlib.sha256(f"{core}:{ordinal}".encode()).hexdigest()
+def finding_key(rule_id: str, module_address: str, resource_address: str) -> str:
+    """The readable identity a verdict is recorded against.
+
+    Deliberately not a hash: this key appears in the committed ground-truth
+    fixture and in issue bodies, where being able to read it is worth more than
+    being able to compute it compactly.
+    """
+    return f"{rule_id}:{module_address}:{resource_address}"
+
+
+def duplicate_keys(records: list[dict[str, Any]]) -> list[str]:
+    """First-party keys claimed by more than one finding.
+
+    Two findings sharing a key share a verdict, which is correct when they are
+    co-located siblings of one resource and wrong otherwise. It never happens on
+    first-party code in the current corpus, so it is surfaced rather than
+    silently absorbed by an ordinal.
+    """
+    counts = collections.Counter(
+        record["key"] for record in records if record["ownership"] == FIRST_PARTY
+    )
+    return sorted(key for key, count in counts.items() if count > 1)
 
 
 def normalise(report: dict[str, Any]) -> dict[str, Any]:
-    """Turn a Trivy report into ownership-partitioned, fingerprinted records."""
+    """Turn a Trivy report into ownership-partitioned, keyed records."""
     records: list[dict[str, Any]] = []
 
-    for sequence, (target, misconf) in enumerate(iter_findings(report)):
+    for target, misconf in iter_findings(report):
         cause = misconf.get("CauseMetadata") or {}
         lines = cause_lines(misconf)
+        rule_id = misconf.get("ID", "")
         module_address = cause.get("Resource") or ""
         resource_address = parse_resource_address(lines)
         path = owner_path(target, misconf)
@@ -112,71 +135,37 @@ def normalise(report: dict[str, Any]) -> dict[str, Any]:
 
         records.append(
             {
-                "core": f"{misconf.get('ID', '')}|{module_address}|{resource_address}",
-                "sequence": sequence,
-                "record": {
-                    "fingerprint": None,  # filled in once ordinals are known
-                    "rule_id": misconf.get("ID", ""),
-                    "title": misconf.get("Title", ""),
-                    "severity": misconf.get("Severity", ""),
-                    "message": misconf.get("Message", ""),
-                    "resolution": misconf.get("Resolution", ""),
-                    "primary_url": misconf.get("PrimaryURL", ""),
-                    "module_address": module_address,
-                    "resource_type": resource_type,
-                    "resource_name": resource_name,
-                    "resource_address": resource_address,
-                    "owner_path": path,
-                    "code_path": target,
-                    "start_line": cause.get("StartLine"),
-                    "end_line": cause.get("EndLine"),
-                    "ownership": ownership,
-                    "ownership_recognised": recognised,
-                    "code": lines,
-                },
+                "key": finding_key(rule_id, module_address, resource_address),
+                "rule_id": rule_id,
+                "title": misconf.get("Title", ""),
+                "severity": misconf.get("Severity", ""),
+                "message": misconf.get("Message", ""),
+                "resolution": misconf.get("Resolution", ""),
+                "primary_url": misconf.get("PrimaryURL", ""),
+                "module_address": module_address,
+                "resource_type": resource_type,
+                "resource_name": resource_name,
+                "resource_address": resource_address,
+                "owner_path": path,
+                "code_path": target,
+                "start_line": cause.get("StartLine"),
+                "end_line": cause.get("EndLine"),
+                "ownership": ownership,
+                "ownership_recognised": recognised,
+                "code": lines,
             }
         )
 
-    _assign_ordinals(records)
-
-    first_party = [
-        item["record"] for item in records if item["record"]["ownership"] == FIRST_PARTY
-    ]
-    vendored = [
-        item["record"] for item in records if item["record"]["ownership"] == VENDORED
-    ]
     unrecognised = sorted(
-        {
-            item["record"]["owner_path"]
-            for item in records
-            if not item["record"]["ownership_recognised"]
-        }
+        {record["owner_path"] for record in records if not record["ownership_recognised"]}
     )
 
     return {
-        "first_party": first_party,
-        "vendored": vendored,
+        "first_party": [r for r in records if r["ownership"] == FIRST_PARTY],
+        "vendored": [r for r in records if r["ownership"] == VENDORED],
         "unrecognised_locations": unrecognised,
+        "duplicate_first_party_keys": duplicate_keys(records),
     }
-
-
-def _assign_ordinals(records: list[dict[str, Any]]) -> None:
-    """Number findings that share a core, ordered by position, then fingerprint."""
-    by_core: dict[str, list[dict[str, Any]]] = {}
-    for item in records:
-        by_core.setdefault(item["core"], []).append(item)
-
-    for core, siblings in by_core.items():
-        ordered = sorted(
-            siblings,
-            key=lambda item: (
-                item["record"]["start_line"] if item["record"]["start_line"] is not None else -1,
-                item["record"]["end_line"] if item["record"]["end_line"] is not None else -1,
-                item["sequence"],
-            ),
-        )
-        for ordinal, item in enumerate(ordered):
-            item["record"]["fingerprint"] = fingerprint(core, ordinal)
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -199,6 +188,8 @@ def main(argv: list[str] | None = None) -> int:
 
     for path in normalised["unrecognised_locations"]:
         print(f"warning: unrecognised location, treating as first-party: {path}", file=sys.stderr)
+    for key in normalised["duplicate_first_party_keys"]:
+        print(f"warning: first-party key claimed by more than one finding: {key}", file=sys.stderr)
 
     rendered = json.dumps(normalised, indent=2, sort_keys=False) + "\n"
     if args.output:
