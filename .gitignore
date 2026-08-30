@@ -21,3 +21,7 @@ terraform.rc
 
 # Agents
 settings.local.json
+
+# Python
+__pycache__/
+*.pyc

@@ -20,22 +20,22 @@ previous one is verified.
 
 ## 2. Normalisation, identity and ownership
 
-- [ ] 2.1 Implement the finding normaliser that reads Trivy JSON and emits one record per
+- [x] 2.1 Implement the finding normaliser that reads Trivy JSON and emits one record per
       finding carrying rule ID, module address, resource type and name, and file path;
       verify it emits exactly 20 records from the baseline fixture
-- [ ] 2.2 Implement the fingerprint from `design.md - Decision 3` (stable core plus
+- [x] 2.2 Implement the fingerprint from `design.md - Decision 3` (stable core plus
       ordinal); verify all 20 fingerprints are distinct, in particular that the four
       colliding `AWS-0104` findings receive four different identifiers
-- [ ] 2.3 Verify fingerprint stability by inserting a blank line above a finding in
+- [x] 2.3 Verify fingerprint stability by inserting a blank line above a finding in
       `live/management/main.tf`, re-running, and confirming every fingerprint is unchanged
-- [ ] 2.4 Verify fingerprint sensitivity by renaming a resource in a scratch branch and
+- [x] 2.4 Verify fingerprint sensitivity by renaming a resource in a scratch branch and
       confirming only that resource's fingerprints change
-- [ ] 2.5 Implement the ownership partition over `live/`, `modules/` and
+- [x] 2.5 Implement the ownership partition over `live/`, `modules/` and
       `.terraform/modules/`; verify it yields 12 first-party and 8 vendored findings on
       the baseline fixture
-- [ ] 2.6 Verify a finding whose path matches no known prefix is classified first-party
+- [x] 2.6 Verify a finding whose path matches no known prefix is classified first-party
       and its location surfaced, using a synthetic record
-- [ ] 2.7 Implement the labelling worksheet generator, emitting one YAML entry per
+- [x] 2.7 Implement the labelling worksheet generator, emitting one YAML entry per
       first-party finding pre-filled with fingerprint, rule, title, severity, module,
       resource, location, remediation text and the offending code, and with empty
       `verdict`, `evidence`, `difficulty` and `rationale` fields; verify it emits 12
