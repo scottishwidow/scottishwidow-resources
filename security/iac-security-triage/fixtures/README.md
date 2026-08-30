@@ -7,3 +7,8 @@ corpus referenced throughout `openspec/changes/add-iac-security-triage/design.md
 
 It is a fixture, not a live artifact — regenerate deliberately (`trivy config --format
 json .` from the repo root) rather than overwriting it as part of routine scans.
+
+`labelling-worksheet.yaml` is generated from `baseline-scan.json` by
+`normalise.py | worksheet.py` and holds the 12 first-party findings awaiting
+human verdicts. Regenerate it only alongside the baseline; the human fields are
+filled in by hand and are the ground truth agent output is scored against.
