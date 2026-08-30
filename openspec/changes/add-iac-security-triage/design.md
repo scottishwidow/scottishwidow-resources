@@ -5,6 +5,20 @@ Trivy run over this repo (`trivy config --format json .`), not from estimates:
 
 - **20 findings total**, across 11 rule IDs. `AWS-0104` (unrestricted egress) accounts
   for 8 of them.
+- **Severity splits almost perfectly along the ownership line.** All 8 `CRITICAL`
+  findings are vendored `AWS-0104`; not one first-party finding is `CRITICAL`. The twelve
+  first-party findings are 7 `HIGH`, 2 `MEDIUM`, 3 `LOW`:
+
+  ```
+    HIGH      AWS-0086 AWS-0087 AWS-0091 AWS-0093 AWS-0132   bootstrap state bucket
+              AWS-0164 x2                                    modules/vpc public subnets
+    MEDIUM    AWS-0090  ssm scratch bucket
+              AWS-0178  VPC flow logs
+    LOW       AWS-0089 x2  (bootstrap + ssm buckets)
+              AWS-0094     bootstrap bucket
+  ```
+
+  A `HIGH`-and-above gate therefore leaves **7 triage-eligible findings across 6 rules**.
 - **8 of 20 (40%) are in vendored registry modules** — `terraform-aws-modules/ec2-instance`
   and `terraform-aws-modules/security-group`, resolved under `.terraform/modules/`.
   Passing `--skip-dirs '**/.terraform'` does *not* exclude them; Trivy resolves and scans
@@ -66,9 +80,10 @@ quality of a hand-maintained mapping table rather than to the agent. Note that c
 size is *not* a reason to reject it — the corpus being narrow is this design's main
 weakness (Decision 5), and a second scanner is one of the few cheap ways to widen it. Adding Checkov later is not blocked by anything here.
 
-### 2. Deterministic ownership filter before inference
+### 2. Two deterministic filters before inference: ownership, then severity
 
-Findings are partitioned by the path of `CauseMetadata.Occurrences[0].Filename`:
+Findings are partitioned by the path of `CauseMetadata.Occurrences[0].Filename`, and what
+survives is gated on `Severity`:
 
 ```
   trivy config --format json
@@ -80,23 +95,48 @@ Findings are partitioned by the path of `CauseMetadata.Occurrences[0].Filename`:
      |               |
   live/ modules/   .terraform/modules/
   FIRST-PARTY      VENDORED
+  (12)             (8) -> recorded as upstream,
+     |                    never sent to a model
+     v
+  +---------------------+
+  | gate on severity    |   threshold: HIGH
+  +---------------------+
      |               |
-     v               v
-  agent triage    recorded as upstream,
-  (12 findings)   never sent to a model
-                  (8 findings)
+  >= HIGH          < HIGH
+  ELIGIBLE (7)     (5) -> published as open alerts,
+     |                    left untriaged, no issue
+     v
+  agent triage
 ```
 
 Vendored findings are real but not actionable here: the fix belongs upstream, and the
 only local remedies are pinning a different version or replacing the module — decisions
 that belong to a human, not to a per-finding triage loop.
 
-This is a rule, not a judgment, so a model should not make it. It also removes 40% of
-inference cost and 40% of the opportunity for the model to be wrong.
+Neither of these is a judgment, so a model should not make either. Together they remove
+13 of 20 findings — 65% of inference cost and 65% of the opportunity for the model to be
+wrong.
+
+**The order is load-bearing and the two filters are not substitutes.** Every `CRITICAL`
+finding in this corpus is vendored (§ Context), so severity applied first or alone would
+admit exactly the eight findings that can never be actioned here while excluding five
+first-party ones. Ownership answers "can this repository fix it"; severity answers "is it
+worth the reasoning". Only the intersection reaches the model.
+
+The threshold is `HIGH`, recorded as configuration rather than compiled into the
+partition, so raising or lowering it is a reviewable diff. Below-threshold findings are
+not dismissed — dismissal is a verdict, and no verdict has been formed. They stay open in
+code scanning, visible and re-triageable if the threshold moves.
 
 *Alternative considered:* letting the agent classify ownership. Rejected — it converts a
 reliable path check into a probabilistic one, and 8 of 20 findings is too large a share
 to expose to that.
+
+*Alternative considered:* passing severity to the agent as context rather than gating on
+it, so the agent can weigh a `LOW` finding it judges locally serious. Rejected for now:
+it restores the full inference cost to buy a judgment the agent has never been scored on,
+and the five excluded findings remain visible as alerts for a human to escalate by hand.
+The trade-off is recorded honestly under Risks.
 
 ### 3. Finding identity: a readable composite key
 
@@ -110,9 +150,10 @@ case (a resource gains an attribute, everything below shifts), and it is unique 
 all twelve first-party findings.
 
 It is deliberately not a hash. The key appears in the committed ground-truth fixture and
-in issue bodies, where `AWS-0089:module.bootstrap:aws_s3_bucket.terraform_state_bucket`
+in issue bodies, where `AWS-0086:module.bootstrap:aws_s3_bucket.terraform_state_bucket`
 carries more than sixty-four hex characters do. It also makes the corpus's narrowness
-legible at a glance: seven of the twelve keys name the same bucket.
+legible at a glance: seven of the twelve first-party keys name the same bucket, and five
+of the seven eligible ones do.
 
 *Alternatives considered:*
 
@@ -136,37 +177,65 @@ current corpus and a test holds it that way.
 ### 4. Code scanning holds state; Issues hold work
 
 ```
-      trivy SARIF (all findings, first-party + vendored)
+      trivy SARIF (all 20 findings, first-party + vendored)
                     |
                     v
         +-------------------------+
         |  GitHub code scanning   |  durable per-finding state,
         |                         |  PR annotations, free (public)
         +-------------------------+
-              |             |
-         dismissed       promoted
-         + rationale         |
-                             v
-                    +----------------+
-                    | GitHub Issues  |  actionable work only
-                    | + triage label |
-                    +----------------+
+          |          |           |
+      vendored   below       ELIGIBLE (7)
+        (8)      threshold        |
+         |          (5)           v
+      recorded   left        +--------------------------+
+      upstream   open        | GitHub Issue per finding |
+                             | needs-triage + verdict   |
+                             +--------------------------+
+                                        |
+                                  human relabels
+                                        |
+                    ready-for-agent / ready-for-human / wontfix
 ```
 
-| Verdict | Code scanning | Issue |
-|---|---|---|
-| Not applicable / accepted risk | dismissed, rationale in comment | none |
-| Upstream (vendored) | dismissed as `used in tests`-equivalent with rationale | none |
-| Real, mechanical fix | open | `ready-for-agent` |
-| Real, needs judgment | open | `ready-for-human` |
-| Cannot determine | open | `needs-info` |
+| Verdict the agent records | Code scanning | Issue filed | Label the agent applies |
+|---|---|---|---|
+| Not applicable / accepted risk | open (see § 6) | yes | `needs-triage` |
+| Real, mechanical fix | open | yes | `needs-triage` |
+| Real, needs judgment | open | yes | `needs-triage` |
+| Cannot determine | open | yes | `needs-triage` |
+| Upstream (vendored) | dismissed with rationale | no | — |
+| Below severity threshold | open, untriaged | no | — |
 
 Rationale: the two sinks answer different questions. Code scanning answers "what is the
 current state of finding X" and already implements dismissal-with-reason, alert
 persistence across runs, and PR annotation — none of which is worth rebuilding. Issues
 answer "what work is outstanding", which is what the existing label vocabulary in
-`docs/agents/triage-labels.md` was written for. Filing an issue per finding would flood
-the tracker with 20 items, most of which resolve to "no".
+`docs/agents/triage-labels.md` was written for.
+
+**One issue per triaged finding, not per actionable finding.** An earlier version of this
+decision filed only for actionable verdicts, on the grounds that filing per finding would
+flood the tracker with twenty items most of which resolve to "no". Two things changed
+that. Volume: the ownership and severity filters (Decision 2) reduce twenty candidates to
+seven, which is a reviewable queue rather than a flood. And purpose: deciding that a
+finding is *not* worth acting on is itself the judgment this pipeline exists to inform,
+and burying it in a dismissal comment on an alert hides it from the place work is
+actually reviewed. A `wontfix` issue closed by a human with the agent's reasoning visible
+is a better artefact than a silently dismissed alert.
+
+**The agent proposes a verdict; a human assigns the disposition.** Every issue is filed
+under `needs-triage` with the verdict and rationale in the body. A human converts it to
+`ready-for-agent`, `ready-for-human` or `wontfix`. The agent never applies
+`ready-for-agent` itself: that label means "fully specified, ready for an AFK agent" and
+is the trigger for unattended remediation, so an agent able to apply it would be
+authorising its own downstream work with no human between the finding and the change.
+This boundary is the same one Decision 6 draws for alert dismissal, applied to the
+tracker — and it is what makes remediation safe to build as a separate change without
+revisiting anything here.
+
+Dismissal in code scanning is therefore not the default route for a "not applicable"
+verdict. It happens only where Decision 6's ratchet has earned it for that rule; until
+then the verdict lives on the issue and the alert stays open.
 
 *Alternative considered:* a committed sidecar verdict file as the source of truth.
 Rejected as the primary store — it duplicates state code scanning already keeps, and
@@ -176,12 +245,12 @@ place a verdict is recorded and the fixture is a snapshot of it.
 
 ### 5. Ground truth is harvested from real triage, not authored beside it
 
-The twelve first-party findings are triaged **in code scanning** — dismiss-with-comment,
+The seven triage-eligible findings are triaged **in code scanning** — dismiss-with-comment,
 or left open and promoted to an issue — and the ground-truth fixture is then exported from
 alert state via `gh api`:
 
 ```
-  trivy -> SARIF -> code scanning -> [human triages the 12 alerts]
+  trivy -> SARIF -> code scanning -> [human triages the 7 eligible alerts]
                                               |
                                      gh api .../code-scanning/alerts
                                               |
@@ -189,6 +258,12 @@ alert state via `gh api`:
                                               |
                                      fixtures/ground-truth.yaml
 ```
+
+The corpus covers exactly the set the agent triages. The five below-threshold first-party
+findings carry no human verdict: labelling them would build a corpus the scorer can never
+use, and would invite the mistake of scoring the agent on findings it was never shown.
+Should the threshold drop, they are triaged and exported then — the export is a repeatable
+operation, not a one-off.
 
 This is the same labelling work either way; the difference is that it happens in the tool
 that holds the state, produces alert history as its audit trail, and leaves the repository
@@ -206,21 +281,26 @@ Decision 7's comparison can ask whether the agent reached a verdict *for the sam
 a human did, not merely whether it landed on the same answer; with a corpus this small
 that distinction carries more signal than the agreement rate.
 
-**What this corpus can and cannot support.** Of twelve first-party findings, nine concern
-S3 posture on two buckets, seven on the Terraform state bucket alone:
+**What this corpus can and cannot support.** The severity gate makes an already narrow
+corpus narrower. Of the seven eligible findings, five concern S3 posture on the Terraform
+state bucket and two concern public subnets:
 
 ```
-  7  bootstrap state bucket   AWS-0086/0087/0089/0091/0093/0094/0132
-  2  ssm scratch bucket       AWS-0089/0090
-  2  public subnets           AWS-0164 x2
-  1  VPC flow logs            AWS-0178
+  5  bootstrap state bucket   AWS-0086/0087/0091/0093/0132   (n=1 each)
+  2  public subnets           AWS-0164 x2                    (n=2)
 ```
 
-There are roughly four distinct judgment calls here, not twelve. Worse for measurement,
-**eight of the ten first-party rules fire exactly once**, so "100% agreement on `AWS-0178`"
-means one finding agreed. This is adequate to validate the *mechanism* and inadequate to
-support any accuracy claim, and it is the direct reason autonomy needs a minimum-support
-floor rather than an agreement threshold alone (Decision 6).
+There are roughly **two distinct judgment calls** here, not seven — down from four before
+the gate, because the two `MEDIUM` findings the gate excludes (`AWS-0090` on the ssm
+scratch bucket, `AWS-0178` on VPC flow logs) were the two most independent judgments in
+the set. This is a real cost of the gate, not a rounding error, and it is recorded under
+Risks rather than absorbed.
+
+Worse for measurement, **five of the six eligible rules fire exactly once**, so "100%
+agreement on `AWS-0132`" means one finding agreed. `AWS-0164` at n=2 is the largest rule
+in the corpus. This is adequate to validate the *mechanism* and inadequate to support any
+accuracy claim, and it is the direct reason autonomy needs a minimum-support floor rather
+than an agreement threshold alone (Decision 6).
 
 A previously planned `difficulty` field is dropped. Its only consumer was a stratified
 breakdown of Decision 7's comparison, which is deferred until the corpus is wide enough
@@ -245,16 +325,20 @@ The agent starts with no write authority over alert state. Authority is granted 
 ID, and only where the evidence for that rule is both **unanimous and large enough to
 mean something**.
 
-The support floor is the load-bearing half. Full agreement alone is not a bar: eight of
-the ten first-party rules fire exactly once (Decision 5), so an agreement-only gate would
+The support floor is the load-bearing half. Full agreement alone is not a bar: five of
+the six eligible rules fire exactly once (Decision 5), so an agreement-only gate would
 hand a rule permanent unsupervised dismissal authority on the strength of a single case
-going the right way. Roughly two thirds of the ruleset could be unlocked by coin flips
+going the right way. Five sixths of the eligible ruleset could be unlocked by coin flips
 landing well. `k = 5` is a judgment, not a derivation — it is small enough to be reachable
 and large enough that unanimity is not cheap.
 
-**On today's corpus no rule clears the floor** (the largest is n=2), so the allowlist is
-empty and phase 2 is unreachable until the corpus widens. That is the correct outcome, and
-a better claim than an auto-dismissal justified by n=1.
+**On today's corpus no rule clears the floor** (the largest, `AWS-0164`, is n=2), so the
+allowlist is empty and phase 2 is unreachable until the corpus widens. That is the correct
+outcome, and a better claim than an auto-dismissal justified by n=1.
+
+This is also why the routing in Decision 4 does not dismiss on a "not applicable" verdict:
+with no rule allowlisted, every such verdict travels to a human as an issue, and the alert
+stays open behind it.
 
 Rationale: a triage agent that wrongly dismisses a real finding is worse than no scanner,
 because it manufactures confidence. Autonomy is therefore treated as something earned
@@ -274,9 +358,10 @@ corpus with and without doc context — a null result is itself a useful finding
 would say the value is in the model rather than in the repo's documentation discipline
 (and would weaken the case for transferring this to teams without ADRs).
 
-**Deferred until the corpus widens.** Over four distinct judgment calls, the difference
-between a with-context and a without-context run is not separable from noise, and
-reporting it would be the same overclaim the support floor exists to prevent. The
+**Deferred until the corpus widens.** Over two distinct judgment calls — the severity gate
+having removed the two most independent of the four (Decision 5) — the difference between
+a with-context and a without-context run is not separable from noise, and reporting it
+would be the same overclaim the support floor exists to prevent. The
 `evidence` field is still captured now, so the comparison is runnable the moment the
 corpus can carry it.
 
@@ -318,15 +403,19 @@ The engine supplies exactly the primitives this pipeline needs, so the whole pip
 one declarative file rather than bespoke glue:
 
 ```
-  task 1   run:      trivy config --format json | normalise + key + partition
-           outputs:  {first_party: [...], vendored: [...]}   <- JSON Schema validated
-                        |
-  task 2   over:     outputs.first_party
+  task 1   run:      trivy config --format json
+                     | normalise + key + partition + severity gate
+           outputs:  {eligible: [...], below_threshold: [...], vendored: [...]}
+                        |                          <- JSON Schema validated
+  task 2   over:     outputs.eligible
            agents:   [iac_triage_agent]  + ADR/design context
            outputs:  {verdict, confidence, rationale}
                         |
-  task 3   run:      emit SARIF; gh api dismissals; gh issue create
+  task 3   run:      gh issue create (one per verdict, needs-triage)
 ```
+
+Invoked by hand rather than by a trigger (Decision 11), which is the shape the CLI already
+has.
 
 `run:` (shell tasks), `outputs:` (schema-validated structured objects) and `over:`
 (fan-out) are demonstrated in `examples/taskflows/example_typed_outputs.yaml`.
@@ -336,6 +425,38 @@ and requiring no new dependency. Rejected for this change specifically because t
 includes producing a reproducible, unattended, auditable pipeline whose definition can be
 reviewed as an artefact — which is what the YAML buys. For interactive one-off triage the
 skill would be the better tool.
+
+### 11. Scanning is automatic; triage is invoked on demand
+
+The Trivy scan and SARIF upload run on every pull request and on `main`. Triage runs only
+when a human dispatches it — a second workflow with `workflow_dispatch` as its sole
+trigger, calling the taskflow CLI.
+
+Three reasons, in order of weight:
+
+- **It matches what the framework is.** `seclab-taskflow-agent` is a CLI with no event
+  model, no webhook listener and no Actions integration; every documented entry point is
+  an explicit invocation. Driving it from a push trigger would mean wrapping a
+  batch-oriented tool in an event-oriented harness for no gain.
+- **Triage is a batch judgment over a corpus, not a per-commit check.** A push changes at
+  most a couple of findings, but a triage run reads ADRs and design docs and files issues;
+  running it per push would re-file the same seven issues' worth of reasoning against a
+  corpus that barely moved.
+- **Cost and blast radius are bounded by a human decision.** Inference spend and issue
+  creation both happen only when someone asks for them, and `AI_API_TOKEN` is never
+  reachable from a fork PR because no fork-triggerable workflow references it.
+
+The two-workflow split is what makes the degradation requirement trivially true rather
+than carefully engineered: the scan workflow has no dependency on the triage workflow, so
+if triage cannot run, findings are published anyway.
+
+This closes what was previously an open question ("per-PR or scheduled"). A scheduled run
+remains available later as a convenience — it is the same invocation on a timer — but it
+is not this change's default, because a schedule reintroduces unattended issue creation
+without adding a judgment.
+
+*Alternative considered:* triage on every push to `main`. Rejected on the second and third
+reasons above; the first would not have blocked it.
 
 ## Risks / Trade-offs
 
@@ -351,6 +472,19 @@ skill would be the better tool.
   current corpus, and is reported rather than absorbed if a future scan produces it
   (Decision 3). This replaces the ordinal scheme, whose own failure mode — sibling
   reordering silently mis-attributing verdicts — is now gone rather than accepted.
+- **The severity gate is a deliberate false-negative surface** → Five first-party
+  findings, including the two most independent judgment calls in the corpus (`AWS-0090`,
+  `AWS-0178`), are never reasoned about. Trivy's severity is a property of the rule, not
+  of this system, so a `MEDIUM` finding here could matter more than a `HIGH` one. Contained
+  by keeping those alerts open and visible rather than dismissed, by recording the
+  threshold as reviewable configuration, and by the export being repeatable if the
+  threshold drops — but not eliminated, and it narrows the measurable corpus from four
+  distinct judgments to two (Decision 5).
+- **An issue per finding makes the tracker noisier** → Seven issues per full run rather
+  than the two or three an actionable-only filter would produce, deduplicated on finding
+  key across runs (Decision 4). Accepted: the filters keep the number small, and a
+  `wontfix` decision recorded in the tracker is worth more than a dismissal buried in
+  alert state.
 - **Static scanning misses variable-dependent misconfigurations** → Known and observable
   today (`var.domain`); the plan-JSON path stays open (Decision 8).
 - **Triage quality depends on ADR quality** → Made explicit and measurable by the
@@ -358,12 +492,14 @@ skill would be the better tool.
 - **New dependency on a young, single-org framework** → Confined to orchestration.
   Scanner, sinks and fixtures are framework-independent, so replacing the engine would
   not invalidate the corpus or the routing design.
-- **Inference cost and CI latency per PR** → 40% cut deterministically before inference;
-  if the remainder is still too slow, triage moves to `main` and to a scheduled run,
-  leaving only the raw Trivy upload on PRs.
-- **`AI_API_TOKEN` in a public repo** → Repository secret, unavailable to fork PRs by
-  design; the triage stage must be structured so fork PRs degrade to scan-and-upload
-  rather than failing.
+- **Inference cost and CI latency** → 65% cut deterministically before inference, and
+  triage does not run on PRs at all (Decision 11), so no pull request waits on a model.
+- **`AI_API_TOKEN` in a public repo** → Repository secret, and no fork-triggerable workflow
+  references it: the scan workflow needs no secret and the triage workflow is
+  `workflow_dispatch`-only, so a fork PR cannot reach it.
+- **A human forgets to invoke triage** → On-demand invocation trades timeliness for
+  control. Findings accumulate as untriaged alerts in the meantime, which is visible, and
+  a schedule can be added later (Decision 11) without changing anything else.
 
 ## Migration Plan
 
@@ -372,12 +508,13 @@ alone and the next is only reached if the previous holds:
 
 1. Trivy in CI, SARIF uploaded to code scanning. Independently valuable; no agent, no
    secrets, no AWS access.
-2. Normalisation, finding keys and the ownership partition, verified against the
-   current corpus.
-3. The twelve first-party alerts triaged in code scanning; fixtures exported from
+2. Normalisation, finding keys, the ownership partition and the severity gate, verified
+   against the current corpus.
+3. The seven eligible alerts triaged in code scanning; fixtures exported from
    alert state and committed, before any triage run exists.
-4. Triage taskflow in propose-only mode, scored against fixtures.
-5. Scoped dismissal authority for rules that met the bar in step 4.
+4. Triage taskflow in propose-only mode, dispatched by hand, scored against fixtures.
+5. Issue routing: one issue per triaged finding under `needs-triage`.
+6. Scoped dismissal authority for rules that met the bar in step 4.
 
 **Rollback:** each stage is additive and independently revertible. Removing the triage
 workflow leaves the Trivy scan intact; removing everything leaves the repo as it was,
@@ -385,8 +522,11 @@ since no scanner output is load-bearing for any other process.
 
 ## Open Questions
 
-- Whether triage runs per-PR or on a schedule against `main`. Depends on measured latency
-  and cost from step 4, and changes no spec, decision, or task.
+- Whether an on-demand run should later be supplemented by a schedule. Decision 11 settles
+  the default (dispatch only); a timer is additive and changes no other decision.
+- Whether `HIGH` is the right threshold, or whether `MEDIUM` is the better gate given that
+  the two excluded `MEDIUM` findings are the corpus's most independent judgments
+  (Decision 5). Answerable once agreement on the `HIGH` set is measured.
 - Whether the fixture set is re-exported or hand-merged when Trivy's ruleset introduces
   new rules. Answerable the first time it happens.
 - Whether `k = 5` is the right support floor. It is a judgment (Decision 6) and should be

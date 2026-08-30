@@ -1,8 +1,9 @@
 ## Purpose
 
-Detects security misconfigurations in this repository's infrastructure code and decides
-what each one means for this system, recording a rationale for every decision and
-constraining how much of that decision-making happens without a human.
+Detects security misconfigurations in this repository's infrastructure code, selects
+which of them are worth reasoning about, and decides what each one means for this system,
+recording a rationale for every decision and constraining how much of that
+decision-making happens without a human.
 
 ## ADDED Requirements
 
@@ -100,9 +101,69 @@ agentic triage.
 - **THEN** the finding is treated as first-party and submitted for triage
 - **AND** the unrecognised location is surfaced for a human to review
 
+### Requirement: Only findings above a severity threshold are triaged
+
+The system SHALL apply a severity threshold to findings that survive ownership
+classification, and SHALL submit for triage only those at or above it. The threshold
+SHALL be a recorded configuration value rather than an implicit property of the code.
+
+The threshold SHALL be applied after ownership classification and SHALL NOT replace it: a
+finding in vendored code is excluded on ownership alone, whatever its severity.
+
+Findings excluded by the threshold SHALL still be published as alert state, SHALL be left
+untriaged rather than closed or discarded, and SHALL NOT produce a tracker item.
+
+#### Scenario: First-party finding at or above the threshold
+
+- **WHEN** a finding lies in code maintained in this repository and its severity is at or
+  above the threshold
+- **THEN** it is submitted for triage
+
+#### Scenario: First-party finding below the threshold
+
+- **WHEN** a finding lies in code maintained in this repository and its severity is below
+  the threshold
+- **THEN** it is not submitted for triage and no verdict is assigned
+- **AND** its alert remains published and open
+- **AND** no tracker item is created for it
+
+#### Scenario: Vendored finding above the threshold
+
+- **WHEN** a finding lies in vendored code and its severity is at or above the threshold
+- **THEN** it is excluded on ownership and is not submitted for triage
+- **AND** its severity does not override that exclusion
+
+#### Scenario: Threshold is changed
+
+- **WHEN** the recorded threshold is changed so that a previously excluded finding becomes
+  eligible
+- **THEN** that finding is submitted for triage on the next run
+- **AND** verdicts already recorded against other findings are unaffected
+
+### Requirement: Triage is invoked deliberately
+
+The system SHALL publish scan findings automatically whenever infrastructure code
+changes, and SHALL assign verdicts only when triage is explicitly invoked.
+
+A code change SHALL NOT by itself cause verdicts to be assigned or tracker items to be
+created.
+
+#### Scenario: Infrastructure code changes
+
+- **WHEN** a pull request modifies a `.tf` file
+- **THEN** the scan runs and alert state is updated
+- **AND** no verdict is assigned and no tracker item is created
+
+#### Scenario: Triage is invoked
+
+- **WHEN** triage is explicitly invoked
+- **THEN** every eligible finding then present is triaged
+- **AND** the findings triaged are those eligible at the time of invocation, not at the
+  time of the last code change
+
 ### Requirement: Every triaged finding receives a verdict with a rationale
 
-The system SHALL assign each first-party finding exactly one verdict from a fixed
+The system SHALL assign each finding submitted for triage exactly one verdict from a fixed
 vocabulary covering: not applicable or accepted risk, real with a mechanical fix, real
 requiring human judgment, and undetermined.
 
@@ -133,40 +194,59 @@ available to the triage step as context.
 ### Requirement: Verdicts route to alert state and to the work tracker
 
 The system SHALL record every verdict against the finding's alert state, and SHALL create
-tracker items only for findings judged to require action.
+a tracker item for every triaged finding, whatever its verdict.
 
-Tracker items SHALL carry the triage label corresponding to their verdict, using this
-repository's established triage label vocabulary.
+Each tracker item SHALL carry the verdict and its rationale in a form a human can read
+without consulting alert state, and SHALL be identified by the finding's stable
+identifier.
+
+Tracker items SHALL be created under the label denoting work awaiting human evaluation,
+using this repository's established triage label vocabulary. Deciding a finding's
+disposition — that it is ready for an unattended agent, requires a human, or will not be
+actioned — SHALL be a human act performed on the tracker item.
+
+The system SHALL NOT itself apply the label denoting work ready for an unattended agent.
+
+#### Scenario: Finding triaged with any verdict
+
+- **WHEN** a finding is triaged and a verdict with a rationale is recorded
+- **THEN** a tracker item is created for it carrying that verdict and rationale
+- **AND** the item carries the label denoting work awaiting human evaluation
+
+#### Scenario: Agent judges a finding ready for unattended work
+
+- **WHEN** a finding's verdict is real with a mechanical fix
+- **THEN** the verdict is stated on the tracker item as a proposal
+- **AND** the label denoting work ready for an unattended agent is not applied by the
+  system
+
+#### Scenario: Human accepts a proposed verdict
+
+- **WHEN** a human applies a disposition label to a tracker item
+- **THEN** that label, not the recorded verdict, determines what happens to the item next
 
 #### Scenario: Finding judged not applicable
 
 - **WHEN** a finding's verdict is not applicable or accepted risk
-- **THEN** its alert is closed with the rationale recorded against it
-- **AND** no tracker item is created
-
-#### Scenario: Finding judged actionable
-
-- **WHEN** a finding's verdict is real with a mechanical fix
-- **THEN** its alert remains open
-- **AND** a tracker item is created carrying the label denoting work ready for an
-  unattended agent
-
-#### Scenario: Finding judged to need human judgment
-
-- **WHEN** a finding's verdict is real requiring human judgment
-- **THEN** a tracker item is created carrying the label denoting work requiring a human
+- **THEN** a tracker item is still created stating that verdict and its rationale
+- **AND** the alert is closed only where autonomous dismissal has been earned for that
+  finding's rule
 
 #### Scenario: Finding already has a tracker item
 
-- **WHEN** a finding that already has an open tracker item is triaged again with an
-  unchanged verdict
+- **WHEN** a finding that already has an open tracker item is triaged again
 - **THEN** no duplicate tracker item is created
+- **AND** any human-applied disposition label on the existing item is left unchanged
 
 ### Requirement: Triage accuracy is measured against a fixed corpus
 
-The system SHALL maintain a set of human-assigned verdicts covering the findings present
-when this capability was introduced, and SHALL support scoring automated verdicts against
-that set, reporting agreement per rule.
+The system SHALL maintain a set of human-assigned verdicts covering the triage-eligible
+findings present when this capability was introduced, and SHALL support scoring automated
+verdicts against that set, reporting agreement per rule.
+
+The corpus SHALL cover exactly the findings the system submits for triage. A finding
+excluded by ownership or by the severity threshold SHALL NOT carry a human-assigned
+verdict, and SHALL NOT contribute to any agreement figure.
 
 The human-assigned verdicts SHALL be derived from triage decisions recorded against alert
 state, rather than assigned in a separate store maintained alongside it, and SHALL be
