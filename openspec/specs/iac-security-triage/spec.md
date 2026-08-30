@@ -44,6 +44,11 @@ that shift the finding's position in a file.
 The identifier SHALL distinguish two findings that share a rule, a file, and a line but
 arise from different module instances.
 
+Two findings that share a rule, a module instance and a resource SHALL receive the same
+identifier and SHALL be triaged as a single judgment. Where such findings lie in code
+maintained in this repository, the system SHALL surface the shared identifier rather than
+recording one verdict against both silently.
+
 #### Scenario: Unrelated edit shifts line numbers
 
 - **WHEN** a resource is edited so that findings below it move to different line numbers
@@ -61,6 +66,13 @@ arise from different module instances.
 - **WHEN** a resource is renamed
 - **THEN** its findings receive new identifiers
 - **AND** they are presented for triage again rather than inheriting the previous verdict
+
+#### Scenario: Co-located findings of one rule on one resource
+
+- **WHEN** a rule fires more than once on the same resource in the same module instance
+- **THEN** those findings share an identifier and are triaged as one judgment
+- **AND** if that code is maintained in this repository, the shared identifier is
+  surfaced rather than silently applying one verdict to several judgments
 
 ### Requirement: Findings are classified by ownership before triage
 
@@ -158,14 +170,25 @@ The system SHALL maintain a set of human-assigned verdicts covering the findings
 when this capability was introduced, and SHALL support scoring automated verdicts against
 that set, reporting agreement per rule.
 
-Reported agreement figures SHALL be accompanied by the size of the corpus they are
-computed over.
+The human-assigned verdicts SHALL be derived from triage decisions recorded against alert
+state, rather than assigned in a separate store maintained alongside it, and SHALL be
+recorded before any automated verdict exists.
+
+Reported agreement figures SHALL be accompanied by the number of findings they are
+computed over, per rule.
 
 #### Scenario: Scoring a triage run
 
 - **WHEN** automated verdicts are scored against the human-assigned set
 - **THEN** agreement is reported broken down by rule
 - **AND** each figure is reported alongside the number of findings it covers
+
+#### Scenario: Human verdicts are recorded
+
+- **WHEN** a human triages a finding
+- **THEN** the verdict and its rationale are recorded against the finding's alert state
+- **AND** the human-assigned corpus is derived from that state rather than authored
+  separately
 
 #### Scenario: A new rule produces findings absent from the corpus
 
@@ -176,8 +199,12 @@ computed over.
 ### Requirement: Autonomous dismissal is earned per rule
 
 The system SHALL NOT close a finding's alert without human action unless automated
-verdicts for that finding's rule have been scored against the human-assigned corpus and
-agreed on every case.
+verdicts for that finding's rule have been scored against the human-assigned corpus, have
+agreed on every case, and have been scored over at least a configured minimum number of
+findings for that rule.
+
+The minimum SHALL be greater than one, so that full agreement over a single case never
+confers this authority.
 
 For all other rules, the system SHALL present its verdict for a human to apply, and SHALL
 leave alert state unchanged.
@@ -196,10 +223,17 @@ Granting or revoking this authority for a rule SHALL be an explicit, reviewable 
 - **THEN** the verdict is presented for a human to apply
 - **AND** the alert state is left unchanged
 
+#### Scenario: Rule agreed on every case but scored over too few
+
+- **WHEN** a finding arises from a rule whose automated verdicts agreed on every scored
+  case, but the number of scored findings for that rule is below the configured minimum
+- **THEN** the verdict is presented for a human to apply
+- **AND** the alert state is left unchanged
+
 #### Scenario: Rule granted autonomous dismissal
 
-- **WHEN** a finding arises from a rule that has been scored at full agreement and
-  explicitly granted authority
+- **WHEN** a finding arises from a rule that has been scored at full agreement over at
+  least the configured minimum number of findings and explicitly granted authority
 - **AND** its verdict is not applicable or accepted risk
 - **THEN** its alert is closed automatically with the rationale recorded
 - **AND** the closure remains visible and reversible

@@ -14,10 +14,11 @@ Trivy run over this repo (`trivy config --format json .`), not from estimates:
 - **`CauseMetadata.Resource` is the module address** (`module.next_cloud`), not the
   Terraform resource address. The resource address is only recoverable from
   `CauseMetadata.Code.Lines[0].Content`.
-- **`ruleId + file + startLine` is not unique.** Four `AWS-0104` findings collide
-  pairwise on every SARIF field; they are distinguishable only by the module
-  instantiation that produced them (`module.next_cloud` vs `module.song_vault`), which
-  SARIF does not carry.
+- **`ruleId + file + startLine` is not unique**, but every collision is vendored. The
+  eight `AWS-0104` findings are four pairs of sibling egress rules on adjacent lines
+  (811/812 and 533/534) that no rule-plus-resource key can separate — and **all eight lie
+  under `.terraform/modules/`**, so none of them is ever triaged or carries a verdict.
+  Across the twelve first-party findings, rule plus module plus resource is unique.
 - Trivy warns `Variable values were not found in the environment or variable files` for
   `var.domain`, so static evaluation is genuinely partial.
 - `live/gitlab/` contains no `.tf` files; it is design-only and contributes nothing.
@@ -60,9 +61,10 @@ that silently rots. With one scanner, deduplication reduces to intra-tool identi
 which is tractable (Decision 3).
 
 *Alternative considered:* both scanners, deduplicating on resource address plus a
-normalised rule category. Rejected as disproportionate work for a 770-LOC corpus, and it
-would have coupled the evaluation's credibility to the quality of a mapping table rather
-than to the agent. Adding Checkov later is not blocked by anything here.
+normalised rule category. Rejected because it would couple the evaluation's credibility to the
+quality of a hand-maintained mapping table rather than to the agent. Note that corpus
+size is *not* a reason to reject it — the corpus being narrow is this design's main
+weakness (Decision 5), and a second scanner is one of the few cheap ways to widen it. Adding Checkov later is not blocked by anything here.
 
 ### 2. Deterministic ownership filter before inference
 
@@ -96,32 +98,40 @@ inference cost and 40% of the opportunity for the model to be wrong.
 reliable path check into a probabilistic one, and 8 of 20 findings is too large a share
 to expose to that.
 
-### 3. Finding identity: stable core plus ordinal
+### 3. Finding identity: a readable composite key
 
 ```
-  core     = ruleId + module_address + resource_type.resource_name
-  ordinal  = index among findings sharing that core, ordered by start line
-  id       = sha256(core + ":" + ordinal)
+  key = ruleId + ":" + module_address + ":" + resource_type.resource_name
 ```
 
 `module_address` comes from `CauseMetadata.Resource`; `resource_type.resource_name` is
-parsed from the first cause line. The core survives line-number drift, which is the
-common case (a resource gains an attribute, everything below shifts). The ordinal exists
-only because the core genuinely cannot separate two sibling egress rules on adjacent
-lines.
+parsed from the first cause line. The key survives line-number drift, which is the common
+case (a resource gains an attribute, everything below shifts), and it is unique across
+all twelve first-party findings.
+
+It is deliberately not a hash. The key appears in the committed ground-truth fixture and
+in issue bodies, where `AWS-0089:module.bootstrap:aws_s3_bucket.terraform_state_bucket`
+carries more than sixty-four hex characters do. It also makes the corpus's narrowness
+legible at a glance: seven of the twelve keys name the same bucket.
 
 *Alternatives considered:*
 
 - *SARIF `partialFingerprints`* — not emitted by Trivy.
-- *`ruleId + file + line`* — demonstrably collides on this corpus (four `AWS-0104`
-  findings), and line numbers are the least stable field available.
+- *`ruleId + file + line`* — line numbers are the least stable field available.
 - *Content hash of the cause lines* — changes whenever the resource is edited, including
   by the very remediation the triage recommended.
+- *A `sha256` over the key plus a sibling-disambiguating ordinal* — this design's previous
+  choice, now retired. The ordinal existed solely because rule-plus-resource cannot
+  separate two sibling egress rules on adjacent lines. Every such collision in the corpus
+  is one of the eight `AWS-0104` findings, and all eight are vendored (§ Context), so the
+  ordinal disambiguated only findings that never receive a verdict — while introducing a
+  failure mode in which reordering siblings permutes ordinals and silently mis-attributes
+  verdicts between them. Dropping it removes that failure mode rather than documenting it.
 
-**Known weakness, accepted:** reordering sibling resources within a file permutes
-ordinals and mis-attributes verdicts between them. This is rare, affects only findings
-sharing an identical core, and is detectable — the fixture set will catch it. Recorded
-here rather than engineered around, because the alternatives are worse.
+**A guard replaces the ordinal.** Two *first-party* findings sharing a key would apply one
+verdict to two distinct judgments. The normaliser reports any such collision as
+`duplicate_first_party_keys` rather than absorbing it silently; the set is empty on the
+current corpus and a test holds it that way.
 
 ### 4. Code scanning holds state; Issues hold work
 
@@ -160,32 +170,44 @@ the tracker with 20 items, most of which resolve to "no".
 
 *Alternative considered:* a committed sidecar verdict file as the source of truth.
 Rejected as the primary store — it duplicates state code scanning already keeps, and
-diverges from it. It survives in reduced form as the fixture set (Decision 5), which is
-ground truth for *evaluation*, not for runtime state.
+diverges from it. The evaluation fixture (Decision 5) is not an exception to this: it is
+*derived from* alert state by export, never authored alongside it, so there is exactly one
+place a verdict is recorded and the fixture is a snapshot of it.
 
-### 5. Ground truth before autonomy
+### 5. Ground truth is harvested from real triage, not authored beside it
 
-All 20 current findings are hand-labelled once by a human and the labels committed as
-fixtures. This is a prerequisite, not a follow-up, because it is what separates an
-evaluation from a demonstration.
+The twelve first-party findings are triaged **in code scanning** — dismiss-with-comment,
+or left open and promoted to an issue — and the ground-truth fixture is then exported from
+alert state via `gh api`:
 
-The fixtures serve three purposes: they let agent output be scored per rule ID rather
-than assessed impressionistically; they turn the framework's multi-model comparison
-(`examples/taskflows/example_model_comparison.yaml`) into a measurement harness over a
-fixed corpus; and they act as a regression test when a model version or the Trivy
-ruleset changes.
+```
+  trivy -> SARIF -> code scanning -> [human triages the 12 alerts]
+                                              |
+                                     gh api .../code-scanning/alerts
+                                              |
+                                     join to normalised records by key
+                                              |
+                                     fixtures/ground-truth.yaml
+```
 
-Labels are recorded per finding with four fields: the verdict, the documents relied on
-(`evidence`), a self-assessed `difficulty` of `easy` or `hard`, and a written rationale.
-`evidence` exists so that Decision 7's comparison can measure whether the agent reached a
-verdict *for the same reason* a human did, rather than only whether it landed on the same
-answer — with a corpus this small, that distinction carries more signal than the
-agreement rate itself. Labels are assigned and committed before any triage run exists;
-verdicts formed with knowledge of agent output cannot support an agreement figure.
+This is the same labelling work either way; the difference is that it happens in the tool
+that holds the state, produces alert history as its audit trail, and leaves the repository
+better off whether or not the agent ever ships. A hand-filled worksheet would be a second
+verdict store standing next to the real one — exactly what Decision 4 rejects.
 
-**Caveat recorded honestly:** the corpus is small and, more importantly, narrow. Of 12
-first-party findings, 9 concern S3 posture on two buckets, 7 of them on the Terraform
-state bucket alone:
+The ordering constraint is unchanged and non-negotiable: triage is performed and exported
+**before** any triage run exists. Verdicts formed with knowledge of agent output cannot
+support an agreement figure. Alert timestamps make the ordering auditable, which a
+hand-edited file could not.
+
+Each fixture entry carries the verdict, a written rationale, and `evidence` — the ADRs and
+design docs relied on, parsed from the dismissal comment. `evidence` exists so that
+Decision 7's comparison can ask whether the agent reached a verdict *for the same reason*
+a human did, not merely whether it landed on the same answer; with a corpus this small
+that distinction carries more signal than the agreement rate.
+
+**What this corpus can and cannot support.** Of twelve first-party findings, nine concern
+S3 posture on two buckets, seven on the Terraform state bucket alone:
 
 ```
   7  bootstrap state bucket   AWS-0086/0087/0089/0091/0093/0094/0132
@@ -194,36 +216,52 @@ state bucket alone:
   1  VPC flow logs            AWS-0178
 ```
 
-There are roughly four distinct judgment calls here, not twelve; deciding the state
-bucket's posture settles seven findings at once. Most rules fire exactly once, so
-per-rule agreement is barely a measurement. This is adequate to validate the *mechanism*
-and inadequate to support any generalised accuracy claim, and every reported figure must
-say so.
+There are roughly four distinct judgment calls here, not twelve. Worse for measurement,
+**eight of the ten first-party rules fire exactly once**, so "100% agreement on `AWS-0178`"
+means one finding agreed. This is adequate to validate the *mechanism* and inadequate to
+support any accuracy claim, and it is the direct reason autonomy needs a minimum-support
+floor rather than an agreement threshold alone (Decision 6).
 
-Two mitigations, both cheap: findings are labelled independently rather than per resource,
-and each carries a `difficulty`, so that disagreement on a finding the human found easy
-is distinguishable from disagreement on a hard one. The latter is a weaker claim than an
-accuracy rate but an honest one. The corpus becomes genuinely interesting once
-`live/gitlab/` exists and contributes RDS, ElastiCache and load balancer findings.
+A previously planned `difficulty` field is dropped. Its only consumer was a stratified
+breakdown of Decision 7's comparison, which is deferred until the corpus is wide enough
+for a stratified result to be distinguishable from noise. A self-assessed difficulty from
+a single rater who also wrote the ADRs the agent reads was never going to carry that
+weight.
 
-### 6. Autonomy as a ratchet, gated on measurement
+The corpus becomes genuinely interesting once `live/gitlab/` exists and contributes RDS,
+ElastiCache and load balancer findings.
+
+### 6. Autonomy as a ratchet, gated on agreement *and* support
 
 ```
   phase 1: PROPOSE            phase 2: DISMISS (scoped)      phase 3: DISMISS (broad)
   agent writes verdicts       auto-dismiss only for rule      allowlist widened as
-  to a PR comment;            IDs at 100% fixture             evidence accumulates
-  human applies them          agreement; others still
-                              proposed
+  to a PR comment;            IDs with full agreement         evidence accumulates
+  human applies them          over >= 5 scored findings;
+                              others still proposed
 ```
 
 The agent starts with no write authority over alert state. Authority is granted per rule
-ID, and only where measured agreement justifies it.
+ID, and only where the evidence for that rule is both **unanimous and large enough to
+mean something**.
+
+The support floor is the load-bearing half. Full agreement alone is not a bar: eight of
+the ten first-party rules fire exactly once (Decision 5), so an agreement-only gate would
+hand a rule permanent unsupervised dismissal authority on the strength of a single case
+going the right way. Roughly two thirds of the ruleset could be unlocked by coin flips
+landing well. `k = 5` is a judgment, not a derivation — it is small enough to be reachable
+and large enough that unanimity is not cheap.
+
+**On today's corpus no rule clears the floor** (the largest is n=2), so the allowlist is
+empty and phase 2 is unreachable until the corpus widens. That is the correct outcome, and
+a better claim than an auto-dismissal justified by n=1.
 
 Rationale: a triage agent that wrongly dismisses a real finding is worse than no scanner,
 because it manufactures confidence. Autonomy is therefore treated as something earned
-against evidence rather than configured. The ratchet is also the most transferable part
-of this design — "we let a model triage" is not a case anyone can take to a security
-review; "here is per-rule agreement and here is the policy gating autonomy on it" is.
+against evidence rather than configured. The ratchet is also the most transferable part of
+this design — "we let a model triage" is not a case anyone can take to a security review;
+"here is per-rule agreement, here is the support behind each figure, and here is the policy
+gating autonomy on both" is.
 
 ### 7. ADRs and design docs are agent context
 
@@ -235,6 +273,12 @@ ADR in context can. The evaluation should measure this directly by running the s
 corpus with and without doc context — a null result is itself a useful finding, since it
 would say the value is in the model rather than in the repo's documentation discipline
 (and would weaken the case for transferring this to teams without ADRs).
+
+**Deferred until the corpus widens.** Over four distinct judgment calls, the difference
+between a with-context and a without-context run is not separable from noise, and
+reporting it would be the same overclaim the support floor exists to prevent. The
+`evidence` field is still captured now, so the comparison is runnable the moment the
+corpus can carry it.
 
 ### 8. Static HCL now; plan-JSON deferred
 
@@ -256,10 +300,13 @@ not blocked — this is a sequencing decision, revisitable once `live/gitlab/` e
 
 An LLM auditor is the *only* option for `user_data_*.sh` and the Ansible roles, since no
 deterministic scanner covers them well. That makes them the most interesting target and
-the wrong place to start: with no scanner baseline there is no ground truth, so no
-agreement rate, so nothing measurable. Starting where the agent can be scored is what
-makes the result defensible. Phase 2, once false-dismissal behaviour on Terraform is
-characterised.
+the wrong place to start — though not for the reason of ground truth being unavailable:
+Terraform's ground truth is hand-assigned too (Decision 5), and the same hand could label
+shell findings. The real reason is sequencing. Terraform findings come with a scanner
+baseline, so the agent's verdicts can be compared against something it did not itself
+produce; on `user_data` the agent would be both the finder and the judge, and a
+disagreement rate would have no denominator. Phase 2, once false-dismissal behaviour on
+Terraform is characterised.
 
 ### 10. seclab-taskflow-agent, using its generic half only
 
@@ -271,7 +318,7 @@ The engine supplies exactly the primitives this pipeline needs, so the whole pip
 one declarative file rather than bespoke glue:
 
 ```
-  task 1   run:      trivy config --format json | normalise + fingerprint
+  task 1   run:      trivy config --format json | normalise + key + partition
            outputs:  {first_party: [...], vendored: [...]}   <- JSON Schema validated
                         |
   task 2   over:     outputs.first_party
@@ -295,11 +342,15 @@ skill would be the better tool.
 - **Agent dismisses a genuine finding** → Phase 1 grants no dismissal authority at all;
   phase 2 grants it per rule ID only where fixture agreement is 100%. Dismissals stay
   visible and reversible in code scanning rather than being deleted.
-- **Fixture corpus too small to generalise (20 findings, 8 of one rule)** → Treated as
-  mechanism validation, not an accuracy claim; Decision 5 requires stating this wherever
-  numbers are reported.
-- **Ordinal fingerprints mis-attribute after sibling reordering** → Accepted and
-  documented (Decision 3); the fixture set detects it when it happens.
+- **Fixture corpus too small to generalise (20 findings, 8 of one rule; 8 of 10
+  first-party rules fire once)** → Treated as mechanism validation, not an accuracy claim.
+  Structurally contained by the minimum-support floor (Decision 6), which makes the
+  allowlist empty rather than trusting a caveat to be read; Decision 5 additionally
+  requires the support behind every reported figure to be stated alongside it.
+- **Two first-party findings share a key and so share a verdict** → Cannot occur on the
+  current corpus, and is reported rather than absorbed if a future scan produces it
+  (Decision 3). This replaces the ordinal scheme, whose own failure mode — sibling
+  reordering silently mis-attributing verdicts — is now gone rather than accepted.
 - **Static scanning misses variable-dependent misconfigurations** → Known and observable
   today (`var.domain`); the plan-JSON path stays open (Decision 8).
 - **Triage quality depends on ADR quality** → Made explicit and measurable by the
@@ -321,9 +372,10 @@ alone and the next is only reached if the previous holds:
 
 1. Trivy in CI, SARIF uploaded to code scanning. Independently valuable; no agent, no
    secrets, no AWS access.
-2. Normalisation, fingerprinting and the ownership partition, verified against the
+2. Normalisation, finding keys and the ownership partition, verified against the
    current corpus.
-3. Hand-labelled fixtures committed.
+3. The twelve first-party alerts triaged in code scanning; fixtures exported from
+   alert state and committed, before any triage run exists.
 4. Triage taskflow in propose-only mode, scored against fixtures.
 5. Scoped dismissal authority for rules that met the bar in step 4.
 
@@ -335,7 +387,9 @@ since no scanner output is load-bearing for any other process.
 
 - Whether triage runs per-PR or on a schedule against `main`. Depends on measured latency
   and cost from step 4, and changes no spec, decision, or task.
-- Whether the fixture set is regenerated or hand-merged when Trivy's ruleset introduces
+- Whether the fixture set is re-exported or hand-merged when Trivy's ruleset introduces
   new rules. Answerable the first time it happens.
+- Whether `k = 5` is the right support floor. It is a judgment (Decision 6) and should be
+  revisited once any rule actually approaches it.
 - Which specific dismissal reason code best represents "upstream, vendored module" in the
   code scanning API. A presentation detail within Decision 4.
