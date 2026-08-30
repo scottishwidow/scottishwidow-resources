@@ -4,13 +4,22 @@
 Reads a Trivy ``config --format json`` report and emits a single JSON object
 partitioning the findings by ownership::
 
-    {"first_party": [...], "vendored": [...], "unrecognised_locations": [...]}
+    {"eligible": [...], "below_threshold": [...], "vendored": [...]}
 
 Identity follows ``design.md - Decision 3``: the key is the readable composite
 ``ruleId:module_address:resource_type.resource_name``. It survives line-number
 drift, and it is unique across first-party findings, which is the only place a
-key is used to carry a verdict. Ownership follows ``Decision 2`` and is a path
-check, never a judgment.
+key is used to carry a verdict.
+
+The partition follows ``Decision 2`` and runs in two stages, neither of which is
+a judgment: ownership by path, then severity against a threshold read from
+``config.json``. The order is load-bearing — every ``CRITICAL`` finding in this
+repository is vendored, so severity applied alone would admit the eight findings
+that can never be fixed here and drop five first-party ones.
+
+Nothing here assigns a verdict. Below-threshold findings are not dismissed:
+they stay in the output marked ``below-threshold`` so that they remain published
+as open alerts and no downstream step files an issue for them.
 
 Usage::
 
@@ -23,12 +32,27 @@ from __future__ import annotations
 import argparse
 import collections
 import json
+import pathlib
 import re
 import sys
 from typing import Any, Iterator
 
 FIRST_PARTY = "first-party"
 VENDORED = "vendored"
+
+# What the two deterministic filters decide about a finding, before any model
+# sees it. These are dispositions, not verdicts: `vocabulary.py` holds the
+# verdicts, and none of them is assigned here.
+ELIGIBLE = "eligible"
+BELOW_THRESHOLD = "below-threshold"
+UPSTREAM = "upstream"
+
+# Trivy's severity ladder, least to most severe.
+SEVERITY_ORDER = ("UNKNOWN", "LOW", "MEDIUM", "HIGH", "CRITICAL")
+
+# The threshold is configuration, not a literal in the partition logic, so
+# raising or lowering it is a reviewable diff (`design.md - Decision 2`).
+CONFIG_PATH = pathlib.Path(__file__).resolve().parent / "config.json"
 
 # A path anywhere under a resolved module cache belongs to whoever publishes the
 # module, not to this repository.
@@ -95,6 +119,36 @@ def classify(path: str) -> tuple[str, bool]:
     return FIRST_PARTY, False
 
 
+def load_threshold(path: pathlib.Path = CONFIG_PATH) -> str:
+    """Read the severity threshold from configuration."""
+    with open(path, encoding="utf-8") as handle:
+        return json.load(handle)["severity_threshold"]
+
+
+def meets_threshold(severity: str, threshold: str) -> bool:
+    """Whether a severity is at or above the threshold.
+
+    A severity Trivy has never emitted is treated as meeting the threshold, for
+    the same reason an unrecognised path is treated as first-party: nothing
+    should escape triage by being unexpected.
+    """
+    if severity not in SEVERITY_ORDER:
+        return True
+    return SEVERITY_ORDER.index(severity) >= SEVERITY_ORDER.index(threshold)
+
+
+def triage_status(ownership: str, severity: str, threshold: str) -> str:
+    """Apply the two filters in order: ownership first, then severity.
+
+    Ownership answers "can this repository fix it"; severity answers "is it
+    worth the reasoning". A vendored finding is excluded on ownership alone,
+    whatever its severity.
+    """
+    if ownership == VENDORED:
+        return UPSTREAM
+    return ELIGIBLE if meets_threshold(severity, threshold) else BELOW_THRESHOLD
+
+
 def finding_key(rule_id: str, module_address: str, resource_address: str) -> str:
     """The readable identity a verdict is recorded against.
 
@@ -119,8 +173,10 @@ def duplicate_keys(records: list[dict[str, Any]]) -> list[str]:
     return sorted(key for key, count in counts.items() if count > 1)
 
 
-def normalise(report: dict[str, Any]) -> dict[str, Any]:
-    """Turn a Trivy report into ownership-partitioned, keyed records."""
+def normalise(report: dict[str, Any], threshold: str | None = None) -> dict[str, Any]:
+    """Turn a Trivy report into keyed records, partitioned for triage."""
+    if threshold is None:
+        threshold = load_threshold()
     records: list[dict[str, Any]] = []
 
     for target, misconf in iter_findings(report):
@@ -131,6 +187,7 @@ def normalise(report: dict[str, Any]) -> dict[str, Any]:
         resource_address = parse_resource_address(lines)
         path = owner_path(target, misconf)
         ownership, recognised = classify(path)
+        severity = misconf.get("Severity", "")
         resource_type, _, resource_name = resource_address.partition(".")
 
         records.append(
@@ -138,7 +195,7 @@ def normalise(report: dict[str, Any]) -> dict[str, Any]:
                 "key": finding_key(rule_id, module_address, resource_address),
                 "rule_id": rule_id,
                 "title": misconf.get("Title", ""),
-                "severity": misconf.get("Severity", ""),
+                "severity": severity,
                 "message": misconf.get("Message", ""),
                 "resolution": misconf.get("Resolution", ""),
                 "primary_url": misconf.get("PrimaryURL", ""),
@@ -152,6 +209,7 @@ def normalise(report: dict[str, Any]) -> dict[str, Any]:
                 "end_line": cause.get("EndLine"),
                 "ownership": ownership,
                 "ownership_recognised": recognised,
+                "triage_status": triage_status(ownership, severity, threshold),
                 "code": lines,
             }
         )
@@ -161,8 +219,10 @@ def normalise(report: dict[str, Any]) -> dict[str, Any]:
     )
 
     return {
-        "first_party": [r for r in records if r["ownership"] == FIRST_PARTY],
-        "vendored": [r for r in records if r["ownership"] == VENDORED],
+        "severity_threshold": threshold,
+        "eligible": [r for r in records if r["triage_status"] == ELIGIBLE],
+        "below_threshold": [r for r in records if r["triage_status"] == BELOW_THRESHOLD],
+        "vendored": [r for r in records if r["triage_status"] == UPSTREAM],
         "unrecognised_locations": unrecognised,
         "duplicate_first_party_keys": duplicate_keys(records),
     }
