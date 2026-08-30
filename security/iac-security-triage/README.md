@@ -10,8 +10,9 @@ no framework, no network, no cloud credentials.
 trivy config --format json .
         |
         v
-normalise.py   one record per finding, keyed and partitioned by ownership
-        |      -> {"first_party": [...], "vendored": [...]}
+normalise.py   one record per finding, keyed, then filtered twice:
+        |      ownership by path, then severity against the threshold
+        |      -> {"eligible": [...], "below_threshold": [...], "vendored": [...]}
         v
 GitHub code scanning   where findings are triaged and verdicts recorded
         |
@@ -27,6 +28,32 @@ can be replayed without a scanner:
 
     python3 security/iac-security-triage/normalise.py \
       security/iac-security-triage/fixtures/baseline-scan.json
+
+## The two filters
+
+Ownership runs first, severity second, and neither is a judgment
+(`design.md - Decision 2`). On the baseline corpus:
+
+| | count | what happens to it |
+|---|---|---|
+| `eligible` | 7 | sent for triage |
+| `below_threshold` | 5 | stays an open alert, untriaged, no issue |
+| `vendored` | 8 | recorded upstream, never sent to a model |
+
+The order is load-bearing. All eight `CRITICAL` findings in this repo are
+vendored, so a severity gate applied alone would admit exactly the eight
+findings that cannot be fixed here and drop five first-party ones.
+
+The threshold lives in `config.json`, not in the partition logic, so moving it
+is a reviewable diff:
+
+    {"severity_threshold": "HIGH"}
+
+Below threshold means *untriaged*, not dismissed — dismissal is a verdict and
+none has been formed. Those findings keep their key, so lowering the threshold
+extends the ground-truth corpus rather than resetting it. Each record carries a
+`triage_status` of `eligible`, `below-threshold` or `upstream`; nothing here
+assigns a verdict from `vocabulary.py`.
 
 ## Identity and ownership
 
@@ -55,7 +82,7 @@ reported on stderr and in `unrecognised_locations`.
 
 ## Labelling
 
-There is no hand-labelling worksheet. The 12 first-party findings are triaged in
+There is no hand-labelling worksheet. The 7 eligible findings are triaged in
 GitHub code scanning and the ground-truth fixture is exported from alert state
 (`design.md - Decision 5`), so verdicts live in one place rather than two.
 

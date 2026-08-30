@@ -24,24 +24,42 @@ implementation that transfers elsewhere.
 - **Add a scanner.** Trivy `config` scanning over the Terraform in `live/` and
   `modules/`, emitting SARIF. Trivy only — Checkov was considered and dropped; a single
   scanner removes cross-tool deduplication entirely.
-- **Add deterministic pre-classification.** Findings are partitioned into first-party
-  (`live/`, `modules/`) and vendored (`.terraform/modules/`) before any model runs.
-  Vendored findings are recorded as upstream and never sent for triage. On the current
-  corpus this removes 40% of volume at zero inference cost.
+- **Add deterministic pre-classification, in two stages.** Findings are first
+  partitioned into first-party (`live/`, `modules/`) and vendored
+  (`.terraform/modules/`); vendored findings are recorded as upstream and never sent for
+  triage. What survives is then gated on severity, and only `HIGH` and `CRITICAL`
+  findings are triaged. Both stages run before any model does. Together they remove 13 of
+  20 findings — 65% of volume — at zero inference cost.
+
+  The two stages are not interchangeable and the order matters: every `CRITICAL` finding
+  in this repo is vendored, so a severity gate applied alone would send the model the
+  eight findings that can never be actioned here and drop five first-party ones.
 - **Add a stable finding identity.** Trivy emits no `partialFingerprints`, so this
   change defines a readable composite key — rule, module address and resource address —
   that survives line-number drift, without which every refactor re-triages everything.
-- **Add agentic triage.** A `seclab-taskflow-agent` taskflow that fans out over
-  first-party findings and assigns each a verdict, with the repo's ADRs and design docs
-  supplied as context so that intentional decisions can be recognised as such.
-- **Add a ground-truth fixture set.** The twelve first-party findings triaged once in
+- **Add agentic triage, invoked on demand.** A `seclab-taskflow-agent` taskflow that
+  fans out over the eligible findings and assigns each a verdict, with the repo's ADRs
+  and design docs supplied as context so that intentional decisions can be recognised as
+  such. Scanning stays automatic on every change; triage is started deliberately. The
+  framework is a CLI with no event model of its own, so this is also its natural shape.
+- **Add a ground-truth fixture set.** The seven triage-eligible findings triaged once in
   code scanning and the resulting verdicts exported to a committed fixture, so agent
   output can be scored rather than merely inspected. Labelling happens in the tool that
-  holds the state rather than in a parallel file.
-- **Route verdicts to existing sinks.** Findings land in GitHub code scanning (free on
-  this public repo) as durable per-finding state; findings judged actionable are
-  promoted to GitHub Issues using the label vocabulary already defined in
-  `docs/agents/triage-labels.md`.
+  holds the state rather than in a parallel file, and covers exactly the set the agent
+  triages.
+- **Route verdicts to existing sinks.** All findings land in GitHub code scanning (free
+  on this public repo) as durable per-finding state. Every *triaged* finding is
+  additionally promoted to a GitHub Issue carrying the agent's verdict and rationale,
+  because deciding whether a finding is worth acting on is the human judgment this
+  pipeline exists to inform, not one the agent makes alone. Filing per finding is
+  affordable precisely because the two deterministic filters reduce twenty findings to
+  seven.
+
+  The agent files issues under `needs-triage`; a human converts that to
+  `ready-for-agent`, `ready-for-human` or `wontfix` from the vocabulary in
+  `docs/agents/triage-labels.md`. The agent never applies `ready-for-agent` itself — that
+  label authorises unattended work, and an agent that could apply it would be authorising
+  itself.
 - **Gate agent autonomy on measured agreement over a minimum number of cases.** The
   agent proposes verdicts and does not dismiss alerts on its own until a rule shows full
   agreement against the fixture set over enough findings to mean something. Eight of the
@@ -51,15 +69,22 @@ implementation that transfers elsewhere.
 Explicitly **not** in this change: automated remediation; scanning of Ansible, shell, or
 `user_data`; and plan-JSON scanning. Rationale for each is in `design.md`.
 
+Remediation is a successor change rather than an omission. This change ends at a labelled
+issue: a human applying `ready-for-agent` is the handoff point, and what consumes that
+label is out of scope here. It also needs a different executor —
+`seclab-taskflow-agent` ships read and analysis toolboxes and no ability to edit files or
+open pull requests — so folding it in would mean carrying two unrelated agents under one
+capability.
+
 ## Capabilities
 
 ### New Capabilities
 
 - `iac-security-triage`: scanning this repo's infrastructure code, establishing a stable
-  identity for each finding, classifying findings by ownership, assigning each
-  first-party finding a triage verdict with recorded rationale, routing verdicts to
-  code scanning and the issue tracker, and constraining how much of that the agent may
-  do unsupervised.
+  identity for each finding, classifying findings by ownership and severity to decide
+  which are triaged at all, assigning each eligible finding a triage verdict with
+  recorded rationale, routing verdicts to code scanning and the issue tracker, and
+  constraining how much of that the agent may do unsupervised.
 
 ### Modified Capabilities
 
@@ -68,7 +93,8 @@ None. This is the first capability recorded in `openspec/specs/`.
 ## Impact
 
 - **New CI**: a workflow running Trivy and uploading SARIF to code scanning. Requires
-  `security-events: write`. Runs on PRs and on `main`.
+  `security-events: write`. Runs on PRs and on `main`. A second, manually dispatched
+  workflow runs triage; it is never triggered by a push.
 - **New AWS IAM**: an OIDC role for GitHub Actions is anticipated but **not needed by
   this change** — static HCL scanning requires no AWS credentials. The role becomes
   necessary only if plan-JSON scanning is adopted later.
@@ -81,5 +107,8 @@ None. This is the first capability recorded in `openspec/specs/`.
   `docs/adr/` becomes agent input. ADR quality now affects triage quality.
 - **Findings will be filed against `live/management/`**, which is live infrastructure.
   Triage output is advisory; no change applies itself.
+- **The issue tracker gains roughly seven issues per full triage run**, deduplicated on
+  finding key across runs. Below-threshold first-party findings remain visible as open
+  code scanning alerts and produce no issues.
 - **`live/gitlab/` is unaffected for now** — it is design-only and contains no
   Terraform, so it produces no findings until it is built.

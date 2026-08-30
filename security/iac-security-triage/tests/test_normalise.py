@@ -4,11 +4,13 @@ Run from the repository root with `python3 -m unittest discover -s
 security/iac-security-triage/tests`.
 
 The expected counts are the corpus described in `design.md - Context`: 20
-findings across 11 rule IDs, 12 first-party and 8 vendored.
+findings across 11 rule IDs, 12 first-party and 8 vendored, of which the
+severity gate leaves 7 triage-eligible and 5 below threshold.
 """
 
 from __future__ import annotations
 
+import collections
 import json
 import sys
 import unittest
@@ -17,8 +19,18 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 import normalise  # noqa: E402
+import vocabulary  # noqa: E402
 
 BASELINE = Path(__file__).resolve().parents[1] / "fixtures" / "baseline-scan.json"
+
+
+def first_party(normalised: dict) -> list[dict]:
+    """The two filters run in order, so first-party is what either side of the gate holds."""
+    return normalised["eligible"] + normalised["below_threshold"]
+
+
+def all_records(normalised: dict) -> list[dict]:
+    return first_party(normalised) + normalised["vendored"]
 
 
 def synthetic_report(target: str, filename: str | None, start_line: int = 1) -> dict:
@@ -70,7 +82,7 @@ class BaselineCorpus(unittest.TestCase):
         with open(BASELINE, encoding="utf-8") as handle:
             cls.report = json.load(handle)
         cls.normalised = normalise.normalise(cls.report)
-        cls.all_records = cls.normalised["first_party"] + cls.normalised["vendored"]
+        cls.all_records = all_records(cls.normalised)
 
     def test_emits_one_record_per_finding(self) -> None:
         self.assertEqual(len(self.all_records), 20)
@@ -86,7 +98,7 @@ class BaselineCorpus(unittest.TestCase):
 
     def test_first_party_keys_are_distinct(self) -> None:
         """The only place a key carries a verdict, so the only place it must be unique."""
-        keys = [record["key"] for record in self.normalised["first_party"]]
+        keys = [record["key"] for record in first_party(self.normalised)]
         self.assertEqual(len(set(keys)), 12)
         self.assertEqual(self.normalised["duplicate_first_party_keys"], [])
 
@@ -103,7 +115,7 @@ class BaselineCorpus(unittest.TestCase):
         self.assertTrue(all(".terraform/modules/" in r["owner_path"] for r in colliding))
 
     def test_ownership_partition(self) -> None:
-        self.assertEqual(len(self.normalised["first_party"]), 12)
+        self.assertEqual(len(first_party(self.normalised)), 12)
         self.assertEqual(len(self.normalised["vendored"]), 8)
         self.assertEqual(self.normalised["unrecognised_locations"], [])
 
@@ -127,10 +139,7 @@ class BaselineCorpus(unittest.TestCase):
 
         before = [record["key"] for record in self.all_records]
         after_normalised = normalise.normalise(shifted)
-        after = [
-            record["key"]
-            for record in after_normalised["first_party"] + after_normalised["vendored"]
-        ]
+        after = [record["key"] for record in all_records(after_normalised)]
         self.assertEqual(before, after)
 
     def test_renaming_a_resource_changes_only_that_resources_keys(self) -> None:
@@ -147,8 +156,7 @@ class BaselineCorpus(unittest.TestCase):
             (record["key"], record["resource_address"]) for record in self.all_records
         }
         after_pairs = {
-            (record["key"], record["resource_address"])
-            for record in after["first_party"] + after["vendored"]
+            (record["key"], record["resource_address"]) for record in all_records(after)
         }
         touched = {address for _, address in before ^ after_pairs}
         self.assertEqual(touched, {"aws_subnet.public_zone_1", "aws_subnet.public_zone_alpha"})
@@ -159,17 +167,17 @@ class UnrecognisedLocation(unittest.TestCase):
         report = synthetic_report(target="sandbox/main.tf", filename="sandbox/main.tf")
         normalised = normalise.normalise(report)
 
-        self.assertEqual(len(normalised["first_party"]), 1)
+        self.assertEqual(len(first_party(normalised)), 1)
         self.assertEqual(normalised["vendored"], [])
-        self.assertFalse(normalised["first_party"][0]["ownership_recognised"])
+        self.assertFalse(first_party(normalised)[0]["ownership_recognised"])
         self.assertEqual(normalised["unrecognised_locations"], ["sandbox/main.tf"])
 
     def test_missing_occurrence_falls_back_to_the_scan_target(self) -> None:
         report = synthetic_report(target="modules/vpc/main.tf", filename=None)
         normalised = normalise.normalise(report)
 
-        self.assertEqual(normalised["first_party"][0]["owner_path"], "modules/vpc/main.tf")
-        self.assertTrue(normalised["first_party"][0]["ownership_recognised"])
+        self.assertEqual(first_party(normalised)[0]["owner_path"], "modules/vpc/main.tf")
+        self.assertTrue(first_party(normalised)[0]["ownership_recognised"])
 
 
 class DuplicateFirstPartyKey(unittest.TestCase):
@@ -187,7 +195,7 @@ class DuplicateFirstPartyKey(unittest.TestCase):
 
         normalised = normalise.normalise(report)
 
-        self.assertEqual(len(normalised["first_party"]), 2)
+        self.assertEqual(len(first_party(normalised)), 2)
         self.assertEqual(
             normalised["duplicate_first_party_keys"],
             ["AWS-0089:module.example:aws_s3_bucket.example"],
@@ -204,6 +212,119 @@ class DuplicateFirstPartyKey(unittest.TestCase):
 
         self.assertEqual(len(normalised["vendored"]), 2)
         self.assertEqual(normalised["duplicate_first_party_keys"], [])
+
+
+class SeverityGate(unittest.TestCase):
+    """The second deterministic filter (`design.md - Decision 2`).
+
+    It runs *after* the ownership partition and does not replace it, which is
+    what the CRITICAL case below holds: every CRITICAL finding in this corpus is
+    vendored, so a severity gate applied alone would admit exactly the eight
+    findings this repository cannot fix.
+    """
+
+    @classmethod
+    def setUpClass(cls) -> None:
+        with open(BASELINE, encoding="utf-8") as handle:
+            cls.report = json.load(handle)
+        cls.normalised = normalise.normalise(cls.report)
+
+    def test_threshold_is_configuration_not_a_literal(self) -> None:
+        """Raising or lowering the gate is a diff to config.json, not to the logic."""
+        self.assertEqual(normalise.load_threshold(), "HIGH")
+        self.assertEqual(self.normalised["severity_threshold"], "HIGH")
+
+    def test_baseline_partition(self) -> None:
+        self.assertEqual(len(self.normalised["eligible"]), 7)
+        self.assertEqual(len(self.normalised["below_threshold"]), 5)
+        self.assertEqual(len(self.normalised["vendored"]), 8)
+
+    def test_eligible_findings_span_six_rules_with_one_at_n_equals_two(self) -> None:
+        """The corpus's narrowness, asserted rather than described."""
+        counts = collections.Counter(r["rule_id"] for r in self.normalised["eligible"])
+        self.assertEqual(len(counts), 6)
+        self.assertEqual(counts["AWS-0164"], 2)
+        self.assertEqual(
+            sorted(rule for rule, n in counts.items() if n > 1), ["AWS-0164"]
+        )
+
+    def test_every_critical_finding_is_excluded_on_ownership(self) -> None:
+        criticals = [r for r in all_records(self.normalised) if r["severity"] == "CRITICAL"]
+        self.assertEqual(len(criticals), 8)
+        for record in criticals:
+            with self.subTest(key=record["key"]):
+                self.assertEqual(record["ownership"], normalise.VENDORED)
+                self.assertEqual(record["triage_status"], normalise.UPSTREAM)
+
+    def test_severity_never_overrides_ownership(self) -> None:
+        """A CRITICAL vendored finding is excluded on ownership alone."""
+        path = "live/management/.terraform/modules/x/main.tf"
+        report = synthetic_report(target=path, filename=path)
+        report["Results"][0]["Misconfigurations"][0]["Severity"] = "CRITICAL"
+
+        normalised = normalise.normalise(report)
+
+        self.assertEqual(normalised["eligible"], [])
+        self.assertEqual(normalised["vendored"][0]["triage_status"], normalise.UPSTREAM)
+
+    def test_lowering_the_threshold_admits_previously_excluded_findings(self) -> None:
+        lowered = normalise.normalise(self.report, threshold="LOW")
+
+        self.assertEqual(len(lowered["eligible"]), 12)
+        self.assertEqual(lowered["below_threshold"], [])
+        self.assertEqual(len(lowered["vendored"]), 8)
+
+    def test_an_unknown_severity_is_not_silently_excluded(self) -> None:
+        """Unexpected input escapes neither triage nor attention, as with paths."""
+        report = synthetic_report(target="modules/x/main.tf", filename="modules/x/main.tf")
+        report["Results"][0]["Misconfigurations"][0]["Severity"] = "SEVERE"
+
+        normalised = normalise.normalise(report)
+
+        self.assertEqual(len(normalised["eligible"]), 1)
+
+
+class BelowThresholdFindingsSurvive(unittest.TestCase):
+    """Below threshold means untriaged, not discarded (`design.md - Decision 2`).
+
+    Dismissal is a verdict; no verdict has been formed for these, so they stay
+    in the output as open, unlabelled findings that nothing downstream files.
+    """
+
+    @classmethod
+    def setUpClass(cls) -> None:
+        with open(BASELINE, encoding="utf-8") as handle:
+            cls.normalised = normalise.normalise(json.load(handle))
+
+    def test_present_in_the_output(self) -> None:
+        below = self.normalised["below_threshold"]
+        self.assertEqual(len(below), 5)
+        self.assertEqual(
+            collections.Counter(r["severity"] for r in below),
+            collections.Counter({"LOW": 3, "MEDIUM": 2}),
+        )
+
+    def test_carry_no_verdict(self) -> None:
+        """The normaliser assigns dispositions; verdicts come from triage alone."""
+        for record in all_records(self.normalised):
+            with self.subTest(key=record["key"]):
+                self.assertNotIn("verdict", record)
+                self.assertNotIn(record["triage_status"], vocabulary.VERDICTS)
+
+    def test_marked_so_that_nothing_downstream_files_an_issue(self) -> None:
+        """An issue is filed per *eligible* finding, so the mark is the whole gate."""
+        for record in self.normalised["below_threshold"]:
+            with self.subTest(key=record["key"]):
+                self.assertEqual(record["ownership"], normalise.FIRST_PARTY)
+                self.assertEqual(record["triage_status"], normalise.BELOW_THRESHOLD)
+                self.assertNotIn(record, self.normalised["eligible"])
+
+    def test_retain_the_identity_they_would_be_triaged_under(self) -> None:
+        """So that lowering the threshold extends the corpus rather than resetting it."""
+        for record in self.normalised["below_threshold"]:
+            with self.subTest(key=record["key"]):
+                self.assertTrue(record["key"])
+                self.assertTrue(record["resource_address"])
 
 
 if __name__ == "__main__":
