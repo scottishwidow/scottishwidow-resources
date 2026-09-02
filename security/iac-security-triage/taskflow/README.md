@@ -17,6 +17,18 @@ python3 collect_verdicts.py --latest --findings <(./scan.sh) -o ../runs/local.js
 python3 ../score.py --run ../runs/local.json
 ```
 
+The token can instead go in a `.env` file in this directory, which the framework
+reads itself (`load_dotenv(find_dotenv(usecwd=True))`) and which `.gitignore`
+excludes:
+
+    AI_API_TOKEN=<a GitHub PAT with Copilot access>
+
+`run.sh` forwards a token with a bare `-e AI_API_TOKEN`, and only when the host
+has one. That detail matters: `load_dotenv` does not override a variable already
+present in the environment, and an empty string counts as present, so passing
+`-e AI_API_TOKEN=""` would shadow the `.env` and fail with "AI_API_TOKEN
+environment variable is not set" while the file holding it sat right here.
+
 `run.sh` mounts the repository root into the published image and enters this
 directory, because the framework resolves `-t taskflows.iac_triage` with
 `importlib.resources.files()` — every component of a dotted name has to be a
