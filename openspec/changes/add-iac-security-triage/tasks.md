@@ -70,23 +70,47 @@ on a commit timestamp.
       same bucket, so this is the main place independence can be lost; verify all 7 alerts
       have a recorded outcome and a non-empty comment, and that no below-threshold alert
       was triaged
+      (1 of 7 recorded so far, as issue #48 for alert #1 — and its verdict was written by
+      a model at the repo owner's instruction, not by a human. That entry is marked
+      `verdict_author: model` and cannot support an agreement figure; 3.2 must carry the
+      field and 3.4 must exclude such entries from scoring. The remaining 6 are untriaged.)
 - [ ] 3.2 Implement the fixture export: read alert state via `gh api
       /repos/:owner/:repo/code-scanning/alerts`, join to normalised records by key, and
       emit `fixtures/ground-truth.yaml` with `verdict`, `rationale` and `evidence` per
       key; verify the fixture contains exactly 7 entries, that every key resolves to a
       *triage-eligible* finding in the baseline fixture, that no below-threshold or
       vendored finding appears, and that the export predates any triage run
-- [ ] 3.3 Add schema validation for the fixture, constraining `verdict` to the vocabulary
+      (`export_fixture.py` implemented and tested against the baseline corpus: a full
+      export yields 7 entries, ineligible findings are reported rather than exported, and
+      the export refuses to run once `runs/` exists. Entries additionally carry
+      `verdict_author`, since the corpus is now mixed. The live export yields 1 of 7
+      entries and stays unchecked until 3.1 supplies the remaining 6.
+      Two things the task did not anticipate, both resolved in code: an *open* alert has
+      nowhere to record a rationale — the API accepts a comment only with a dismissal — so
+      an open finding's verdict is read from the issue it was promoted to, joined by the
+      finding key in the issue body; and the two sides spell paths differently, since
+      Trivy's `Target` composes the module instance into the path while the alert reports
+      the module source, so the join falls back to filename when the exact path misses.)
+- [x] 3.3 Add schema validation for the fixture, constraining `verdict` to the vocabulary
       in `vocabulary.py` and requiring a non-empty `rationale`; verify it rejects a
       fixture with a misspelled verdict and one with an empty rationale
-- [ ] 3.4 Implement the scoring tool that compares automated verdicts against the fixture
+      (`fixture_schema.py`; also rejects an unknown `verdict_author`, duplicate keys and
+      missing fields)
+- [x] 3.4 Implement the scoring tool that compares automated verdicts against the fixture
       and reports agreement per rule alongside the number of findings each figure covers;
       verify it against a *deliberately disagreeing* input — a copy of the fixture with
       known verdicts altered — and confirm it reports the expected sub-100% figure and the
       correct per-rule counts. Scoring the fixture against itself is not a sufficient
       test: it passes on a scorer that returns 100% unconditionally
-- [ ] 3.5 Verify a finding from a rule absent from the fixture is excluded from agreement
+      (`score.py`; the disagreeing-run test asserts 50% overall, `AWS-0087` at 0% and
+      `AWS-0164` at 50% over n=2 with the differing key named. It also excludes entries
+      whose `verdict_author` is not `human`, so a partly model-authored fixture yields an
+      honest figure over the part that is not — added scope beyond this task, forced by
+      the model-authored entry recorded in 3.1.)
+- [x] 3.5 Verify a finding from a rule absent from the fixture is excluded from agreement
       figures and flagged, using a synthetic record
+      (reported as `unscored_rules`; the test asserts the unlabelled finding does not
+      inflate the figure it is absent from)
 - [ ] 3.6 Verify the export is repeatable rather than a one-off: lowering the threshold in
       configuration and re-running 3.1/3.2 over the newly eligible findings extends the
       fixture without invalidating existing entries (`design.md - Decision 5`)
