@@ -1,8 +1,14 @@
 # IaC security triage
 
 Tooling for the `iac-security-triage` capability
-(`openspec/specs/iac-security-triage/spec.md`). Everything here is stdlib Python;
-no framework, no network, no cloud credentials.
+(`openspec/specs/iac-security-triage/spec.md`). Everything in this directory is
+stdlib Python: no framework, no network, no cloud credentials.
+
+`taskflow/` is the exception and the boundary is deliberate. It holds the only
+part that needs `seclab-taskflow-agent`, Docker and a model token, so replacing
+the orchestration engine would touch that directory and nothing else — the
+scanner, the identity scheme, the fixtures and the scoring do not know it
+exists (`design.md - Decision 10`).
 
 ## Pipeline
 
@@ -21,7 +27,17 @@ export_fixture.py   joins recorded verdicts onto the eligible findings
         |           -> fixtures/ground-truth.yaml (schema-checked)
         v
 score.py   agreement per rule, each figure with the count behind it
+        ^
+        |
+taskflow/   the agent's verdicts, for the same findings, to be scored against
+            the fixture above -- see taskflow/README.md
 ```
+
+The two arms meet at `score.py`, and the order between them is the point: the
+fixture is recorded from human triage *before* the agent runs over the same
+findings, because a verdict written after seeing the agent's answer cannot
+measure it. `taskflow/` is scoped to the findings whose ground truth already
+exists, so the rest stay clean until they are triaged.
 
     trivy config --format json . \
       | python3 security/iac-security-triage/normalise.py
@@ -126,6 +142,7 @@ measurement.
 ## Tests
 
     python3 -m unittest discover -s security/iac-security-triage/tests
+    python3 -m unittest discover -s security/iac-security-triage/taskflow/tests
 
 They run against the committed baseline fixture, so they need neither Trivy nor
-AWS.
+AWS — nor, for the second suite, Docker or a model token.

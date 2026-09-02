@@ -119,25 +119,98 @@ on a commit timestamp.
 
 - [ ] 4.1 Stand up `seclab-taskflow-agent` via its Docker image and confirm the
       environment works by running the shipped echo taskflow
+      (image `ghcr.io/githubsecuritylab/seclab-taskflow-agent` v0.5.0 pulled and
+      driven by `taskflow/run.sh`. The echo taskflow loads, resolves its
+      personality and starts its MCP server, then stops at
+      `AI_API_TOKEN environment variable is not set` — every leg of the
+      environment is confirmed except the model call, which no token here can
+      exercise. Two container-ergonomics fixes were needed and are in `run.sh`:
+      the data directory is bound under `/data` rather than the image's default
+      `/root/.local/share`, since `/root` is mode 700 and an unprivileged user
+      cannot traverse into a mount beneath it, and the container runs as the
+      invoking user so the manifest does not come back root-owned.)
 - [ ] 4.2 Write the IaC triage personality defining the verdict vocabulary and requiring
       a rationale; verify it against a single hand-picked finding
-- [ ] 4.3 Write the taskflow: a `run:` task producing schema-validated `outputs` from the
+      (`taskflow/personalities/iac_triage.yaml`. The vocabulary is held in step
+      with `vocabulary.py` by a test rather than by care: a verdict class added
+      to one and not the other fails the suite. Verification against a finding
+      needs a model and is not done.)
+- [x] 4.3 Write the taskflow: a `run:` task producing schema-validated `outputs` from the
       normaliser, and an `over:` task fanning out across the eligible findings; verify
       `openspec`-independent offline linting and schema validation pass
+      (`taskflow/taskflows/iac_triage.yaml`; `run.sh --lint --strict` reports no
+      issues. Both `outputs` schemas were also validated against real data by a
+      live run — the manifest shows `findings.eligible` at 7 records and
+      `context.documents` at 7 — so this is schema validation exercised, not
+      merely linted. Two constraints the task did not anticipate, both resolved:
+      a `run:` field is *not* Jinja-templated, so configuration reaches the shell
+      tasks through `env:`, which is; and the framework resolves a dotted name
+      with `importlib.resources.files()`, so every path component must be a legal
+      Python identifier — `iac-security-triage` is not, which is why `run.sh`
+      enters `taskflow/` and addresses `taskflows.iac_triage` from below the
+      hyphen.)
 - [ ] 4.4 Supply `docs/adr/` and `docs/design/` as triage context; verify the run
       completes and at least one rationale cites a decision record
-- [ ] 4.5 Verify a verdict produced without a rationale is discarded and recorded as
+      (`taskflow/context.py` collects all 7 documents and a live run captured
+      them into the manifest, so the context reaches the prompt. The framework
+      ships no filesystem toolbox, so context is pushed into the prompt rather
+      than fetched by the agent — which is the stricter arrangement: the agent
+      has no tools at all, so it cannot read the alert state holding a verdict it
+      is about to be scored against. `--without-context` is wired now as the
+      control arm 5.2 will need. Whether a rationale cites a record needs a
+      model.)
+- [x] 4.5 Verify a verdict produced without a rationale is discarded and recorded as
       undetermined, by testing with a deliberately non-compliant response
+      (enforced twice and tested against six non-compliant responses: absent
+      rationale, whitespace-only rationale, verdict outside the vocabulary, a
+      branch that produced nothing, a non-JSON reply, and a JSON string. The
+      taskflow's `outputs` schema rejects the branch, and
+      `collect_verdicts.py` applies the rule again over every branch — the schema
+      cannot catch a whitespace-only rationale or a branch that failed for an
+      unrelated reason, and the property should not rest on one line of YAML
+      staying right. Discarded is not dropped: the finding is still reported, as
+      `undetermined`, carrying `discarded_verdict` and `discarded_because`.)
 - [ ] 4.6 Verify no alert state changes during a full run — the agent's output is carried
       by the issues of group 6, not by dismissals
-- [ ] 4.8 Add the triage workflow with `workflow_dispatch` as its **only** trigger
+      (structurally true and asserted by test rather than observed: the agent is
+      given no toolboxes at all, so there is no path from a run to a dismissal
+      whatever a prompt says, and the triage workflow requests only
+      `contents: read`. Both are held by tests. Observed across two runs that
+      reached the model boundary — all 20 alerts still `open` afterwards — but a
+      *full* run needs a token, so the task stays open.)
+- [x] 4.8 Add the triage workflow with `workflow_dispatch` as its **only** trigger
       (`design.md - Decision 11`); verify it is not reachable from any push, pull request
       or schedule event, that `AI_API_TOKEN` is referenced only by this workflow, and that
       a fork pull request therefore cannot cause it to run
-- [ ] 4.9 Verify the scan workflow has no dependency on the triage workflow: findings are
+      (`.github/workflows/iac-security-triage.yml`, verified by
+      `taskflow/tests/test_workflows.py` rather than by inspection, since the
+      token argument holds only while the trigger list stays exactly
+      `workflow_dispatch`: the tests assert that, name `push`,
+      `pull_request`, `pull_request_target` and `schedule` explicitly as absent,
+      and assert that no other workflow file mentions `AI_API_TOKEN`. The
+      workflow also requests only `contents: read`, so propose-only is enforced
+      by permissions and not only by the agent having no tools.)
+- [x] 4.9 Verify the scan workflow has no dependency on the triage workflow: findings are
       published on a pull request with triage never invoked
-- [ ] 4.7 Verify the pipeline degrades safely by running with model access removed, and
+      (already true in the live repo and now held by test: all 20 alerts were
+      published by the scan workflow before the triage workflow existed, so
+      "published with triage never invoked" is a matter of record. The tests
+      assert the scan declares no `needs`, no `workflow_call` and no
+      `workflow_run`, and does not name the triage workflow file — checked by
+      filename rather than by substring, since the scan legitimately mentions
+      `security/iac-security-triage/` in a comment about the baseline fixture.)
+- [x] 4.7 Verify the pipeline degrades safely by running with model access removed, and
       confirming scan findings are still published and affected findings left untriaged
+      (run for real rather than simulated — this environment has no
+      `AI_API_TOKEN`. Both deterministic tasks completed, the `verdicts` task
+      failed with `AI_API_TOKEN environment variable is not set`, the run
+      manifest recorded `status: failed` with the findings and context outputs
+      intact, and all 20 alerts remained `open` and published. One consequence
+      worth recording: `collect_verdicts.py` refuses a manifest with no verdicts
+      rather than writing an empty file, because an empty file in `runs/` would
+      tell `export_fixture.py` that triage had happened and ground truth could no
+      longer be recorded independently. A run that produced nothing must not
+      spend that guard; a test holds this.)
 
 ## 5. Measurement
 
