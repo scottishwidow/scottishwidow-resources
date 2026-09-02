@@ -1,0 +1,93 @@
+name: 'IaC security triage'
+
+# `workflow_dispatch` is the ONLY trigger, and that is a security boundary
+# rather than a preference (design.md - Decision 11).
+#
+# This is the one workflow in the repository that reads AI_API_TOKEN. A fork
+# pull request cannot reach a secret in a workflow it cannot trigger, so
+# confining the token to a dispatch-only workflow is what makes the token safe
+# in a public repository. Adding `pull_request`, `push` or `schedule` here would
+# undo that in a single line -- so if a timer is ever wanted, put it in its own
+# workflow and leave this one unreachable from an event.
+#
+# It is also why the scan degrades independently: the scan workflow does not
+# reference this one, so triage being broken, unfunded or unrun never stops a
+# finding from being published (tasks.md 4.9).
+on:
+  workflow_dispatch:
+    inputs:
+      scope_keys:
+        description: >-
+          Comma-separated finding keys to triage. Empty triages every eligible
+          finding. Defaults to the taskflow's own scope.
+        required: false
+        default: ''
+      report:
+        description: >-
+          Trivy report to triage. Empty runs a live scan; the default replays
+          the committed baseline, which is what makes a run reproducible.
+        required: false
+        default: '../fixtures/baseline-scan.json'
+
+# Propose-only. Triage forms verdicts and writes them to an artifact; it does
+# not resolve an alert and does not open an issue. `security-events` is absent
+# deliberately -- the taskflow gives its agent no toolboxes, so it cannot reach
+# alert state, and this permissions block means the job could not either.
+permissions:
+  contents: read
+
+concurrency:
+  # Never two triage runs at once: they would spend inference twice on one
+  # corpus and race over the same verdict artifact.
+  group: ${{ github.workflow }}
+  cancel-in-progress: false
+
+jobs:
+  triage:
+    name: Triage eligible findings
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Run triage taskflow
+        working-directory: security/iac-security-triage/taskflow
+        env:
+          AI_API_TOKEN: ${{ secrets.AI_API_TOKEN }}
+        run: |
+          ./run.sh \
+            -g report='${{ inputs.report }}' \
+            -g scope_keys='${{ inputs.scope_keys }}'
+
+      - name: Collect verdicts
+        # The run above fails if inference is unavailable. Collect whatever it
+        # produced anyway: a partial run's verdicts are still worth having, and
+        # a finding with no verdict is recorded as undetermined rather than
+        # silently dropped.
+        #
+        # continue-on-error because a run that failed *before* the model step
+        # has no verdicts at all, and collect_verdicts.py refuses rather than
+        # writing an empty file -- an empty file in runs/ would tell
+        # export_fixture.py that triage has happened and ground truth can no
+        # longer be recorded independently. The job's failure is the one above;
+        # this step should not add a second, more confusing one.
+        if: always()
+        continue-on-error: true
+        working-directory: security/iac-security-triage/taskflow
+        run: |
+          ./scan.sh > /tmp/findings.json
+          python3 collect_verdicts.py --latest \
+            --findings /tmp/findings.json \
+            -o "../runs/${{ github.run_id }}.json"
+        env:
+          TRIVY_REPORT: ${{ inputs.report }}
+
+      - name: Upload verdicts
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: triage-verdicts-${{ github.run_id }}
+          path: security/iac-security-triage/runs/
+          if-no-files-found: warn

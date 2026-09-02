@@ -1,0 +1,285 @@
+"""Tests for the triage taskflow's deterministic parts.
+
+Everything here runs offline against the committed baseline: no Docker, no
+model, no network. What cannot be tested this way -- that the model returns a
+verdict at all -- is not tested here, on purpose. What *is* tested is every
+place a bad model response is supposed to be caught.
+"""
+
+from __future__ import annotations
+
+import json
+import pathlib
+import sys
+import unittest
+
+HERE = pathlib.Path(__file__).resolve().parent
+TASKFLOW_DIR = HERE.parent
+TRIAGE_DIR = TASKFLOW_DIR.parent
+REPO_ROOT = TRIAGE_DIR.parents[1]
+
+sys.path.insert(0, str(TASKFLOW_DIR))
+sys.path.insert(0, str(TRIAGE_DIR))
+
+import yaml  # noqa: E402
+
+import collect_verdicts  # noqa: E402
+import context  # noqa: E402
+import normalise  # noqa: E402
+import vocabulary  # noqa: E402
+
+TASKFLOW_PATH = TASKFLOW_DIR / "taskflows" / "iac_triage.yaml"
+PERSONALITY_PATH = TASKFLOW_DIR / "personalities" / "iac_triage.yaml"
+BASELINE = TRIAGE_DIR / "fixtures" / "baseline-scan.json"
+
+
+def load(path: pathlib.Path) -> dict:
+    return yaml.safe_load(path.read_text(encoding="utf-8"))
+
+
+def task_by_id(taskflow: dict, task_id: str) -> dict:
+    for entry in taskflow["taskflow"]:
+        if entry["task"].get("id") == task_id:
+            return entry["task"]
+    raise AssertionError(f"no task with id {task_id!r}")
+
+
+class TaskflowShape(unittest.TestCase):
+    def setUp(self) -> None:
+        self.taskflow = load(TASKFLOW_PATH)
+
+    def test_declares_the_expected_three_tasks(self) -> None:
+        ids = [entry["task"].get("id") for entry in self.taskflow["taskflow"]]
+        self.assertEqual(ids, ["findings", "context", "verdicts"])
+
+    def test_only_the_verdict_task_uses_a_model(self) -> None:
+        """The deterministic half must stay deterministic."""
+        for task_id in ("findings", "context"):
+            task = task_by_id(self.taskflow, task_id)
+            self.assertIn("run", task, f"{task_id} should be a shell task")
+            self.assertNotIn("agents", task)
+
+    def test_the_agent_has_no_toolboxes(self) -> None:
+        """No toolbox is the reason a run cannot touch alert state (4.6)."""
+        verdicts = task_by_id(self.taskflow, "verdicts")
+        self.assertNotIn("toolboxes", verdicts)
+        self.assertNotIn("toolboxes", load(PERSONALITY_PATH))
+
+    def test_fans_out_over_eligible_findings_only(self) -> None:
+        """Vendored and below-threshold findings never reach a prompt."""
+        over = task_by_id(self.taskflow, "verdicts")["over"]
+        self.assertIn("outputs.findings.eligible", over)
+        self.assertNotIn("below_threshold", over)
+        self.assertNotIn("vendored", over)
+
+
+class VerdictVocabularyIsShared(unittest.TestCase):
+    """The schema, the prompt and vocabulary.py must not drift apart."""
+
+    def test_schema_enum_matches_the_vocabulary(self) -> None:
+        schema = task_by_id(load(TASKFLOW_PATH), "verdicts")["outputs"]
+        self.assertEqual(
+            sorted(schema["properties"]["verdict"]["enum"]),
+            sorted(vocabulary.VERDICTS),
+        )
+
+    def test_personality_names_every_verdict(self) -> None:
+        text = PERSONALITY_PATH.read_text(encoding="utf-8")
+        for verdict in vocabulary.VERDICTS:
+            self.assertIn(verdict, text, f"{verdict} is not described to the agent")
+
+    def test_schema_requires_a_rationale(self) -> None:
+        schema = task_by_id(load(TASKFLOW_PATH), "verdicts")["outputs"]
+        self.assertIn("rationale", schema["required"])
+        self.assertEqual(schema["properties"]["rationale"]["minLength"], 1)
+
+
+class ScopeSelection(unittest.TestCase):
+    """The `over:` expression is what confines a run to named findings."""
+
+    def setUp(self) -> None:
+        self.taskflow = load(TASKFLOW_PATH)
+        self.findings = normalise.normalise(json.loads(BASELINE.read_text(encoding="utf-8")))
+
+    def select(self, scope_keys: str) -> list[dict]:
+        import jinja2
+
+        over = task_by_id(self.taskflow, "verdicts")["over"]
+        env = jinja2.Environment()
+        rendered = env.compile_expression(over, undefined_to_none=False)(
+            globals={**self.taskflow["globals"], "scope_keys": scope_keys},
+            outputs={"findings": self.findings},
+        )
+        return list(rendered)
+
+    def test_default_scope_is_the_two_recorded_findings(self) -> None:
+        keys = [f["key"] for f in self.select(self.taskflow["globals"]["scope_keys"])]
+        self.assertEqual(
+            keys,
+            [
+                "AWS-0164:module.vpc:aws_subnet.public_zone_1",
+                "AWS-0164:module.vpc:aws_subnet.public_zone_2",
+            ],
+        )
+
+    def test_empty_scope_selects_every_eligible_finding(self) -> None:
+        self.assertEqual(len(self.select("")), 7)
+
+    def test_scope_cannot_reach_an_ineligible_finding(self) -> None:
+        """A below-threshold key named in the scope selects nothing."""
+        below = self.findings["below_threshold"][0]["key"]
+        self.assertEqual(self.select(below), [])
+
+
+class DiscardRule(unittest.TestCase):
+    """A verdict without a rationale is discarded, not accepted (4.5)."""
+
+    findings = {"AWS-0164:module.vpc:aws_subnet.public_zone_1": "AWS-0164"}
+
+    def record(self, result: object, item: int = 0) -> dict:
+        return collect_verdicts.branch_to_record(
+            {"model": "test", "item": item, "result": result}, self.findings
+        )
+
+    def good(self, **overrides: object) -> dict:
+        base = {
+            "key": "AWS-0164:module.vpc:aws_subnet.public_zone_1",
+            "verdict": "real-judgment",
+            "rationale": "Public IPs on these subnets are load-bearing for the NAT-less design.",
+            "evidence": ["docs/adr/0002-self-host-nextcloud-on-t4g-small.md"],
+        }
+        base.update(overrides)
+        return base
+
+    def test_a_complete_verdict_survives(self) -> None:
+        record = self.record(self.good())
+        self.assertEqual(record["verdict"], "real-judgment")
+        self.assertNotIn("discarded_because", record)
+        self.assertEqual(record["rule_id"], "AWS-0164")
+
+    def test_missing_rationale_becomes_undetermined(self) -> None:
+        result = self.good()
+        del result["rationale"]
+        record = self.record(result)
+        self.assertEqual(record["verdict"], "undetermined")
+        self.assertEqual(record["discarded_because"], collect_verdicts.DISCARD_MISSING_RATIONALE)
+        self.assertEqual(record["discarded_verdict"], "real-judgment")
+
+    def test_whitespace_rationale_becomes_undetermined(self) -> None:
+        """The schema's minLength passes this; the collector must not."""
+        record = self.record(self.good(rationale="   \n\t "))
+        self.assertEqual(record["verdict"], "undetermined")
+        self.assertEqual(record["discarded_because"], collect_verdicts.DISCARD_BLANK_RATIONALE)
+
+    def test_verdict_outside_the_vocabulary_becomes_undetermined(self) -> None:
+        record = self.record(self.good(verdict="probably-fine"))
+        self.assertEqual(record["verdict"], "undetermined")
+        self.assertEqual(record["discarded_because"], collect_verdicts.DISCARD_UNKNOWN_VERDICT)
+
+    def test_a_branch_that_produced_nothing_becomes_undetermined(self) -> None:
+        record = self.record(None)
+        self.assertEqual(record["verdict"], "undetermined")
+        self.assertEqual(record["discarded_because"], collect_verdicts.DISCARD_NO_RESULT)
+
+    def test_a_non_json_response_becomes_undetermined(self) -> None:
+        record = self.record("I think this one is fine, honestly.")
+        self.assertEqual(record["verdict"], "undetermined")
+        self.assertEqual(record["discarded_because"], collect_verdicts.DISCARD_UNPARSEABLE)
+
+    def test_a_discarded_finding_is_still_reported(self) -> None:
+        """Discarding a verdict must not make the finding disappear."""
+        record = self.record(None)
+        self.assertEqual(record["key"], "AWS-0164:module.vpc:aws_subnet.public_zone_1")
+
+    def test_a_json_string_response_is_decoded(self) -> None:
+        record = self.record(json.dumps(self.good()))
+        self.assertEqual(record["verdict"], "real-judgment")
+
+    def test_evidence_is_always_a_list(self) -> None:
+        record = self.record(self.good(evidence="docs/adr/0001-ansible-over-ssm.md"))
+        self.assertEqual(record["evidence"], ["docs/adr/0001-ansible-over-ssm.md"])
+
+
+class CollectFromManifest(unittest.TestCase):
+    def test_reads_the_named_fan_in_output(self) -> None:
+        manifest = {
+            "outputs": {
+                "verdicts": [
+                    {
+                        "model": "m",
+                        "item": 0,
+                        "result": {
+                            "key": "AWS-0164:module.vpc:aws_subnet.public_zone_1",
+                            "verdict": "not-applicable",
+                            "rationale": "Recorded decision covers this.",
+                            "evidence": [],
+                        },
+                    },
+                    {"model": "m", "item": 1, "result": None},
+                ]
+            }
+        }
+        records = collect_verdicts.collect(manifest, DiscardRule.findings)
+        self.assertEqual(len(records), 2)
+        self.assertEqual(records[0]["verdict"], "not-applicable")
+        self.assertEqual(records[1]["verdict"], "undetermined")
+
+    def test_a_manifest_without_the_output_fails_loudly(self) -> None:
+        """A run that produced no verdicts must not look like a run that did.
+
+        This is the shape of a run that failed before the model step -- the
+        degradation case of 4.7. It has to raise rather than return an empty
+        list, because an empty list would be written to `runs/`, and a non-empty
+        `runs/` is what tells `export_fixture.py` that a triage run has already
+        happened and ground truth can no longer be recorded independently. A run
+        that produced nothing must not spend that guard.
+        """
+        with self.assertRaises(SystemExit):
+            collect_verdicts.collect({"outputs": {"findings": {}, "context": {}}}, {})
+
+    def test_records_are_scoreable(self) -> None:
+        """The output shape is the one score.py documents: key, rule_id, verdict."""
+        record = collect_verdicts.branch_to_record(
+            {
+                "model": "m",
+                "item": 0,
+                "result": {
+                    "key": "AWS-0164:module.vpc:aws_subnet.public_zone_1",
+                    "verdict": "real-mechanical",
+                    "rationale": "why",
+                },
+            },
+            DiscardRule.findings,
+        )
+        self.assertLessEqual({"key", "rule_id", "verdict"}, set(record))
+
+
+class TriageContext(unittest.TestCase):
+    def test_collects_the_decision_records(self) -> None:
+        collected = context.collect(REPO_ROOT)
+        paths = [d["path"] for d in collected["documents"]]
+        self.assertTrue(collected["included"])
+        self.assertEqual(collected["missing_dirs"], [])
+        self.assertTrue(any(p.startswith("docs/adr/") for p in paths))
+        self.assertTrue(all(d["text"] for d in collected["documents"]))
+
+    def test_documents_are_ordered_stably(self) -> None:
+        """Two runs must present the same context in the same order."""
+        first = [d["path"] for d in context.collect(REPO_ROOT)["documents"]]
+        second = [d["path"] for d in context.collect(REPO_ROOT)["documents"]]
+        self.assertEqual(first, second)
+        self.assertEqual(first, sorted(first))
+
+    def test_without_context_yields_no_documents(self) -> None:
+        collected = context.collect(REPO_ROOT, include=False)
+        self.assertEqual(collected["documents"], [])
+        self.assertFalse(collected["included"])
+
+    def test_a_missing_directory_is_reported_not_silent(self) -> None:
+        collected = context.collect(pathlib.Path("/nonexistent"), include=True)
+        self.assertEqual(collected["documents"], [])
+        self.assertEqual(sorted(collected["missing_dirs"]), sorted(context.CONTEXT_DIRS))
+
+
+if __name__ == "__main__":
+    unittest.main()

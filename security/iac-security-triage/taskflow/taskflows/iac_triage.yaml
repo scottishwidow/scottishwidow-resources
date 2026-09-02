@@ -1,0 +1,191 @@
+# SPDX-License-Identifier: MIT
+#
+# IaC triage, propose-only (tasks.md 4.3, design.md - Decision 10).
+#
+# Three tasks, and only the middle one involves a model:
+#
+#   findings  run:  scan + normalise + partition + severity gate  (deterministic)
+#   context   run:  the repository's decision records              (deterministic)
+#   verdicts  over: outputs.findings.eligible, one branch per finding
+#
+# The pipeline assigns no verdict to anything the deterministic half excluded:
+# `over:` reads `eligible`, so vendored and below-threshold findings are never
+# in a prompt. That is the ownership-then-severity order of Decision 2 holding
+# at the point it costs money.
+#
+# Nothing here writes to alert state or to the tracker (tasks.md 4.6). A run
+# produces a manifest; `collect_verdicts.py` turns that into verdict records and
+# the group-6 step files them as issues. Read that as the safety property it is:
+# the agent has no toolboxes at all, so there is no path from a run to a
+# dismissal even if the prompt asked for one.
+
+seclab-taskflow-agent:
+  version: "1.0"
+  filetype: taskflow
+
+globals:
+  # Which report to triage. The committed baseline by default, so a run is
+  # reproducible and a score refers to a known corpus. Override for a live scan:
+  #   -g report=""
+  report: "../fixtures/baseline-scan.json"
+
+  # Restrict the run to named finding keys, comma-separated; empty means every
+  # eligible finding.
+  #
+  # Currently the two AWS-0164 subnet findings, and the reason is ordering
+  # rather than cost. A finding the agent has judged cannot afterwards be given
+  # an independent human verdict -- whoever labels it has seen the answer -- so
+  # the run is confined to the findings whose ground truth is already recorded.
+  # The other five stay clean until they are triaged in code scanning, which is
+  # the repeatability that tasks.md 3.6 asks for, exercised rather than argued.
+  #
+  # Widen it by adding keys, or clear it for the whole eligible set:
+  #   -g scope_keys=""
+  scope_keys: "AWS-0164:module.vpc:aws_subnet.public_zone_1,AWS-0164:module.vpc:aws_subnet.public_zone_2"
+
+  # The control arm of the deferred context comparison (tasks.md 5.2):
+  #   -g context_flag=--without-context
+  context_flag: ""
+
+taskflow:
+  - task:
+      name: findings
+      id: findings
+      must_complete: true
+      env:
+        TRIVY_REPORT: "{{ globals.report }}"
+      run: |
+        ./scan.sh
+      # The partition's shape is a contract, not a convention: a normaliser that
+      # stopped emitting `eligible` would otherwise fan out over nothing and
+      # report a clean run.
+      outputs:
+        type: object
+        properties:
+          severity_threshold:
+            type: string
+          eligible:
+            type: array
+            items:
+              type: object
+              properties:
+                key: {type: string, minLength: 1}
+                rule_id: {type: string, minLength: 1}
+                title: {type: string}
+                severity: {type: string}
+                message: {type: string}
+                resolution: {type: string}
+                primary_url: {type: string}
+                module_address: {type: string}
+                resource_address: {type: string}
+                code_path: {type: string}
+                start_line: {type: integer}
+                triage_status: {const: eligible}
+                code:
+                  type: array
+                  items:
+                    type: object
+                    properties:
+                      number: {type: integer}
+                      content: {type: string}
+                    required: [number, content]
+              required:
+                - key
+                - rule_id
+                - severity
+                - message
+                - code_path
+                - triage_status
+          below_threshold: {type: array}
+          vendored: {type: array}
+          duplicate_first_party_keys: {type: array}
+        required: [eligible, below_threshold, vendored, severity_threshold]
+
+  - task:
+      name: context
+      id: context
+      must_complete: true
+      env:
+        CONTEXT_FLAG: "{{ globals.context_flag }}"
+      run: |
+        python3 context.py ${CONTEXT_FLAG:-}
+      outputs:
+        type: object
+        properties:
+          documents:
+            type: array
+            items:
+              type: object
+              properties:
+                path: {type: string, minLength: 1}
+                text: {type: string}
+              required: [path, text]
+          included: {type: boolean}
+          missing_dirs: {type: array}
+        required: [documents, included]
+
+  - task:
+      name: verdicts
+      id: verdicts
+      repeat_prompt: true
+      # Scope, if set, is applied here rather than in the normaliser: the
+      # partition is what the pipeline believes about the findings and should
+      # not change because one run was narrower than another.
+      over: >-
+        outputs.findings.eligible
+        if not globals.scope_keys
+        else (outputs.findings.eligible
+              | selectattr('key', 'in', globals.scope_keys.split(','))
+              | list)
+      agents:
+        - personalities.iac_triage
+      # The verdict is the agent's answer, not a tool result -- it calls no
+      # tools -- so the response text is what gets captured and schema-checked.
+      capture: response
+      outputs:
+        type: object
+        properties:
+          key: {type: string, minLength: 1}
+          verdict:
+            enum: [not-applicable, real-mechanical, real-judgment, undetermined]
+          # minLength is the schema half of the discard rule; the other half is
+          # in collect_verdicts.py, which also rejects whitespace and does not
+          # depend on this line being right.
+          rationale: {type: string, minLength: 1}
+          evidence:
+            type: array
+            items: {type: string}
+        required: [key, verdict, rationale]
+        additionalProperties: false
+      user_prompt: |
+        Triage this finding.
+
+        Finding key: {{ result.key }}
+        Rule: {{ result.rule_id }} — {{ result.title }}
+        Severity: {{ result.severity }}
+        What the scanner reports: {{ result.message }}
+        The scanner's suggested resolution: {{ result.resolution }}
+        Rule documentation: {{ result.primary_url }}
+
+        Where it is:
+          file: {{ result.code_path }} (line {{ result.start_line }})
+          module: {{ result.module_address }}
+          resource: {{ result.resource_address }}
+
+        The code it fired on:
+        {% for line in result.code %}
+        {{ line.number }}: {{ line.content }}
+        {%- endfor %}
+
+        {% if outputs.context.documents -%}
+        The repository's recorded decisions follow. Cite by path any you rely on.
+        {% for doc in outputs.context.documents %}
+        ===== {{ doc.path }} =====
+        {{ doc.text }}
+        {% endfor %}
+        {%- else -%}
+        No decision records are available for this run. Judge the finding on the
+        code alone, and use `undetermined` where that is not enough.
+        {%- endif %}
+
+        Reply with the JSON object described in your task, and nothing else.
