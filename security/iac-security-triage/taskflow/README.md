@@ -7,7 +7,7 @@ with a rationale. Propose-only — it changes no alert and files no issue.
 ## Running it
 
 ```sh
-export AI_API_TOKEN=<a GitHub PAT with Copilot access>
+export AI_API_TOKEN=<an Anthropic API key>
 ./run.sh                        # the scoped, reproducible, propose-only run
 ./run.sh --lint --strict        # validate offline: no model, no token, no network
 ./run.sh -g scope_keys=         # every eligible finding
@@ -21,13 +21,36 @@ The token can instead go in a `.env` file in this directory, which the framework
 reads itself (`load_dotenv(find_dotenv(usecwd=True))`) and which `.gitignore`
 excludes:
 
-    AI_API_TOKEN=<a GitHub PAT with Copilot access>
+    AI_API_TOKEN=<an Anthropic API key>
 
 `run.sh` forwards a token with a bare `-e AI_API_TOKEN`, and only when the host
 has one. That detail matters: `load_dotenv` does not override a variable already
 present in the environment, and an empty string counts as present, so passing
 `-e AI_API_TOKEN=""` would shadow the `.env` and fail with "AI_API_TOKEN
 environment variable is not set" while the file holding it sat right here.
+
+## The model
+
+`model_configs/iac_triage.yaml` selects Anthropic's Messages API, and
+`taskflows/iac_triage.yaml` names its logical model on the `verdicts` task.
+
+The framework's own documentation asks for a GitHub PAT with Copilot access,
+which is a fact about its *default* rather than a requirement: `capi.py`
+registers `api.githubcopilot.com` as the default provider, and the engine also
+ships an Anthropic backend driving `/v1/messages` through the official SDK.
+Selecting it is two fields — `backend: anthropic_sdk` and an `endpoint` — and it
+is the `endpoint` that makes authentication right: `get_provider()` does not
+recognise `api.anthropic.com`, so the token goes out as `x-api-key` rather than
+as a bearer token an Anthropic endpoint would reject.
+
+The token keeps the framework's own variable name, `AI_API_TOKEN`, and holds an
+Anthropic API key. A provider-specific name would read better and cost more: the
+fork boundary asserted in `tests/test_workflows.py` is written around one
+variable, and a second name is a second thing that has to stay confined.
+
+Swapping models is a one-line edit to `models:` in the model config. Reverting
+to Copilot is deleting the `model_config:` line from the taskflow and supplying
+a PAT.
 
 `run.sh` mounts the repository root into the published image and enters this
 directory, because the framework resolves `-t taskflows.iac_triage` with
@@ -104,6 +127,7 @@ than argued.
 | `scan.sh` | scan or replay, then normalise. A `run:` field is not templated, so configuration arrives as `TRIVY_REPORT` |
 | `context.py` | the decision records, as JSON. `--without-context` is the control arm of the comparison deferred in 5.2 |
 | `collect_verdicts.py` | run manifest → scoreable verdict records, applying the discard rule |
+| `model_configs/iac_triage.yaml` | the model and the API behind it: Anthropic, not the framework's Copilot default |
 | `run.sh` | the Docker invocation, with the mounts the above needs |
 | `.agent-data/` | gitignored. The agent's data directory, bound out of the container so the run manifest survives it |
 

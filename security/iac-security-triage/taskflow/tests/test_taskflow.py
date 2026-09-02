@@ -30,6 +30,7 @@ import vocabulary  # noqa: E402
 
 TASKFLOW_PATH = TASKFLOW_DIR / "taskflows" / "iac_triage.yaml"
 PERSONALITY_PATH = TASKFLOW_DIR / "personalities" / "iac_triage.yaml"
+MODEL_CONFIG_PATH = TASKFLOW_DIR / "model_configs" / "iac_triage.yaml"
 BASELINE = TRIAGE_DIR / "fixtures" / "baseline-scan.json"
 
 
@@ -92,6 +93,48 @@ class VerdictVocabularyIsShared(unittest.TestCase):
         schema = task_by_id(load(TASKFLOW_PATH), "verdicts")["outputs"]
         self.assertIn("rationale", schema["required"])
         self.assertEqual(schema["properties"]["rationale"]["minLength"], 1)
+
+
+class ModelSelection(unittest.TestCase):
+    """The model config is load-bearing in two ways a reviewer would not see.
+
+    The framework defaults to Copilot, so an unreferenced model config leaves
+    the run wanting a GitHub PAT; and a task with no `model:` silently falls
+    back to the framework's own default rather than to anything named here.
+    """
+
+    def setUp(self) -> None:
+        self.taskflow = load(TASKFLOW_PATH)
+        self.config = load(MODEL_CONFIG_PATH)
+
+    def test_the_taskflow_references_the_model_config(self) -> None:
+        self.assertEqual(self.taskflow["model_config"], "model_configs.iac_triage")
+
+    def test_the_verdict_task_names_a_configured_model(self) -> None:
+        """A `model:` absent here resolves to the framework's DEFAULT_MODEL."""
+        model = task_by_id(self.taskflow, "verdicts").get("model")
+        self.assertIn(model, self.config["models"])
+
+    def test_the_backend_is_the_anthropic_messages_api(self) -> None:
+        self.assertEqual(self.config["backend"], "anthropic_sdk")
+
+    def test_every_model_is_sent_to_an_unregistered_endpoint(self) -> None:
+        """The endpoint is what selects `x-api-key` over a bearer token.
+
+        `capi.get_provider()` returns `bearer_auth=False` only for a host it
+        does not recognise, and the Anthropic backend sends the token natively
+        only then. A registered host here would ship the key as a bearer token
+        to an API that expects neither.
+        """
+        for name in self.config["models"]:
+            settings = self.config["model_settings"][name]
+            self.assertEqual(settings["endpoint"], "https://api.anthropic.com")
+
+    def test_settings_name_only_configured_models(self) -> None:
+        """The framework rejects the config outright otherwise."""
+        self.assertLessEqual(
+            set(self.config.get("model_settings", {})), set(self.config["models"])
+        )
 
 
 class ScopeSelection(unittest.TestCase):

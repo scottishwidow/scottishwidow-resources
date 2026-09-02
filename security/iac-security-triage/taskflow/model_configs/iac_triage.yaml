@@ -1,0 +1,47 @@
+# SPDX-License-Identifier: MIT
+#
+# The model behind the `verdicts` task (tasks.md 4.1).
+#
+# The framework defaults to GitHub Copilot -- `capi.py` registers
+# `api.githubcopilot.com` as its default provider, which is why its own docs ask
+# for a GitHub PAT with Copilot access. Nothing else about the framework
+# requires one: it ships an Anthropic backend driving `/v1/messages` through the
+# official SDK, and this file selects it.
+#
+# `endpoint` is what makes the authentication right. `capi.get_provider()` looks
+# the host up in its provider registry, and `api.anthropic.com` is not in it, so
+# it returns a generic provider with `bearer_auth=False` -- and the backend then
+# lets the Anthropic SDK send the token as `x-api-key`, which is what the API
+# wants. Point this at a registered host instead and the token would go out as
+# `Authorization: Bearer` against an endpoint expecting neither.
+#
+# The token still arrives as `AI_API_TOKEN`, the framework's standard variable,
+# rather than under a provider-specific name. That is deliberate: the workflow
+# boundary in `tests/test_workflows.py` -- the one that keeps a fork away from
+# the token in a public repository -- is written around a single variable name,
+# and a second name would be a second thing to keep confined.
+#
+# The value is an Anthropic API key. To use Copilot instead, delete this file's
+# reference from `taskflows/iac_triage.yaml` and supply a PAT.
+
+seclab-taskflow-agent:
+  version: "1.0"
+  filetype: model_config
+
+# The Anthropic Messages API, not the OpenAI-shaped chat-completions surface.
+backend: anthropic_sdk
+
+models:
+  # Logical name -> provider model ID. `taskflows/iac_triage.yaml` names the
+  # logical one, so a model swap happens here and nowhere else.
+  triage: claude-sonnet-4-5
+
+model_settings:
+  triage:
+    endpoint: https://api.anthropic.com
+    # Every finding's prompt carries the same prefix -- the personality, then
+    # the repository's decision records -- so caching that prefix is the
+    # difference between paying for the ADRs once and paying per finding. On by
+    # default in the backend; named here because it is a cost property of *this*
+    # pipeline's shape, not an incidental default.
+    prompt_caching: true

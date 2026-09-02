@@ -23,6 +23,10 @@ seclab-taskflow-agent:
   version: "1.0"
   filetype: taskflow
 
+# Which model answers, and over which API. Without this the framework falls back
+# to its Copilot default and would want a GitHub PAT; see the file itself.
+model_config: model_configs.iac_triage
+
 globals:
   # Which report to triage. The committed baseline by default, so a run is
   # reproducible and a score refers to a known corpus. Override for a live scan:
@@ -128,6 +132,11 @@ taskflow:
       name: verdicts
       id: verdicts
       repeat_prompt: true
+      # The logical name from `model_configs/iac_triage.yaml`, not a provider
+      # model ID. It is named here because a task with no `model:` falls back to
+      # the framework's DEFAULT_MODEL -- `gpt-4.1` -- which is not in that file's
+      # `models:` map and would be passed through to Anthropic verbatim.
+      model: triage
       # Scope, if set, is applied here rather than in the normaliser: the
       # partition is what the pipeline believes about the findings and should
       # not change because one run was narrower than another.

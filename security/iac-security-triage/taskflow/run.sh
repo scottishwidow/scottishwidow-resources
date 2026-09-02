@@ -21,7 +21,7 @@
 # without a run ever happening.
 #
 # Usage:
-#   export AI_API_TOKEN=...            # required; no token, no run
+#   export AI_API_TOKEN=...            # an Anthropic API key; no token, no run
 #   ./run.sh                           # scoped, reproducible, propose-only
 #   ./run.sh -g scope_keys=            # every eligible finding
 #   ./run.sh -g report=                # live Trivy scan instead of the baseline
