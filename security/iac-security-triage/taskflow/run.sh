@@ -39,6 +39,19 @@ mkdir -p "$here/.agent-data/logs"
 # The framework touches .env in its working directory.
 touch -a "$here/.env"
 
+# Forward a token only when the host actually has one, using bare `-e VAR` so an
+# unset variable stays unset in the container.
+#
+# `-e VAR=""` would be wrong, and silently so. The framework calls
+# `load_dotenv(find_dotenv(usecwd=True))`, which does *not* override a variable
+# already present in the environment -- and an empty string counts as present.
+# Passing an empty value would therefore shadow a token supplied in .env, and
+# the run would fail with "AI_API_TOKEN environment variable is not set" while
+# the file holding it sat in the working directory.
+token_args=()
+if [[ -n "${AI_API_TOKEN:-}" ]]; then token_args+=(-e AI_API_TOKEN); fi
+if [[ -n "${GH_TOKEN:-}" ]]; then token_args+=(-e GH_TOKEN); fi
+
 # Run as the invoking user, not root. Without this the manifest, sessions and
 # logs come back owned by root, and `collect_verdicts.py` -- which runs on the
 # host -- can read them but the user cannot delete them.
@@ -55,7 +68,6 @@ exec docker run -i --rm \
     --mount type=bind,src="$here/.agent-data",dst=/data/seclab-taskflow-agent \
     -w "$workdir" \
     -e LOG_DIR=/data/seclab-taskflow-agent/logs \
-    -e AI_API_TOKEN="${AI_API_TOKEN:-}" \
-    -e GH_TOKEN="${GH_TOKEN:-}" \
+    "${token_args[@]}" \
     "$image" \
     -t taskflows.iac_triage "$@"
