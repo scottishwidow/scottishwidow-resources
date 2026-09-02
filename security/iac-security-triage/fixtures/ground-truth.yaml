@@ -1,0 +1,60 @@
+# Ground-truth verdicts for the triage-eligible findings.
+#
+# Exported from recorded triage decisions by export_fixture.py; do not edit by
+# hand. Re-run the export instead, so the fixture stays a snapshot of alert and
+# issue state rather than a second place a verdict is authored.
+#
+# `verdict_author` is load-bearing: only `human` entries may contribute to an
+# agreement figure. See design.md - Decision 5.
+severity_threshold: HIGH
+exported_at: '2026-09-02T19:59:51+00:00'
+eligible_findings: 7
+untriaged_keys:
+- AWS-0087:module.bootstrap:aws_s3_bucket.terraform_state_bucket
+- AWS-0091:module.bootstrap:aws_s3_bucket.terraform_state_bucket
+- AWS-0093:module.bootstrap:aws_s3_bucket.terraform_state_bucket
+- AWS-0132:module.bootstrap:aws_s3_bucket.terraform_state_bucket
+- AWS-0164:module.vpc:aws_subnet.public_zone_1
+- AWS-0164:module.vpc:aws_subnet.public_zone_2
+unjoined_keys: []
+ineligible_verdicts: []
+entries:
+- key: AWS-0086:module.bootstrap:aws_s3_bucket.terraform_state_bucket
+  rule_id: AWS-0086
+  severity: HIGH
+  verdict: real-mechanical
+  verdict_author: model
+  rationale: |-
+    The finding is accurate: `modules/bootstrap/main.tf` declares no
+    `aws_s3_bucket_public_access_block` for this bucket at all. The module does set
+    `aws_s3_bucket_ownership_controls` to `BucketOwnerPreferred` and an explicit
+    `private` ACL, which is why the bucket is not in fact publicly readable today — but
+    neither of those is the control this rule is about. An ACL set to `private` constrains
+    the ACL that currently exists; a public access block constrains what any future ACL or
+    bucket policy is permitted to be. The second is a guardrail, the first is a setting.
+
+    This is not an accepted risk, because nothing in `docs/adr/` argues for omitting it, and
+    the bucket in question holds Terraform state for the `management` account — the object
+    whose disclosure would be most useful to an attacker of anything else in this repository.
+    The module already treats it as sensitive elsewhere (versioning enabled, object lock in
+    `GOVERNANCE` mode with a five-day retention), so the omission reads as an oversight
+    rather than a decision.
+
+    The fix is mechanical and needs no judgment about this system: one resource with four
+    flags set to `true`, targeting `aws_s3_bucket.terraform_state_bucket`. It requires no
+    change to how state is used, no coordination with anything else in the repository, and it
+    resolves four of the other six triage-eligible alerts as a side effect (`AWS-0087`,
+    `AWS-0091`, `AWS-0093`, and the below-threshold `AWS-0094`), since all five fire on the
+    absence of the same resource.
+
+    Caveat worth recording rather than resolving here: S3 has applied public access blocking
+    by default to newly created buckets since April 2023, so the live bucket is very likely
+    already protected at the account level. That does not change the verdict — the control is
+    undeclared in code, so it is neither reviewable in a diff nor guaranteed against an
+    account-level setting being changed — but it does mean the practical exposure today is
+    lower than `HIGH` suggests.
+  evidence: []
+  recorded_on: issue
+  issue: 48
+  alert: 1
+  alert_state: open

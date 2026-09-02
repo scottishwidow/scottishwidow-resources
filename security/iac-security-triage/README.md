@@ -17,7 +17,10 @@ normalise.py   one record per finding, keyed, then filtered twice:
 GitHub code scanning   where findings are triaged and verdicts recorded
         |
         v
-fixtures/ground-truth.yaml   exported from alert state (not yet implemented)
+export_fixture.py   joins recorded verdicts onto the eligible findings
+        |           -> fixtures/ground-truth.yaml (schema-checked)
+        v
+score.py   agreement per rule, each figure with the count behind it
 ```
 
     trivy config --format json . \
@@ -83,8 +86,42 @@ reported on stderr and in `unrecognised_locations`.
 ## Labelling
 
 There is no hand-labelling worksheet. The 7 eligible findings are triaged in
-GitHub code scanning and the ground-truth fixture is exported from alert state
-(`design.md - Decision 5`), so verdicts live in one place rather than two.
+GitHub code scanning and the ground-truth fixture is exported from that state
+(`design.md - Decision 5`), so verdicts live where the triage happened rather
+than in a second store.
+
+A verdict is recorded in one of two places, and `export_fixture.py` reads both:
+
+- **A dismissed alert** carries `not-applicable` in the act itself and its
+  reasoning in the dismissal comment.
+- **An open alert** has nowhere to put a rationale — the code scanning API
+  accepts a comment only alongside a dismissal — so its verdict lives on the
+  issue the alert was promoted to, joined back by the finding key in the issue
+  body. This is not the second verdict store `Decision 4` rejects: for an open
+  alert it is the *first* one.
+
+Export, then check it, then score a run against it:
+
+    python3 security/iac-security-triage/export_fixture.py
+    python3 security/iac-security-triage/score.py --run verdicts.json
+
+The export refuses to run once `runs/` exists, because a fixture written after a
+triage run is not independent of it. `--allow-after-triage` overrides that, and
+the result is not ground truth.
+
+## Provenance is part of the verdict
+
+Every fixture entry carries `verdict_author`: `human`, `model`, or `unknown` for
+an entry that never declared one. Only `human` entries contribute to an
+agreement figure, because a verdict written by a model cannot score that model.
+
+`score.py` therefore reports three exclusions rather than folding them into the
+percentage: entries excluded on provenance, rules absent from the fixture (which
+are flagged as needing a human verdict rather than counted as agreement), and
+fixture entries the run never covered. Every figure it prints comes with the
+number of findings behind it — eight of the ten first-party rules here fire once,
+so an agreement figure without its support is a coin flip reported as a
+measurement.
 
 ## Tests
 

@@ -1,0 +1,92 @@
+"""Parse a triage verdict out of a GitHub issue body.
+
+An alert that is left open has nowhere to record a rationale — GitHub's code
+scanning API accepts a comment only alongside a dismissal. The verdict for such a
+finding therefore lives on an issue linked to the alert, and this module is the
+reader for it.
+
+The issue is not a second verdict store in the sense `design.md - Decision 4`
+rejects: it is where the verdict for an open alert is recorded in the first
+place, and it is joined back to the finding by the key in its own body rather
+than by anything restated here.
+"""
+
+from __future__ import annotations
+
+import re
+from typing import Any
+
+import vocabulary
+
+# The identity row of the issue template. This is what joins an issue to a
+# finding; nothing else in the body is load-bearing for the join.
+KEY_ROW = re.compile(r"\|\s*\*\*Key\*\*\s*\|\s*`([^`]+)`\s*\|")
+
+# Who formed the verdict. Absent is not the same as human: an issue that never
+# declared its provenance cannot be assumed to carry a human judgment, so the
+# reader reports `unknown` and the scorer refuses to count it.
+AUTHOR_ROW = re.compile(r"\|\s*\*\*Verdict author\*\*\s*\|\s*`?(\w+)`?\s*\|")
+
+HUMAN = "human"
+MODEL = "model"
+UNKNOWN = "unknown"
+AUTHORS = (HUMAN, MODEL, UNKNOWN)
+
+# Repo-relative paths cited as the basis for a verdict.
+EVIDENCE_PATH = re.compile(r"\b((?:docs|live|modules|security|openspec)/[\w./-]+\.\w+)")
+
+HTML_COMMENT = re.compile(r"<!--.*?-->", re.DOTALL)
+
+
+def section(body: str, heading: str) -> str:
+    """The text under a ``## heading``, up to the next heading or rule."""
+    pattern = re.compile(
+        rf"^##\s+{re.escape(heading)}\s*$(.*?)(?=^##\s|^---\s*$|\Z)",
+        re.MULTILINE | re.DOTALL,
+    )
+    match = pattern.search(body)
+    return match.group(1) if match else ""
+
+
+def filled(text: str) -> str:
+    """Section text with template prompts removed.
+
+    The template carries its instructions as HTML comments, so a section still
+    holding only its prompt is empty rather than answered.
+    """
+    return HTML_COMMENT.sub("", text).strip()
+
+
+def parse_evidence(text: str) -> list[str]:
+    """Repo-relative paths cited under Evidence, in the order they appear."""
+    seen: dict[str, None] = {}
+    for match in EVIDENCE_PATH.finditer(filled(text)):
+        seen.setdefault(match.group(1), None)
+    return list(seen)
+
+
+def parse(body: str) -> dict[str, Any] | None:
+    """Read one issue body, or ``None`` if it carries no finding key.
+
+    A body whose Verdict section is still the unanswered template prompt yields a
+    record with an empty verdict; the caller reports it as untriaged rather than
+    inventing one.
+    """
+    key_match = KEY_ROW.search(body)
+    if not key_match:
+        return None
+
+    author_match = AUTHOR_ROW.search(body)
+    author = author_match.group(1).lower() if author_match else UNKNOWN
+
+    return {
+        "key": key_match.group(1),
+        "verdict": filled(section(body, "Verdict")).strip("`").strip(),
+        "verdict_author": author if author in AUTHORS else UNKNOWN,
+        "rationale": filled(section(body, "Rationale")),
+        "evidence": parse_evidence(section(body, "Evidence")),
+    }
+
+
+def known_verdict(verdict: str) -> bool:
+    return verdict in vocabulary.VERDICTS
