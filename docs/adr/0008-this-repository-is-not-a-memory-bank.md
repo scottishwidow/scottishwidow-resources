@@ -47,16 +47,25 @@ artifacts that would exist, unchanged, if no agent ever ran.
 
 Each agent's inputs are fixed and exhaustive:
 
-- The **triager** reads the infrastructure code (`**/*.tf`) and the GitHub
-  Security findings. Nothing else.
+- The **triager** reads the Terraform corpus and the GitHub Security findings.
+  Nothing else.
 - The **remediator** reads the GitHub Security findings, the triager's issue
-  body, and the infrastructure code it is patching. Nothing else.
+  body, the Terraform corpus, and the set of paths it may touch. Nothing else.
 
 Anything supporting a registry of any kind is removed: the ground-truth fixture
 and its scorer, schema, exporter and provenance tracking; the autonomy allowlist
-and support floor; `context.py` and the document set it assembled. A single
-read-only `**/*.tf` toolbox serves both agents, because the code is the truth
-about this system and the only store that never goes stale.
+and support floor; `context.py` and the document set it assembled. The
+**Terraform corpus** — every first-party `.tf` file in this repository, assembled
+deterministically and carried in the prompt — serves both agents, because the
+code is the truth about this system and the only store that never goes stale.
+
+What counts as a store, precisely, because the remediator reads a verdict written
+during triage and that must not be a loophole: **a store is consulted about
+findings other than the one at hand.** A **tracker item** is one finding's own
+record — the place its verdict is written in the first place rather than a second
+copy of it — and reading the issue you labelled, about the finding being patched,
+is not consulting a registry. Nothing in this pipeline may query what was decided
+about a *different* finding.
 
 Retiring the autonomy ratchet follows from the same rule rather than from a
 change of mind about ADR-0007's reasoning, which still holds on its own terms: an
@@ -64,9 +73,10 @@ earned-authority mechanism is inherently an accumulating store, and computing it
 from live API history rather than a file only hides the accumulation elsewhere.
 
 The safety property it replaces is one sentence: **nothing merges and nothing is
-dismissed without a human.** The human's label on an issue authorises
-remediation; the human's merge accepts a patch; closing an issue `wontfix`
-dismisses its alert.
+dismissed without a human.** A human's `ready-for-remediation` label on an issue
+authorises a patch attempt; a human's merge accepts the patch; closing an issue
+`wontfix` dismisses its alert. The patch gate that stands between the label and
+the merge filters what reaches review — it does not accept anything.
 
 ## Considered alternatives
 
@@ -81,11 +91,10 @@ premise. An ADR read as agent input is maintained partly for the agent, and the
 line between "durable decision" and "current thinking" is not one a directory
 name can hold.
 
-**Read-only access scoped to include `CONTEXT.md`** was considered: domain
-context is explicitly legitimate, and a glossary is not half-formed thinking. It
-was rejected for the narrower scope because `**/*.tf` is a boundary anyone can
-verify at a glance, and every widening of it is an argument that has to be had
-again.
+**A corpus widened to include `CONTEXT.md`** was considered: domain context is
+explicitly legitimate, and a glossary is not half-formed thinking. It was
+rejected for the narrower scope because first-party `.tf` is a boundary a test
+can enumerate, and every widening of it is an argument that has to be had again.
 
 ## Consequences
 
@@ -98,7 +107,48 @@ better informed, only more confident.
 
 `security-events: write` has no remaining structural justification, and nothing
 in the pipeline should acquire it except the narrow issue-close-to-alert-dismiss
-path, which carries a human decision rather than forming one.
+path, which carries a human decision rather than forming one. The issue filer
+does acquire `security-events: read`, to record the alert's number on the issue
+it files — a read, and the thing that lets a human decision be rejoined to an
+alert later without re-deriving a line number.
 
-Roughly 1,100 lines of measurement machinery and 630 of autonomy machinery leave
-with this decision, along with six entries in the triage context's glossary.
+**The corpus assembler may contain code and never prose, and this is the
+consequence most likely to be undone.** The assembler is structurally the same
+shape as the `context.py` this decision deletes: a deterministic task that
+gathers files and pushes them into every prompt. The distinction is not the
+mechanism but what it may hold, and it is enforced by only ever globbing `.tf`.
+It is named `terraform_corpus.py` rather than anything resembling *context*, and
+a test asserts both its extension filter and the exact file set it produces. A
+future reader who adds "just the ADRs" to it has reversed this ADR without
+touching it.
+
+2,033 lines leave with this decision — the scorer, fixture schema, exporter,
+autonomy module and policy, `context.py`, and the 544-line ground-truth test
+module and 183-line fixture that go with them — along with six entries in the
+context's glossary.
+
+## Amendment, 2026-09-04
+
+The decision above originally read that "a single read-only `**/*.tf` toolbox
+serves both agents". That is now the pushed Terraform corpus, and the reasoning
+for the reversal belongs here because it corrects facts this ADR relied on rather
+than a preference it expressed.
+
+The toolbox rested on three claims about `seclab-taskflow-agent`, of which one
+holds. It does not ship a filesystem MCP server (`memcache`, `logbook`,
+`github_official`, `echo`, `codeql`), so the toolbox meant writing and mounting
+custom server code. Its run manifest does not record which files an agent
+opened — it carries per-task status, models, timing, token usage and named
+outputs, and no tool calls — so the audit argument for pulling context was
+false. And it does ship a push-context mechanism: `user_prompt` is Jinja over
+task outputs, which is how the finding record reaches both agents and how
+`context.py` reached them too. `context.py` was not using a mechanism the
+framework lacks; it was using the ordinary one for something this ADR objects to.
+
+What decided it was the size of the thing being argued over: the first-party
+corpus is 24 files, 770 lines, 20,249 bytes — about 6k tokens per finding, 55k
+for a full run, and cacheable. Pull was avoiding a cost that does not exist.
+Pushing it also puts the vendored tree — 1,205 files — out of reach rather than
+merely outside a glob, and gives the remediator the exact bytes a diff has to
+apply against. Pull becomes worth building at roughly ten times today's corpus,
+which is what `live/gitlab/` landing would do.

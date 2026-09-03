@@ -2,6 +2,13 @@
 
 Date: 2026-09-03
 
+Status: **superseded by [ADR-0008](../adr/0008-this-repository-is-not-a-memory-bank.md),
+and deleted with the measurement arm it records** (issue #66). Measurement does not
+resume: the scorer, fixture, exporter and provenance tracking are all removed, and
+the pipeline's claim becomes that it routes and reasons rather than that it is
+measurably right. This file is still accurate about the code as it stands, which is
+why it is still here; it goes when that code goes.
+
 This is the measurement record for the IaC triage pipeline
 (`security/iac-security-triage/`). It exists to answer one question — *how well does the
 agent triage findings in this repository?* — and today the honest answer is that the

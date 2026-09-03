@@ -4,7 +4,14 @@ Date: 2026-09-03
 
 ## Status
 
-Accepted
+Superseded by [ADR-0008](./0008-this-repository-is-not-a-memory-bank.md).
+
+Not overturned on its own terms — the reasoning below still holds, and ADR-0008
+says so explicitly. What retires it is the rule that no persistent context exists
+here for an agent's benefit: an earned-authority mechanism is inherently an
+accumulating store, and computing it from live API history rather than a file only
+moves the accumulation. Autonomous dismissal is now out of scope permanently
+rather than unearned.
 
 ## Context
 
