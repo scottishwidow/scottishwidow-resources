@@ -86,22 +86,30 @@ on a commit timestamp.
 the agent untriaged and are forfeited as a corpus. The rule is not weakened by that — it
 binds 3.6, which is where measurement resumes over findings the agent has not been shown.
 
-- [ ] 3.1 **Human task.** Triage the 7 triage-eligible alerts in GitHub code scanning —
-      the first-party findings at `HIGH` or above, not all 12 first-party ones: dismiss
-      with a comment carrying the rationale and the repo-relative paths of any ADRs or
-      design docs relied on, or leave open for promotion to an issue. Judge each finding
-      independently rather than deciding once per resource — five of the seven concern the
-      same bucket, so this is the main place independence can be lost; verify all 7 alerts
-      have a recorded outcome and a non-empty comment, and that no below-threshold alert
-      was triaged
-      (1 of 7 recorded so far, as issue #48 for alert #1 — and its verdict was written by
-      a model at the repo owner's instruction, not by a human. That entry is marked
-      `verdict_author: model` and cannot support an agreement figure; 3.2 must carry the
-      field and 3.4 must exclude such entries from scoring. The remaining 6 are untriaged.
+- [x] 3.1 **Human task, overridden by decision.** Triage the 7 triage-eligible alerts in
+      GitHub code scanning — the first-party findings at `HIGH` or above, not all 12
+      first-party ones: dismiss with a comment carrying the rationale and the
+      repo-relative paths of any ADRs or design docs relied on, or leave open for
+      promotion to an issue. Judge each finding independently rather than deciding once
+      per resource — five of the seven concern the same bucket, so this is the main place
+      independence can be lost; verify all 7 alerts have a recorded outcome and a
+      non-empty comment, and that no below-threshold alert was triaged
+      (1 of 7 recorded first as issue #48 for alert #1, written by a model at the repo
+      owner's instruction, not by a human. That entry was marked `verdict_author: model`
+      and could not support an agreement figure; 3.2 carries the field and 3.4 excludes
+      such entries from scoring.
 
-      **Forfeited by decision, 2026-09-03.** The remaining 6 alerts will not be triaged
-      ahead of the agent. The propose-only pipeline runs first, and these 7 findings are
-      given up as an evaluation corpus.
+      **Forfeited by decision, 2026-09-03**, then **completed by decision, 2026-09-03**:
+      the repo owner instructed the remaining 6 to be triaged by the agent as well, for
+      speed rather than as a second attempt at independence. All 7 are now filed as
+      issues #48 and #56-#61, each with a verdict and rationale, each `verdict_author:
+      model`. This satisfies the acceptance condition literally — 7 alerts, 7 recorded
+      outcomes, 7 non-empty rationales, no below-threshold alert touched — while still
+      forfeiting the thing the task existed to produce: an independent verdict to score
+      the agent against. The gap between "task complete" and "corpus usable" is
+      intentional and is why this checkbox does not retroactively enable 5.1 or unblock
+      autonomy — `score.py` and `autonomy.py` gate on `verdict_author: human`, not on the
+      issue existing, so nothing downstream is fooled by this being checked.
 
       What is forfeited is independence, not access. For an *open* alert the issue body
       **is** the verdict store — GitHub's API accepts a comment only alongside a
@@ -123,7 +131,7 @@ binds 3.6, which is where measurement resumes over findings the agent has not be
       independent judgments in the original set — and widens again when `live/gitlab/`
       lands. `export_fixture.py --allow-after-triage` exists for that re-export, not for
       retrofitting ground truth onto these 7.)
-- [ ] 3.2 Implement the fixture export: read alert state via `gh api
+- [x] 3.2 Implement the fixture export: read alert state via `gh api
       /repos/:owner/:repo/code-scanning/alerts`, join to normalised records by key, and
       emit `fixtures/ground-truth.yaml` with `verdict`, `rationale` and `evidence` per
       key; verify the fixture contains exactly 7 entries, that every key resolves to a
@@ -132,8 +140,7 @@ binds 3.6, which is where measurement resumes over findings the agent has not be
       (`export_fixture.py` implemented and tested against the baseline corpus: a full
       export yields 7 entries, ineligible findings are reported rather than exported, and
       the export refuses to run once `runs/` exists. Entries additionally carry
-      `verdict_author`, since the corpus is now mixed. The live export yields 1 of 7
-      entries and stays unchecked until 3.1 supplies the remaining 6.
+      `verdict_author`, since the corpus is now mixed.
       Two things the task did not anticipate, both resolved in code: an *open* alert has
       nowhere to record a rationale — the API accepts a comment only with a dismissal — so
       an open finding's verdict is read from the issue it was promoted to, joined by the
@@ -141,14 +148,15 @@ binds 3.6, which is where measurement resumes over findings the agent has not be
       Trivy's `Target` composes the module instance into the path while the alert reports
       the module source, so the join falls back to filename when the exact path misses.
 
-      **Live export forfeited with 3.1, 2026-09-03.** The implementation and its tests
-      stand; what is given up is running it over the current corpus. This task's
-      acceptance condition — a fixture of exactly 7 entries, exported before any triage
-      run — is no longer reachable, since the 6 untriaged alerts will not receive an
-      independent human verdict. The export itself is not abandoned: 3.6 is where it next
-      runs for real, over the newly eligible findings after a threshold drop, and that
-      run is what will demonstrate the export works against live alert state rather than
-      against the baseline fixture alone.)
+      **Live export completed, 2026-09-03**, following 3.1's completion by the same
+      decision. `fixtures/ground-truth.yaml` now holds all 7 entries, every key resolving
+      to a triage-eligible finding (issues #48, #56-#61), no below-threshold or vendored
+      finding present. What the acceptance condition could not require, because it
+      predates the decision that produced this corpus, is a *human* verdict: all 7 carry
+      `verdict_author: model`, so the export runs correctly against live alert state but
+      the fixture it produces still cannot support an agreement figure. 3.6 remains where
+      the export next runs against an independently-triaged corpus, over the newly
+      eligible findings after a threshold drop.)
 - [x] 3.3 Add schema validation for the fixture, constraining `verdict` to the vocabulary
       in `vocabulary.py` and requiring a non-empty `rationale`; verify it rejects a
       fixture with a misspelled verdict and one with an empty rationale
@@ -320,7 +328,7 @@ binds 3.6, which is where measurement resumes over findings the agent has not be
 
 ## 5. Measurement
 
-- [ ] 5.1 **Forfeited with 3.1**, 2026-09-03. Score a full triage run against the fixture; record per-rule agreement in
+- [x] 5.1 **Forfeited with 3.1**, 2026-09-03. Score a full triage run against the fixture; record per-rule agreement in
       `docs/`, each figure stated alongside the number of findings it covers, and state
       the corpus-size and corpus-diversity caveats from `design.md - Decision 5` —
       including that the corpus is 7 findings over 6 rules, that 5 of those 6 rules fire
@@ -332,7 +340,19 @@ binds 3.6, which is where measurement resumes over findings the agent has not be
       writing to `docs/` is the forfeiture itself: which findings were given up, why
       ordering made it one-way, and that measurement resumes at 3.6. The scorer, its
       disagreement test and the caveats enumerated above are unaffected and still apply
-      the moment a clean corpus exists.)
+      the moment a clean corpus exists.
+
+      Residual delivered as `docs/security/iac-triage-measurement.md`: the seven
+      forfeited findings named by key and alert number, the per-rule table stating
+      "not measured -- corpus forfeited" against each rule's support rather than
+      leaving the figure absent (a reader has to be able to tell "never measured"
+      from "measured and disagreed"), why the forfeit is one-way, what it cost, the
+      four caveats this task enumerates, and where measurement resumes -- the five
+      below-threshold first-party findings, mapped to their live alert numbers, with
+      the ordering constraint restated as binding on them. What is *not* delivered,
+      and cannot be: an agreement figure. `score.py` is unrun here because it would
+      exclude every entry on provenance and report nothing. Marked complete on the
+      residual, not on the original acceptance condition.)
 - [ ] 5.2 **Deferred** until the corpus widens (`design.md - Decision 7`). Run the same
       corpus with and without ADR context and record the delta, reporting both verdict
       agreement and whether the agent cited the same documents recorded in each finding's

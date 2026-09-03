@@ -183,6 +183,12 @@ number of findings behind it — eight of the ten first-party rules here fire on
 so an agreement figure without its support is a coin flip reported as a
 measurement.
 
+There is no agreement figure for the current corpus, and the reason is recorded
+in `docs/security/iac-triage-measurement.md` rather than left as an absence: the
+7 eligible findings were released to the agent untriaged and forfeited as an
+evaluation corpus, and measurement resumes over the 5 below-threshold first-party
+findings once the threshold drops.
+
 ## Autonomy is earned, per rule
 
 `autonomy.py` is the only thing here that can write alert state, and on this

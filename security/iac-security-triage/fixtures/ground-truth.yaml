@@ -7,15 +7,9 @@
 # `verdict_author` is load-bearing: only `human` entries may contribute to an
 # agreement figure. See design.md - Decision 5.
 severity_threshold: HIGH
-exported_at: '2026-09-02T19:59:51+00:00'
+exported_at: '2026-09-03T10:06:43+00:00'
 eligible_findings: 7
-untriaged_keys:
-- AWS-0087:module.bootstrap:aws_s3_bucket.terraform_state_bucket
-- AWS-0091:module.bootstrap:aws_s3_bucket.terraform_state_bucket
-- AWS-0093:module.bootstrap:aws_s3_bucket.terraform_state_bucket
-- AWS-0132:module.bootstrap:aws_s3_bucket.terraform_state_bucket
-- AWS-0164:module.vpc:aws_subnet.public_zone_1
-- AWS-0164:module.vpc:aws_subnet.public_zone_2
+untriaged_keys: []
 unjoined_keys: []
 ineligible_verdicts: []
 entries:
@@ -57,4 +51,93 @@ entries:
   recorded_on: issue
   issue: 48
   alert: 1
+  alert_state: open
+- key: AWS-0087:module.bootstrap:aws_s3_bucket.terraform_state_bucket
+  rule_id: AWS-0087
+  severity: HIGH
+  verdict: real-mechanical
+  verdict_author: model
+  rationale: |-
+    Fires on the same absence as AWS-0086 (issue #48): `modules/bootstrap/main.tf` declares no `aws_s3_bucket_public_access_block` for `terraform_state_bucket` at all. `block_public_policy` is one of the four flags that resource would set; none of them is set anywhere. The bucket's `private` ACL and `BucketOwnerPreferred` ownership controls constrain what the ACL currently is, not what a bucket policy could later grant, so they do not substitute for this control.
+
+    No ADR discusses omitting a public access block for the state bucket, and this is the bucket holding Terraform state for the `management` account -- the object whose disclosure is most useful to an attacker of anything else in this repository. The fix is the single `aws_s3_bucket_public_access_block` resource with all four flags `true`, already scoped by AWS-0086's issue; this alert and AWS-0091/AWS-0093/AWS-0094 (below threshold) resolve as the same side effect.
+  evidence: []
+  recorded_on: issue
+  issue: 56
+  alert: 2
+  alert_state: open
+- key: AWS-0091:module.bootstrap:aws_s3_bucket.terraform_state_bucket
+  rule_id: AWS-0091
+  severity: HIGH
+  verdict: real-mechanical
+  verdict_author: model
+  rationale: |-
+    Fires on the same absence as AWS-0086 (issue #48): no `aws_s3_bucket_public_access_block` resource exists for `terraform_state_bucket`. `ignore_public_acls` is one of the four flags it would set. Same reasoning as AWS-0086/AWS-0087: the existing `private` ACL and ownership controls are not the guardrail this rule checks for, nothing in `docs/adr/` argues for omitting it, and the bucket holds state for the `management` account.
+
+    Same fix, same resource, as AWS-0086.
+  evidence: []
+  recorded_on: issue
+  issue: 57
+  alert: 4
+  alert_state: open
+- key: AWS-0093:module.bootstrap:aws_s3_bucket.terraform_state_bucket
+  rule_id: AWS-0093
+  severity: HIGH
+  verdict: real-mechanical
+  verdict_author: model
+  rationale: |-
+    Fires on the same absence as AWS-0086 (issue #48): no `aws_s3_bucket_public_access_block` resource exists for `terraform_state_bucket`. `restrict_public_buckets` is the fourth of the four flags it would set -- with this alert, all four (AWS-0086/0087/0091/0093) trace to the identical missing resource. Same reasoning: not covered by the existing ACL/ownership settings, not an accepted risk recorded anywhere in `docs/adr/`, and the bucket is the highest-value target in this repository's state.
+
+    Same fix, same resource, as AWS-0086.
+  evidence: []
+  recorded_on: issue
+  issue: 58
+  alert: 5
+  alert_state: open
+- key: AWS-0132:module.bootstrap:aws_s3_bucket.terraform_state_bucket
+  rule_id: AWS-0132
+  severity: HIGH
+  verdict: real-judgment
+  verdict_author: model
+  rationale: |-
+    `modules/bootstrap/main.tf` has no `aws_s3_bucket_server_side_encryption_configuration` at all, so the bucket relies on S3's default SSE-S3 (AWS-managed AES-256) encryption rather than a customer-managed KMS key. For a Terraform state bucket that is a real gap: SSE-S3 gives no per-request CloudTrail audit trail and no way to scope who can decrypt independently of who can read the bucket.
+
+    Unlike AWS-0086/0087/0091/0093, this is not a single resource with flags to flip. It requires a new `aws_kms_key`, a key policy deciding who may encrypt and decrypt (in particular, whatever role runs `terraform apply` needs `kms:Decrypt` or state reads break), a rotation decision, and ongoing key cost (~$1/month plus request charges). No ADR records a decision on state-bucket encryption ownership, so there is nothing to defer to. This needs a human to choose the key policy and confirm it does not lock out the apply role, not a mechanical resource addition.
+  evidence: []
+  recorded_on: issue
+  issue: 59
+  alert: 7
+  alert_state: open
+- key: AWS-0164:module.vpc:aws_subnet.public_zone_1
+  rule_id: AWS-0164
+  severity: HIGH
+  verdict: real-mechanical
+  verdict_author: model
+  rationale: |-
+    `modules/vpc/main.tf` sets `map_public_ip_on_launch = true` on `public_zone_1`. This is redundant with today's actual behaviour: both instances placed in this subnet (`live/management/main.tf:25,81`) already set `associate_public_ip_address = true` explicitly at the instance level, which is what actually governs their public IP today, not the subnet default. The subnet flag is not a decision this architecture depends on -- it is unused given the explicit per-instance setting.
+
+    What the flag does add is a latent gap: any future resource placed in `public_zone_1` without an explicit `associate_public_ip_address` gets a public IP by default rather than by choice. No ADR argues for that default; the architecture's public-facing design is expressed instance-by-instance (`docs/adr/0002-...`), not subnet-wide. Removing `map_public_ip_on_launch` from this resource changes no behaviour for the two instances that exist today and closes the gap for whatever is placed here next. Mechanical: delete one line, zero coordination.
+  evidence:
+  - docs/adr/0002-self-host-nextcloud-on-t4g-small.md
+  recorded_on: issue
+  issue: 60
+  alert: 8
+  alert_state: open
+- key: AWS-0164:module.vpc:aws_subnet.public_zone_2
+  rule_id: AWS-0164
+  severity: HIGH
+  verdict: real-mechanical
+  verdict_author: model
+  rationale: 'Same finding, same fix, as `public_zone_1`: `modules/vpc/main.tf` sets `map_public_ip_on_launch
+    = true` here too. Nothing is currently placed in `public_zone_2` (`live/management/main.tf`
+    puts both instances in `public_zone_1`; grepping the repo for `public_zone_2` shows only
+    the subnet, its route table association and the module output -- no consumer). That makes
+    the case for removing the flag stronger, not weaker: there is zero behaviour to preserve,
+    and leaving the default in place only sets a trap for whatever is placed here next, most
+    likely a `live/gitlab/` load balancer given the reserved second AZ. Mechanical: delete
+    one line.'
+  evidence: []
+  recorded_on: issue
+  issue: 61
+  alert: 9
   alert_state: open
