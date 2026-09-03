@@ -56,13 +56,18 @@ can be replayed without a scanner:
 ## The two filters
 
 Ownership runs first, severity second, and neither is a judgment
-(`design.md - Decision 2`). On the baseline corpus:
+(`design.md - Decision 2`). On the baseline corpus, at the `MEDIUM` threshold
+configured today:
 
 | | count | what happens to it |
 |---|---|---|
-| `eligible` | 7 | sent for triage |
-| `below_threshold` | 5 | stays an open alert, untriaged, no issue |
+| `eligible` | 9 | sent for triage |
+| `below_threshold` | 3 | stays an open alert, untriaged, no issue |
 | `vendored` | 8 | recorded upstream, never sent to a model |
+
+At the `HIGH` threshold this started on, the same corpus splits 7 / 5 / 8. The
+move from one to the other is the whole of the change: no key changed and no
+recorded verdict was disturbed.
 
 The order is load-bearing. All eight `CRITICAL` findings in this repo are
 vendored, so a severity gate applied alone would admit exactly the eight
@@ -71,7 +76,7 @@ findings that cannot be fixed here and drop five first-party ones.
 The threshold lives in `config.json`, not in the partition logic, so moving it
 is a reviewable diff:
 
-    {"severity_threshold": "HIGH"}
+    {"severity_threshold": "MEDIUM"}
 
 Below threshold means *untriaged*, not dismissed — dismissal is a verdict and
 none has been formed. Those findings keep their key, so lowering the threshold

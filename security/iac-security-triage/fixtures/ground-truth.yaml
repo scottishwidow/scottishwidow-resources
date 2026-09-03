@@ -6,11 +6,12 @@
 #
 # `verdict_author` is load-bearing: only `human` entries may contribute to an
 # agreement figure. See design.md - Decision 5.
-severity_threshold: HIGH
-exported_at: '2026-09-03T10:06:43+00:00'
-eligible_findings: 7
+severity_threshold: MEDIUM
+exported_at: '2026-09-03T18:08:27+00:00'
+eligible_findings: 9
 untriaged_keys: []
-unjoined_keys: []
+unjoined_keys:
+- AWS-0090:module.ssm_scratch:aws_s3_bucket.this
 ineligible_verdicts: []
 entries:
 - key: AWS-0086:module.bootstrap:aws_s3_bucket.terraform_state_bucket
@@ -66,6 +67,26 @@ entries:
   issue: 56
   alert: 2
   alert_state: open
+- key: AWS-0090:module.ssm_scratch:aws_s3_bucket.this
+  rule_id: AWS-0090
+  severity: MEDIUM
+  verdict: not-applicable
+  verdict_author: model
+  rationale: |-
+    This bucket is not a data store. `ADR-0001` provisions it as the file-transfer side-channel the `amazon.aws.aws_ssm` connection plugin requires: Ansible module payloads move through it on every task and are, in the ADR's own words, throwaway artifacts. The call site at `live/management/main.tf` matches that intent — a lifecycle rule expiring objects after `var.ssm_scratch_expiration_days`, and `abort_incomplete_multipart_upload_days` set to the same.
+
+    The rule's stated purpose is protection against accidental or malicious removal or modification of data. There is no data here to protect: the authoritative copy of every object lives on the Ansible control node, and losing one costs a retried task. Nothing reads an object after the task that wrote it.
+
+    Enabling versioning would also work against the retention decision rather than alongside it. The existing `lifecycle_rule` expires *current* objects only; with versioning on, each expiry writes a delete marker and retains the noncurrent version, and no `noncurrent_version_expiration` rule exists to clear it. The bucket would accumulate every transient payload it was built to discard, which is the opposite of what the ADR decided.
+
+    Recorded as an accepted risk rather than a fix: if this bucket ever holds anything but SSM transfer artifacts, the verdict should be revisited with it.
+  evidence:
+  - docs/adr/0001-ansible-over-ssm.md
+  - live/management/main.tf
+  recorded_on: issue
+  issue: 63
+  alert: null
+  alert_state: null
 - key: AWS-0091:module.bootstrap:aws_s3_bucket.terraform_state_bucket
   rule_id: AWS-0091
   severity: HIGH
@@ -140,4 +161,23 @@ entries:
   recorded_on: issue
   issue: 61
   alert: 9
+  alert_state: open
+- key: AWS-0178:module.vpc:aws_vpc.main
+  rule_id: AWS-0178
+  severity: MEDIUM
+  verdict: real-judgment
+  verdict_author: model
+  rationale: |-
+    The finding is accurate and no recorded decision covers it. `modules/vpc/main.tf` declares no `aws_flow_log` against `aws_vpc.main`, and nothing in `docs/adr/` accepts that absence — unlike the scratch bucket above, this is a gap rather than a deliberate omission. The VPC is not a quiet one: it carries two public subnets with `map_public_ip_on_launch = true`, a default route to an internet gateway, and the internet-facing Nextcloud host from `ADR-0002`. Rejected traffic against that surface is exactly what flow logs are for, and today it is unobserved.
+
+    The fix is not mechanical, which is why this is `real-judgment` rather than `real-mechanical`. Turning flow logs on means choosing a destination (CloudWatch Logs, with a log group and an IAM role the module does not currently take, or S3 with its own bucket and lifecycle), a `traffic_type` (`ALL` or `REJECT` — the rule's own guidance points at `REJECT`, which is far cheaper and enough for the detection case here), a retention period, and an aggregation interval. Each of those carries an ongoing cost against a single-account personal estate where cost is a live constraint, and none of them is implied by the finding.
+
+    The module is also shared rather than per-environment, so the decision has to be expressed as module inputs with a default, not as a hard-coded destination. That is a design call, and one worth an ADR of its own alongside `ADR-0003`'s treatment of retention.
+  evidence:
+  - modules/vpc/main.tf
+  - live/management/main.tf
+  - docs/adr/0002-self-host-nextcloud-on-t4g-small.md
+  recorded_on: issue
+  issue: 64
+  alert: 10
   alert_state: open

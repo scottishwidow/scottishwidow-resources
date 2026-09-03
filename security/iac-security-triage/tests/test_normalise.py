@@ -223,16 +223,32 @@ class SeverityGate(unittest.TestCase):
     findings this repository cannot fix.
     """
 
+    # The corpus every count here describes is the one at `HIGH`, the threshold
+    # this capability was designed and measured against. It is pinned rather
+    # than read from `config.json` so that moving the configured threshold —
+    # which task 3.6 did, to `MEDIUM` — is a reviewable diff to one file and not
+    # a wave of unrelated test failures. What the configured value currently is
+    # gets its own assertion below.
+    BASELINE_THRESHOLD = "HIGH"
+
     @classmethod
     def setUpClass(cls) -> None:
         with open(BASELINE, encoding="utf-8") as handle:
             cls.report = json.load(handle)
-        cls.normalised = normalise.normalise(cls.report)
+        cls.normalised = normalise.normalise(cls.report, threshold=cls.BASELINE_THRESHOLD)
 
     def test_threshold_is_configuration_not_a_literal(self) -> None:
-        """Raising or lowering the gate is a diff to config.json, not to the logic."""
-        self.assertEqual(normalise.load_threshold(), "HIGH")
-        self.assertEqual(self.normalised["severity_threshold"], "HIGH")
+        """Raising or lowering the gate is a diff to config.json, not to the logic.
+
+        Asserted as membership of the ladder rather than as one value: pinning
+        the configured threshold here would make it two diffs to move, which is
+        the opposite of what `design.md - Decision 2` wants from it.
+        """
+        configured = normalise.load_threshold()
+        self.assertIn(configured, normalise.SEVERITY_ORDER)
+        self.assertEqual(
+            normalise.normalise(self.report)["severity_threshold"], configured
+        )
 
     def test_baseline_partition(self) -> None:
         self.assertEqual(len(self.normalised["eligible"]), 7)
@@ -294,7 +310,10 @@ class BelowThresholdFindingsSurvive(unittest.TestCase):
     @classmethod
     def setUpClass(cls) -> None:
         with open(BASELINE, encoding="utf-8") as handle:
-            cls.normalised = normalise.normalise(json.load(handle))
+            # Pinned to the baseline threshold for the reason given in
+            # `SeverityGate`: this class is about what happens to a
+            # below-threshold finding, not about where the gate currently sits.
+            cls.normalised = normalise.normalise(json.load(handle), threshold="HIGH")
 
     def test_present_in_the_output(self) -> None:
         below = self.normalised["below_threshold"]

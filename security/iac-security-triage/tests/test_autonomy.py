@@ -35,7 +35,13 @@ KEY = "AWS-0164:module.vpc:aws_subnet.public_zone_1"
 
 def normalised() -> dict:
     with open(BASELINE, encoding="utf-8") as handle:
-        return normalise.normalise(json.load(handle))
+        # Pinned to `HIGH`, the threshold this corpus was designed and measured
+        # against, rather than read from `config.json`. The configured threshold
+        # is meant to move — task 3.6 moved it to `MEDIUM` — and every count in
+        # this file describes the baseline corpus, not wherever the gate sits
+        # today. `ThresholdDropTest` in test_ground_truth.py is where moving it
+        # is the subject rather than an accident.
+        return normalise.normalise(json.load(handle), threshold="HIGH")
 
 
 def policy(allowlist: list[str] | None = None, floor: int = 5) -> dict:

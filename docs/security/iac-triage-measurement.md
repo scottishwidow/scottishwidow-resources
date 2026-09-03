@@ -95,26 +95,43 @@ start and will constrain any figure computed over a corpus this shape:
 
 ## Where measurement resumes
 
-At the below-threshold first-party findings, which are the only ones left that the agent has
-not been shown:
+**Not at the threshold drop. That was spent too, on 2026-09-03.**
+
+This section previously named the below-threshold first-party findings as the place
+measurement would resume, the two `MEDIUM` ones above all — they were the most independent
+judgments in the original set, and the only findings left that the agent had not been
+shown. Task 3.6 lowered `severity_threshold` to `MEDIUM` to demonstrate that the export is
+repeatable, which it is, and on the repo owner's instruction the two findings it admitted
+were triaged by a model rather than by a human:
+
+| finding key | severity | alert | issue | verdict | author |
+|---|---|---|---|---|---|
+| `AWS-0090:module.ssm_scratch:aws_s3_bucket.this` | MEDIUM | #16 | #63 | `not-applicable` | model |
+| `AWS-0178:module.vpc:aws_vpc.main` | MEDIUM | #10 | #64 | `real-judgment` | model |
+
+The ordering constraint held — both were triaged and exported before the next triage run,
+not after — but ordering only protects independence, it does not supply it. A model verdict
+cannot score the model that wrote it, so `score.py` excludes both exactly as it excludes
+the original seven. The fixture now holds **9 entries and 0 scorable ones**.
+
+Three first-party findings remain below the `MEDIUM` threshold, all `LOW`:
 
 | finding key | severity | alert |
 |---|---|---|
-| `AWS-0090:module.ssm_scratch:aws_s3_bucket.this` | MEDIUM | #16 |
-| `AWS-0178:module.vpc:aws_vpc.main` | MEDIUM | #10 |
 | `AWS-0089:module.ssm_scratch:aws_s3_bucket.this` | LOW | #15 |
 | `AWS-0094:module.bootstrap:aws_s3_bucket.terraform_state_bucket` | LOW | #6 |
 | `AWS-0089:module.bootstrap:aws_s3_bucket.terraform_state_bucket` | LOW | #3 |
 
-Lowering `severity_threshold` in `config.json` admits them. The ordering constraint was
-spent once for the original seven and is not weakened by that: **these are triaged and
-exported before the next triage run, not after.** The two `MEDIUM` findings are the most
-independent judgments in the original set, which is what makes the resumed corpus worth
-more than its size suggests.
+They are two rules over one judgment call — S3 posture on buckets already judged four
+times over — so admitting them would widen the count without widening what is being
+measured. They are not a corpus.
 
-The corpus widens again when `live/gitlab/` lands and contributes RDS, ElastiCache and load
-balancer findings. The context-delta and multi-model comparisons wait for that: over
-roughly two distinct judgment calls neither delta is separable from noise.
+Measurement therefore resumes only on findings that do not exist yet: `live/gitlab/`
+landing and contributing RDS, ElastiCache and load balancer findings; a Trivy ruleset
+update introducing rules this repo has never been scanned against; or the second scanner
+`design.md - Decision 1` leaves open. Whichever arrives first, **the ordering constraint
+binds it and there is nothing left in reserve behind it.** The context-delta and
+multi-model comparisons wait for the same event.
 
 The scorer, its disagreement test, and every caveat above are unaffected by the forfeit and
 apply the moment a clean corpus exists.
