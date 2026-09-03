@@ -56,6 +56,47 @@ class TriageIsDispatchOnly(unittest.TestCase):
         """Propose-only is enforced by permissions, not only by good intent."""
         self.assertEqual(self.workflow["permissions"], {"contents": "read"})
 
+    def test_no_job_can_write_alert_state(self) -> None:
+        """The workflow default is not the whole story once jobs widen it.
+
+        `file-issues` needs `issues: write`, so the propose-only claim can no
+        longer rest on the top-level block alone. Every job is checked.
+        """
+        for name, job in self.workflow["jobs"].items():
+            granted = job.get("permissions", self.workflow["permissions"])
+            self.assertNotIn("security-events", granted, name)
+
+
+class IssuesAreFiledByAJobThatRunsNoModel(unittest.TestCase):
+    """`design.md - Decision 4`, and the split that keeps it safe.
+
+    A verdict travels to a human as an issue, so something in this workflow must
+    hold `issues: write`. The separation asserted here is what keeps that from
+    widening the model's authority: the job that runs the agent cannot open an
+    issue, and the job that opens issues never sees the token.
+    """
+
+    def setUp(self) -> None:
+        self.workflow = load(TRIAGE)
+        self.triage = self.workflow["jobs"]["triage"]
+        self.filer = self.workflow["jobs"]["file-issues"]
+
+    def granted(self, job: dict) -> dict:
+        return job.get("permissions", self.workflow["permissions"])
+
+    def test_the_job_running_the_model_cannot_open_an_issue(self) -> None:
+        self.assertNotIn("issues", self.granted(self.triage))
+
+    def test_the_job_opening_issues_never_sees_the_token(self) -> None:
+        self.assertNotIn(TOKEN, yaml.safe_dump(self.filer))
+
+    def test_the_job_opening_issues_cannot_write_alert_state(self) -> None:
+        """A `not-applicable` verdict files an issue; it does not dismiss."""
+        self.assertEqual(self.granted(self.filer), {"contents": "read", "issues": "write"})
+
+    def test_issue_filing_waits_for_triage(self) -> None:
+        self.assertEqual(self.filer["needs"], "triage")
+
 
 class TokenIsConfinedToTriage(unittest.TestCase):
     def test_only_the_triage_workflow_references_the_token(self) -> None:

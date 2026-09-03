@@ -30,7 +30,10 @@ score.py   agreement per rule, each figure with the count behind it
         ^
         |
 taskflow/   the agent's verdicts, for the same findings, to be scored against
-            the fixture above -- see taskflow/README.md
+        |   the fixture above -- see taskflow/README.md
+        v
+file_issues.py   one GitHub issue per triaged finding, under needs-triage,
+                 idempotent on the finding key
 ```
 
 The two arms meet at `score.py`, and the order between them is the point: the
@@ -124,6 +127,45 @@ Export, then check it, then score a run against it:
 The export refuses to run once `runs/` exists, because a fixture written after a
 triage run is not independent of it. `--allow-after-triage` overrides that, and
 the result is not ground truth.
+
+## Routing to the tracker
+
+Code scanning holds per-finding state; Issues hold the work (`design.md -
+Decision 4`). `file_issues.py` promotes **every** triaged finding to an issue,
+whatever the verdict — deciding that a finding is not worth acting on is the
+judgment this pipeline exists to inform, and burying it in a dismissal comment
+hides it from where work is reviewed.
+
+    python3 security/iac-security-triage/file_issues.py \
+      --findings normalised.json --verdicts runs/<id>.json --dry-run
+
+| | issue filed | label applied | alert |
+|---|---|---|---|
+| any verdict on an eligible finding | yes | `needs-triage` | left open |
+| below threshold | no | — | left open, untriaged |
+| vendored | no | — | recorded upstream |
+
+Three properties, each a boundary rather than a convenience:
+
+- **`ready-for-agent` is never applied.** That label authorises unattended
+  remediation, so an agent that could apply it would be authorising its own
+  downstream work. It is absent from the emittable vocabulary and a label
+  outside that vocabulary raises rather than being filed.
+- **No alert state is touched.** Nothing in the module speaks to the code
+  scanning API, so a `not-applicable` verdict files an issue and leaves the alert
+  open. Dismissal is earned per rule under `Decision 6` and happens elsewhere.
+- **Only findings the pipeline submitted for triage are filed.** A verdict
+  arriving for a vendored or below-threshold finding is reported as an error,
+  because honouring it would defeat the gate that excluded it.
+
+Idempotency is keyed on the finding key, read back out of existing issue bodies
+by `issue_body.py` across open *and* closed issues. A second run over unchanged
+verdicts creates nothing and edits nothing — the disposition label a human
+applied is this pipeline's output and must survive the next run of it.
+
+In CI this is a separate job from the one that runs the agent: the job holding
+`issues: write` never sees `AI_API_TOKEN`, and the job that runs the model
+cannot open an issue.
 
 ## Provenance is part of the verdict
 
