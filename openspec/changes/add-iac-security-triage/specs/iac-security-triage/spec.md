@@ -23,10 +23,11 @@ Scanning SHALL NOT require cloud credentials or access to live infrastructure.
 
 #### Scenario: Pull request from a fork
 
-- **WHEN** a pull request originates from a fork and privileged credentials are therefore
-  unavailable
-- **THEN** the scan still runs and its findings are still reported
-- **AND** the absence of credentials does not cause the run to fail
+- **WHEN** a pull request originates from a fork, and the workflow token is therefore
+  read-only regardless of the permissions the workflow requests
+- **THEN** the scan still runs and its findings are still visible in the run's output
+- **AND** publication to alert state is permitted to fail without failing the run
+- **AND** no alert state is created or modified by a pull request from a fork
 
 #### Scenario: No infrastructure code changed
 
@@ -240,13 +241,14 @@ The system SHALL NOT itself apply the label denoting work ready for an unattende
 
 ### Requirement: Triage accuracy is measured against a fixed corpus
 
-The system SHALL maintain a set of human-assigned verdicts covering the triage-eligible
-findings present when this capability was introduced, and SHALL support scoring automated
-verdicts against that set, reporting agreement per rule.
+The system SHALL maintain a set of human-assigned verdicts drawn from the findings it
+submits for triage, and SHALL support scoring automated verdicts against that set,
+reporting agreement per rule.
 
-The corpus SHALL cover exactly the findings the system submits for triage. A finding
+The corpus SHALL NOT extend beyond the findings the system submits for triage. A finding
 excluded by ownership or by the severity threshold SHALL NOT carry a human-assigned
-verdict, and SHALL NOT contribute to any agreement figure.
+verdict, and SHALL NOT contribute to any agreement figure. The corpus MAY cover a subset
+of the submitted findings, and SHALL grow as further findings become eligible.
 
 The human-assigned verdicts SHALL be derived from triage decisions recorded against alert
 state, rather than assigned in a separate store maintained alongside it, and SHALL be
