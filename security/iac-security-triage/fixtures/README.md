@@ -14,7 +14,11 @@ first-party ones at `HIGH` or above, not all 12 first-party ones. It is written 
 and the issues open alerts were promoted to) rather than authored by hand
 (`design.md - Decision 5`). Do not edit it; re-run the export.
 
-It is incomplete: 1 of 7 findings has a verdict, and that one was written by a
-model rather than a human, so it carries `verdict_author: model` and the scorer
-excludes it. Until the remaining 6 are triaged by a human, no agreement figure
-computed against this fixture means anything.
+All 7 findings now have a verdict, and all 7 carry `verdict_author: model` — the
+remaining 6 (issues #56-#61) were triaged by the agent rather than a human, at the
+repo owner's instruction, for speed rather than as a re-attempt at independence.
+The scorer excludes every entry on provenance, same as before, so this completes
+the tracker (every eligible finding has a verdict and an issue) without producing
+an agreement figure. See `docs/security/iac-triage-measurement.md` for why no
+figure exists and where measurement resumes: the 5 below-threshold first-party
+findings, which the agent has not been shown.
