@@ -90,17 +90,34 @@ filters cut twenty findings to seven.
 ## The discard rule
 
 A verdict without a rationale is discarded and the finding recorded as
-`undetermined` (`spec.md - Scenario: Rationale is unavailable`). It is enforced
-twice, on purpose:
+`undetermined` (`spec.md - Scenario: Rationale is unavailable`). Two things
+enforce it, and they check different halves:
 
-- the taskflow's `outputs` schema rejects the branch (`rationale` is required,
-  `minLength: 1`), so a non-compliant response never becomes a value;
-- `collect_verdicts.py` applies the rule again over every branch, catching what
-  a schema cannot — a whitespace-only rationale, a branch that failed for an
-  unrelated reason, a verdict outside the vocabulary, a reply that was not JSON.
+- the taskflow's `outputs` schema requires the branch to have produced a
+  non-empty string, so a branch that said nothing fails at the framework
+  boundary;
+- `collect_verdicts.py` checks the shape — that the reply parses, that the
+  verdict is in the vocabulary, that the rationale is not absent, empty or
+  whitespace.
 
-The second is not redundancy for its own sake. The schema is a config file, and
-the property should not depend on one line of YAML staying right.
+The schema used to describe the verdict object too, and it could not. The
+framework decodes a captured response with a bare `json.loads`
+(`results.py`), so a fenced reply is a string — and Sonnet fences its JSON on
+every run, however plainly the personality asks it not to. An object schema
+therefore failed every real verdict and recorded the branch as `result: null`,
+which is worse than rejecting it: the text is not persisted anywhere, so
+`collect_verdicts.py` could no longer say *what* had been discarded or why, and
+"discarded is not dropped" quietly became "dropped".
+
+A schema sitting on a prose channel cannot tell a formatting slip from a
+refusal. So it checks the one thing it can, and the shape is checked where the
+text still exists to be reported.
+
+`collect_verdicts.py` sees through a fence around the whole reply, and nothing
+more. Prose with an object somewhere inside it stays unparseable and is
+discarded, because hunting for the first `{` would turn the discard rule into a
+scraper — accepting a reply that answered a different question in a different
+shape.
 
 Discarded is not dropped: the finding still appears in the output as
 `undetermined`, carrying `discarded_verdict` and `discarded_because`. A finding

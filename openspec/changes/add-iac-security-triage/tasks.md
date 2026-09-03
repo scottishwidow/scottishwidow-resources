@@ -180,24 +180,43 @@ binds 3.6, which is where measurement resumes over findings the agent has not be
 
 ## 4. Triage taskflow, propose-only
 
-- [ ] 4.1 Stand up `seclab-taskflow-agent` via its Docker image and confirm the
+- [x] 4.1 Stand up `seclab-taskflow-agent` via its Docker image and confirm the
       environment works by running the shipped echo taskflow
       (image `ghcr.io/githubsecuritylab/seclab-taskflow-agent` v0.5.0 pulled and
-      driven by `taskflow/run.sh`. The echo taskflow loads, resolves its
-      personality and starts its MCP server, then stops at
-      `AI_API_TOKEN environment variable is not set` — every leg of the
-      environment is confirmed except the model call, which no token here can
-      exercise. Two container-ergonomics fixes were needed and are in `run.sh`:
+      driven by `taskflow/run.sh`. Completed 2026-09-03 once a token was
+      available: the last leg, the model call, now runs. The image ships an echo
+      *toolbox* and no echo taskflow, so the check was a scratch two-task
+      taskflow — one shell task and one model task under a throwaway
+      personality — which ran end to end against
+      `https://api.anthropic.com` on `claude-sonnet-4-5` and returned `pong`.
+      That exercises every leg the pipeline uses: the mounts, the dotted-name
+      resolution, the shell task, the model config's endpoint and
+      authentication, and the manifest surviving the container. The scratch
+      taskflow and personality were removed after the run rather than left in
+      `taskflows/`, since the pipeline has no use for them.
+      Two container-ergonomics fixes were needed and are in `run.sh`:
       the data directory is bound under `/data` rather than the image's default
       `/root/.local/share`, since `/root` is mode 700 and an unprivileged user
       cannot traverse into a mount beneath it, and the container runs as the
       invoking user so the manifest does not come back root-owned.)
-- [ ] 4.2 Write the IaC triage personality defining the verdict vocabulary and requiring
+- [x] 4.2 Write the IaC triage personality defining the verdict vocabulary and requiring
       a rationale; verify it against a single hand-picked finding
       (`taskflow/personalities/iac_triage.yaml`. The vocabulary is held in step
       with `vocabulary.py` by a test rather than by care: a verdict class added
-      to one and not the other fails the suite. Verification against a finding
-      needs a model and is not done.)
+      to one and not the other fails the suite. Verified 2026-09-03 against
+      `AWS-0164:module.vpc:aws_subnet.public_zone_1`, which returned
+      `not-applicable` with a rationale citing `docs/design/gitlab-on-aws.md`.
+
+      Verifying it is what found the defect the task could not have anticipated.
+      The first three attempts produced good verdicts that the pipeline threw
+      away: Sonnet wraps its JSON in a markdown fence, the framework decodes a
+      captured response with a bare `json.loads`, and the `outputs` schema —
+      which then described the verdict object — rejected a string. Rewording the
+      personality twice did not stop it, once explicitly about the fence and
+      once avoiding the word in case it was priming. The fix was not in the
+      prompt: the branch schema now checks that the branch said something, and
+      the shape is checked in `collect_verdicts.py`, which sees through a fence
+      around the whole reply and nothing else. See 4.5 for what that cost.)
 - [x] 4.3 Write the taskflow: a `run:` task producing schema-validated `outputs` from the
       normaliser, and an `over:` task fanning out across the eligible findings; verify
       `openspec`-independent offline linting and schema validation pass
@@ -212,10 +231,17 @@ binds 3.6, which is where measurement resumes over findings the agent has not be
       Python identifier — `iac-security-triage` is not, which is why `run.sh`
       enters `taskflow/` and addresses `taskflows.iac_triage` from below the
       hyphen.)
-- [ ] 4.4 Supply `docs/adr/` and `docs/design/` as triage context; verify the run
+- [x] 4.4 Supply `docs/adr/` and `docs/design/` as triage context; verify the run
       completes and at least one rationale cites a decision record
       (`taskflow/context.py` collects all 7 documents and a live run captured
-      them into the manifest, so the context reaches the prompt. The framework
+      them into the manifest, so the context reaches the prompt. Verified for
+      real 2026-09-03: a full run over all 7 eligible findings completed with 7
+      verdicts and none discarded, and 4 of the 7 rationales cite a decision
+      record — `docs/adr/0001-ansible-over-ssm.md` twice and
+      `docs/design/gitlab-on-aws.md` twice. The five bootstrap-bucket findings
+      did not collapse into one answer, which is the habit the personality asks
+      for: three came back `real-mechanical` and two `not-applicable`.
+      The framework
       ships no filesystem toolbox, so context is pushed into the prompt rather
       than fetched by the agent — which is the stricter arrangement: the agent
       has no tools at all, so it cannot read the alert state holding a verdict it
@@ -224,23 +250,40 @@ binds 3.6, which is where measurement resumes over findings the agent has not be
       model.)
 - [x] 4.5 Verify a verdict produced without a rationale is discarded and recorded as
       undetermined, by testing with a deliberately non-compliant response
-      (enforced twice and tested against six non-compliant responses: absent
-      rationale, whitespace-only rationale, verdict outside the vocabulary, a
-      branch that produced nothing, a non-JSON reply, and a JSON string. The
-      taskflow's `outputs` schema rejects the branch, and
-      `collect_verdicts.py` applies the rule again over every branch — the schema
-      cannot catch a whitespace-only rationale or a branch that failed for an
-      unrelated reason, and the property should not rest on one line of YAML
-      staying right. Discarded is not dropped: the finding is still reported, as
-      `undetermined`, carrying `discarded_verdict` and `discarded_because`.)
-- [ ] 4.6 Verify no alert state changes during a full run — the agent's output is carried
+      (tested against ten responses: absent rationale, whitespace-only
+      rationale, verdict outside the vocabulary, a branch that produced nothing,
+      a non-JSON reply, a JSON string, a fenced object, a fence with no language
+      tag, prose wrapped around an object, and a fenced object with a trailing
+      remark. The last four are the line the fence tolerance must not cross: the
+      first two are decoded, the second two are still discarded.
+
+      **Revised 2026-09-03, and the revision is a correction.** The two guards
+      were the taskflow's `outputs` schema and `collect_verdicts.py`, and the
+      first was checking something it could not. The framework decodes a
+      captured response with a bare `json.loads`, so a fenced reply is a string
+      — and an object schema failed every real verdict Sonnet produced (4.2),
+      recording the branch as `result: null`. That is worse than a rejection:
+      the raw text is persisted nowhere, so the collector could not say what had
+      been discarded or why, and this task's own promise that discarded is not
+      dropped was being broken by the guard meant to keep it.
+
+      The halves are now split by what each can actually enforce. The schema
+      checks liveness — a non-empty string, so a branch that said nothing still
+      fails at the framework boundary. `collect_verdicts.py` checks shape, where
+      the text survives to be reported. Discarded is still not dropped: the
+      finding appears as `undetermined` carrying `discarded_verdict` and
+      `discarded_because`, which is now true in the fenced case as well.)
+- [x] 4.6 Verify no alert state changes during a full run — the agent's output is carried
       by the issues of group 6, not by dismissals
-      (structurally true and asserted by test rather than observed: the agent is
+      (structurally true, asserted by test, and now observed: the agent is
       given no toolboxes at all, so there is no path from a run to a dismissal
       whatever a prompt says, and the triage workflow requests only
-      `contents: read`. Both are held by tests. Observed across two runs that
-      reached the model boundary — all 20 alerts still `open` afterwards — but a
-      *full* run needs a token, so the task stays open.)
+      `contents: read`. Both are held by tests. Observed 2026-09-03 across a
+      full run over all 7 eligible findings: alert state was read via
+      `gh api /repos/:owner/:repo/code-scanning/alerts` before and after and
+      compared field by field — all 20 alerts identical, every one still `open`,
+      no `dismissed_at` and no change to `updated_at`. The verdicts travelled
+      out through the run manifest, as group 6 intends.)
 - [x] 4.8 Add the triage workflow with `workflow_dispatch` as its **only** trigger
       (`design.md - Decision 11`); verify it is not reachable from any push, pull request
       or schedule event, that `AI_API_TOKEN` is referenced only by this workflow, and that

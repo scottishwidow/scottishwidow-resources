@@ -149,23 +149,25 @@ taskflow:
       agents:
         - personalities.iac_triage
       # The verdict is the agent's answer, not a tool result -- it calls no
-      # tools -- so the response text is what gets captured and schema-checked.
+      # tools -- so what gets captured is the response text.
       capture: response
+      # A liveness check, deliberately, and not a shape check.
+      #
+      # This schema used to describe the verdict object, and it could not hold:
+      # the framework decodes a captured response with a bare `json.loads`, so a
+      # model that wraps its JSON in a markdown fence -- which Sonnet does, on
+      # every run -- produced a string, failed this schema, and had its branch
+      # recorded as `result: null`. The verdict was not merely rejected but
+      # destroyed, leaving `collect_verdicts.py` unable to say what had been
+      # discarded or why, which is precisely the record `tasks.md` 4.5 promises.
+      #
+      # A schema on a prose channel cannot tell a formatting slip from a
+      # refusal. So it checks the one thing it can -- that the branch produced
+      # something at all -- and the shape is checked in `collect_verdicts.py`,
+      # where the text survives to be reported.
       outputs:
-        type: object
-        properties:
-          key: {type: string, minLength: 1}
-          verdict:
-            enum: [not-applicable, real-mechanical, real-judgment, undetermined]
-          # minLength is the schema half of the discard rule; the other half is
-          # in collect_verdicts.py, which also rejects whitespace and does not
-          # depend on this line being right.
-          rationale: {type: string, minLength: 1}
-          evidence:
-            type: array
-            items: {type: string}
-        required: [key, verdict, rationale]
-        additionalProperties: false
+        type: string
+        minLength: 1
       user_prompt: |
         Triage this finding.
 

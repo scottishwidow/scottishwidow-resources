@@ -13,14 +13,13 @@ is unavailable`, `tasks.md` 4.5):
     A verdict produced without a rationale is discarded and the finding is
     recorded as `undetermined`.
 
-The `outputs` schema in the taskflow already rejects most of these at the
-framework boundary -- a branch that violates it fails rather than producing a
-value -- but the schema cannot be the only guard. It catches an absent or
-non-string `rationale`; it does not catch a whitespace-only one, it does not
-apply to a branch that failed for some other reason, and a schema is a
-configuration file that can be loosened by someone who does not know why it was
-tight. The rule is enforced here as well, on every branch, so that the property
-holds for reasons that do not depend on the schema being right.
+This is where the shape of a verdict is checked, and the taskflow's `outputs`
+schema no longer attempts it. A schema sitting on a captured *response* cannot:
+the framework decodes it with a bare ``json.loads``, so a model that fences its
+JSON fails the schema and its branch is recorded as ``result: null`` -- the
+verdict destroyed rather than reported. The schema now checks only that a branch
+produced something, which is the half it can enforce, and the shape is checked
+here, where the text still exists to be reported.
 
 Discarded is not dropped. A finding whose verdict was thrown away still appears
 in the output as `undetermined`, carrying why it was discarded, because a
@@ -69,13 +68,33 @@ def latest_manifest(root: pathlib.Path = AGENT_DATA) -> pathlib.Path:
     return manifests[-1]
 
 
+def unfence(text: str) -> str:
+    """Strip a markdown code fence wrapping the whole of *text*, if there is one.
+
+    Narrow on purpose. A fence around the entire reply is a presentation habit
+    -- Sonnet applies one to JSON however plainly it is asked not to -- and
+    costs nothing to see through. Anything else is not: prose with an object
+    somewhere inside it is a model that answered a different question, and
+    hunting for the first `{` would turn the discard rule into a scraper. Only
+    an opening fence on the first line and a closing fence on the last are
+    removed; text outside them leaves the reply unparseable, as it should.
+    """
+    lines = text.strip().splitlines()
+    if len(lines) < 2 or not lines[0].startswith("```") or lines[-1].strip() != "```":
+        return text
+    # The opening line may carry a language tag (```json) and nothing else.
+    if lines[0][3:].strip().isalnum() or not lines[0][3:].strip():
+        return "\n".join(lines[1:-1])
+    return text
+
+
 def decode(result: Any) -> dict[str, Any] | None:
     """A branch result is a JSON object, or the text of one, or unusable."""
     if isinstance(result, dict):
         return result
     if isinstance(result, str):
         try:
-            decoded = json.loads(result)
+            decoded = json.loads(unfence(result))
         except json.JSONDecodeError:
             return None
         return decoded if isinstance(decoded, dict) else None

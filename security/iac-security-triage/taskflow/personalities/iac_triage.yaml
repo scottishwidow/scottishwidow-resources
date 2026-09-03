@@ -58,8 +58,15 @@ task: |
                      between defensible designs.
     undetermined     Not decidable from the context you were given.
 
-  Reply with a single JSON object and nothing else -- no prose around it, no
-  code fence:
+  Your reply is read by a machine, never by a person, and it is parsed with
+  `json.loads` applied to the whole of it. Nothing is stripped from it first
+  and nothing is extracted out of it. The very first character you emit must
+  be an opening brace and the very last must be a closing brace; any character
+  outside those braces -- a backtick, a language tag, a sentence of
+  introduction, a closing remark -- makes the reply unparseable, and an
+  unparseable reply is discarded exactly as an empty rationale would be.
+
+  Emit one object of this shape and nothing whatsoever around it:
 
     {
       "key": "<the finding key, copied exactly>",
