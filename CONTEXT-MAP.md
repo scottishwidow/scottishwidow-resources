@@ -11,7 +11,8 @@
   nothing provisioned yet.** Start at [the design draft](./docs/design/gitlab-on-aws.md).
 - [IaC security triage](./security/iac-security-triage/CONTEXT.md) — the pipeline
   that scans the Terraform for misconfigurations, assigns each finding a verdict
-  with a rationale, and bounds how much of that judgment happens without a human.
+  with a rationale, and proposes a patch where a human asks for one. Nothing
+  merges and nothing is dismissed without a human ([ADR-0008](./docs/adr/0008-this-repository-is-not-a-memory-bank.md)).
   Spans no AWS environment and needs no cloud credentials. Start at [the as-built
   design](./docs/design/iac-security-triage.md).
 
@@ -39,15 +40,16 @@
   is decided on the **owner path**, so a finding in `modules/` reached through
   `live/management/` is first-party and triaged, while one in `.terraform/modules/`
   is recorded upstream and never sent to a model.
-- **Triage → GitLab (the corpus)**: `live/gitlab/` is where the evaluation corpus
-  becomes worth measuring. Today's is 9 findings over 8 rules, 7 of which fire
-  exactly once — enough to validate the mechanism, not enough to support an
-  accuracy claim. RDS, ElastiCache and load balancer findings are what widen it,
-  and two deferred measurement tasks are waiting on exactly that.
-- **ADRs, design docs → Triage**: `docs/adr/` and `docs/design/` are read into
-  every triage prompt by `context.py` — a model with `ADR-0004` in context can
-  know a permissive rule is intentional where a rule engine cannot. This is the
-  pipeline's actual differentiator over a suppression file, and it means **a new
-  ADR becomes triage context by existing**. It also means a design doc that named
-  per-finding verdicts would hand the agent answers it is about to be scored
-  against; don't write one.
+- **Terraform → Triage (the corpus)**: every first-party `.tf` file in the repo is
+  assembled into the **Terraform corpus** and carried in each agent's prompt, so
+  the code — both environments' and every module's — is the whole of what an agent
+  knows about this system. It is small enough to push: 24 files, ~20KB, ~6k tokens
+  per finding. `live/gitlab/` landing is what changes that arithmetic, and at
+  roughly ten times today's size a pull-based read toolbox becomes worth building
+  ([ADR-0008](./docs/adr/0008-this-repository-is-not-a-memory-bank.md)).
+- **ADRs, design docs → nothing**: they are *not* agent input, and the machinery
+  that made them so is deleted. `docs/design/` is where development thinking is
+  worked out and is half-formed by design; feeding it to an agent promoted drafts
+  to facts. A new ADR changes what an agent sees only by changing the Terraform.
+  This is the line ADR-0008 draws, and the corpus assembler is the one place it
+  could be quietly crossed — it may contain code and never prose.

@@ -1,9 +1,9 @@
 # IaC security triage
 
 The pipeline that scans this repository's Terraform for misconfigurations,
-decides what each finding means *here*, and records a rationale for every
-decision. It spans no AWS environment — it reads the code that defines them all,
-and needs no cloud credentials to do it.
+decides what each finding means *here*, records a rationale for every decision,
+and — where a human asks it to — proposes a patch. It spans no AWS environment:
+it reads the code that defines them all, and needs no cloud credentials to do it.
 
 Start at [the as-built design](../../docs/design/iac-security-triage.md).
 
@@ -48,8 +48,8 @@ _Avoid_: filtered, ignored, suppressed, excluded — see below.
 **Below-threshold**:
 A first-party finding under the configured severity threshold. It is **untriaged,
 not dismissed**: its alert stays open, it gets no tracker item, and no verdict is
-formed for it. It keeps its finding key, so lowering the threshold extends the
-corpus rather than resetting it.
+formed for it. It keeps its finding key, so lowering the threshold extends what
+has been judged rather than resetting it.
 _Avoid_: suppressed, ignored, muted, closed — all of them assert a decision that
 has not been made.
 
@@ -62,7 +62,8 @@ Exactly one of four classes from `vocabulary.py`, assigned only to eligible
 findings: `not-applicable` (inapplicable here, or a knowingly accepted risk),
 `real-mechanical` (real, fix needs no judgment about this system),
 `real-judgment` (real, fix does), `undetermined` (not decidable from the context
-available).
+available). It is **advice to whoever labels the issue**, not a routing
+instruction: what sends a finding to remediation is the label, never the verdict.
 _Avoid_: false positive — it collapses "the scanner is wrong" into "this does not
 apply here", which are different findings about different things. Say
 `not-applicable` and give the rationale.
@@ -86,39 +87,46 @@ finding is the thing.
 
 **Tracker item**:
 The GitHub issue a triaged finding is promoted to, under `needs-triage`, carrying
-the verdict and rationale in readable form. Code scanning holds state; Issues hold
-work. Every triaged finding gets one, whatever its verdict.
+the verdict, the rationale and the number of the alert it was filed for. Code
+scanning holds state; Issues hold work. Every triaged finding gets one, whatever
+its verdict.
 
-**Ground truth** / **the corpus**:
-`fixtures/ground-truth.yaml` — verdicts *exported* from recorded triage by
-`export_fixture.py`, never authored by hand. It is a snapshot of alert and issue
-state, not a second place a verdict can be written.
-_Avoid_: labels, annotations, the answer key.
+**Store**:
+Anything consulted about findings *other than* the one at hand. There are none
+here, by ADR-0008. The distinction from a tracker item is the whole of that
+decision: a tracker item is one finding's own record, so the remediator reading
+the issue for the finding it is patching is not consulting a store.
 
-**Provenance** (`verdict_author`):
-Whether an entry's verdict came from a `human`, a `model`, or an undeclared
-`unknown`. Load-bearing: **only `human` entries may contribute to an agreement
-figure**, because a verdict written by a model cannot score that model. Today
-every entry is `model`, which is why there is no agreement figure.
+**Terraform corpus**:
+Every first-party `.tf` file in this repository, assembled deterministically and
+carried in each agent's prompt. It is what "the agent reads the code" means
+concretely — all of it, not a selection made on the agent's behalf — and it is
+the only thing either agent knows about this system beyond the finding itself.
+Vendored Terraform under `.terraform/modules/` is not in it.
+_Avoid_: context, documents, knowledge base — it is the code and nothing else.
 
-**Agreement** and **support**:
-Agreement is the rate at which automated verdicts match human ones for a rule.
-Support is the number of findings behind that rate. **Neither is ever reported
-without the other** — most rules here fire once, so an unsupported agreement
-figure is a coin flip reported as a measurement.
+**Remediation**:
+Deriving a **patch** for a finding a human has labelled for it. Invoked by that
+label, never by a verdict: the agent recommends, the human authorises.
+_Avoid_: fix (a fix is what a merge produces), auto-fix (nothing is automatic
+past the label).
 
-**Support floor**:
-The minimum scored findings a rule needs before full agreement can confer
-dismissal authority (`k = 5`, in `autonomy.json`). A judgment, not a derivation.
-It exists so unanimity over a single case never earns anything.
+**Patch**:
+A unified diff emitted as text by the remediator. It is a proposal — the agent
+holds no tools and writes nothing, so every patch reaches the repository through
+deterministic code and a human's merge.
 
-**Allowlist**:
-The set of rules granted autonomous dismissal. Currently empty, and necessary
-rather than sufficient — evidence is re-checked at run time, so it can only
-narrow what the measurement permits, never widen it.
+**Patch gate**:
+The deterministic decision, taken outside the agent, on whether a patch reaches
+review: it must apply, touch only permitted paths, leave `terraform validate` and
+`fmt` passing, remove its target finding key, and introduce no new one. It is a
+**filter, not an acceptance** — it makes review cheap rather than unnecessary,
+and what accepts a patch is the merge.
+_Avoid_: validation, verification — both claim the gate settles correctness, and
+it cannot: no gate here can see that a patch stranded a subnet's instances.
 
 **Propose-only**:
-The pipeline's current posture: it forms verdicts, files them as issues, and
-touches no alert state. Everything is a proposal to a human until a rule earns
-otherwise.
+The pipeline's posture, permanently under ADR-0008: it forms verdicts, files them
+as issues, and proposes patches. Nothing merges and nothing is dismissed without
+a human.
 _Avoid_: read-only — it does write issues.
