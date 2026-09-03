@@ -30,7 +30,12 @@ score.py   agreement per rule, each figure with the count behind it
         ^
         |
 taskflow/   the agent's verdicts, for the same findings, to be scored against
-            the fixture above -- see taskflow/README.md
+        |   the fixture above -- see taskflow/README.md
+        v
+file_issues.py   one GitHub issue per triaged finding, under needs-triage,
+        |        idempotent on the finding key
+        v
+autonomy.py   which alerts, if any, may be dismissed without a human
 ```
 
 The two arms meet at `score.py`, and the order between them is the point: the
@@ -125,6 +130,45 @@ The export refuses to run once `runs/` exists, because a fixture written after a
 triage run is not independent of it. `--allow-after-triage` overrides that, and
 the result is not ground truth.
 
+## Routing to the tracker
+
+Code scanning holds per-finding state; Issues hold the work (`design.md -
+Decision 4`). `file_issues.py` promotes **every** triaged finding to an issue,
+whatever the verdict — deciding that a finding is not worth acting on is the
+judgment this pipeline exists to inform, and burying it in a dismissal comment
+hides it from where work is reviewed.
+
+    python3 security/iac-security-triage/file_issues.py \
+      --findings normalised.json --verdicts runs/<id>.json --dry-run
+
+| | issue filed | label applied | alert |
+|---|---|---|---|
+| any verdict on an eligible finding | yes | `needs-triage` | left open |
+| below threshold | no | — | left open, untriaged |
+| vendored | no | — | recorded upstream |
+
+Three properties, each a boundary rather than a convenience:
+
+- **`ready-for-agent` is never applied.** That label authorises unattended
+  remediation, so an agent that could apply it would be authorising its own
+  downstream work. It is absent from the emittable vocabulary and a label
+  outside that vocabulary raises rather than being filed.
+- **No alert state is touched.** Nothing in the module speaks to the code
+  scanning API, so a `not-applicable` verdict files an issue and leaves the alert
+  open. Dismissal is earned per rule under `Decision 6` and happens elsewhere.
+- **Only findings the pipeline submitted for triage are filed.** A verdict
+  arriving for a vendored or below-threshold finding is reported as an error,
+  because honouring it would defeat the gate that excluded it.
+
+Idempotency is keyed on the finding key, read back out of existing issue bodies
+by `issue_body.py` across open *and* closed issues. A second run over unchanged
+verdicts creates nothing and edits nothing — the disposition label a human
+applied is this pipeline's output and must survive the next run of it.
+
+In CI this is a separate job from the one that runs the agent: the job holding
+`issues: write` never sees `AI_API_TOKEN`, and the job that runs the model
+cannot open an issue.
+
 ## Provenance is part of the verdict
 
 Every fixture entry carries `verdict_author`: `human`, `model`, or `unknown` for
@@ -138,6 +182,46 @@ fixture entries the run never covered. Every figure it prints comes with the
 number of findings behind it — eight of the ten first-party rules here fire once,
 so an agreement figure without its support is a coin flip reported as a
 measurement.
+
+## Autonomy is earned, per rule
+
+`autonomy.py` is the only thing here that can write alert state, and on this
+corpus it writes nothing. Dismissal requires all three of
+(`design.md - Decision 6`, `docs/adr/0007-autonomous-alert-dismissal-is-earned-per-rule.md`):
+
+    agreement == 100%   AND   scored >= support_floor   AND   rule allowlisted
+
+    python3 security/iac-security-triage/autonomy.py \
+      --verdicts runs/<id>.json --evidence score.json     # report only
+    python3 security/iac-security-triage/autonomy.py ... --apply
+    python3 security/iac-security-triage/autonomy.py --reopen <alert>
+
+The support floor is the load-bearing half. Five of the six eligible rules fire
+exactly once, so an agreement-only gate would grant five sixths of the ruleset
+permanent dismissal authority on single cases going the right way. `k = 5` is a
+judgment, not a derivation, and a floor of 1 or less is refused at load rather
+than accepted.
+
+`autonomy.json` holds the floor and the allowlist. It is **empty**, and no rule
+on this corpus could qualify — the largest, `AWS-0164`, is n=2. A test derives
+that from the baseline rather than restating it, so it moves when the corpus
+does.
+
+The allowlist is necessary and *not* sufficient: evidence is re-checked at run
+time against the scoring report, so a grant that outlives its evidence is
+reported as an error instead of being honoured. The file can only narrow what
+the measurement permits, never widen it.
+
+Everything else is proposed — never scored, scored below full agreement, agreed
+but under-supported, or qualifying-but-not-granted all leave the alert open and
+send the verdict to a human as an issue. Dismissal itself is an edit and not a
+deletion: the alert stays listed, the rationale and finding key are written onto
+it, and `--reopen` reverses it.
+
+Nothing runs this in CI. No workflow in this repository is granted
+`security-events: write` for triage, and a test asserts that per job — standing
+authority to close alerts is not something to hold while the allowlist is empty.
+It becomes a wiring question when a rule first clears the floor, and not before.
 
 ## Tests
 

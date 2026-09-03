@@ -232,35 +232,113 @@ on a commit timestamp.
 
 ## 6. Routing to the tracker
 
-- [ ] 6.1 Implement promotion of **every** triaged finding to a GitHub issue
+- [x] 6.1 Implement promotion of **every** triaged finding to a GitHub issue
       (`design.md - Decision 4`), carrying the finding key, the verdict and the rationale
       in the body, filed under `needs-triage` from `docs/agents/triage-labels.md`; verify
       a full run over the baseline corpus produces 7 issues, one per eligible finding
-- [ ] 6.2 Implement idempotency keyed on the finding key; verify a second run with
+      (`file_issues.py`, in the body shape `issue_body.py` already reads back, so
+      the issue an alert is promoted to remains the verdict store `export_fixture.py`
+      joins to. Verified against the baseline corpus rather than asserted: a full
+      run plans exactly 7 issues, one per eligible key, each carrying the key, the
+      verdict and the rationale. Filing was wired into CI as a *separate job* —
+      added scope the task did not name, but the alternative was giving the job
+      that runs the model `issues: write`. The job holding that permission sees no
+      model and no token; the job that runs the agent cannot open an issue.
+      One thing the task did not anticipate: a verdict whose rationale
+      `collect_verdicts.py` discarded arrives with an empty rationale by design,
+      so the issue states what was discarded and why rather than filing a blank
+      section.)
+- [x] 6.2 Implement idempotency keyed on the finding key; verify a second run with
       unchanged verdicts creates no duplicate issues, and that a human-applied disposition
       label on an existing issue is left untouched by the second run
-- [ ] 6.3 Verify findings judged not applicable **do** create an issue stating that verdict
+      (the key is read back out of existing issue bodies, so identity comes from
+      the same field everything else joins on rather than from a title convention.
+      A second run over the 7 issues plans nothing, and a *changed* verdict for a
+      known key still plans nothing — the key is the identity, not the verdict.
+      The human label survives because the plan has no instruction that could
+      reach an existing issue, which the test asserts as an absence rather than
+      trusting a conditional. Issues are fetched `--state all`, so a finding closed
+      as `wontfix` is not refiled.)
+- [x] 6.3 Verify findings judged not applicable **do** create an issue stating that verdict
       and its rationale, and that their alerts are not dismissed while their rule is
       absent from the group 7 allowlist
-- [ ] 6.4 Verify the system never applies `ready-for-agent`: assert it is absent from the
+      (a run in which all 7 verdicts are `not-applicable` files all 7. The
+      no-dismissal half is held structurally rather than conditionally: the module
+      never speaks to the code scanning API, asserted by a test over its own
+      source, and its CI job is not granted `security-events`. There is no code
+      path from a verdict to a dismissal for an allowlist to have to gate.)
+- [x] 6.4 Verify the system never applies `ready-for-agent`: assert it is absent from the
       label vocabulary the issue-creation step is able to emit, and that a run in which
       every finding is judged a mechanical fix still files everything under `needs-triage`.
       This is the boundary the remediation successor change depends on
-- [ ] 6.5 Verify below-threshold and vendored findings create no issue
+      (`EMITTABLE_LABELS` is `("needs-triage",)` and a label outside it raises
+      `ForbiddenLabel` before any `gh` call, so the guard holds on the filing path
+      and not only on the plan. Tested over *every* verdict in the vocabulary
+      rather than the mechanical one alone: no verdict class unlocks a different
+      label.)
+- [x] 6.5 Verify below-threshold and vendored findings create no issue
+      (neither group is ever a candidate, and a verdict arriving for one is
+      reported as `ineligible_verdicts` and exits non-zero rather than being
+      filed — honouring such a verdict would defeat the gate that excluded it.
+      A partial run additionally reports the eligible findings it left untriaged,
+      so a finding missing an issue is visible rather than inferred from a count.)
 
 ## 7. Scoped autonomy
 
-- [ ] 7.1 Add an explicit, reviewable allowlist of rule IDs permitted autonomous
+- [x] 7.1 Add an explicit, reviewable allowlist of rule IDs permitted autonomous
       dismissal, populated only from rules that reached full agreement in 5.1 **over at
       least `k = 5` scored findings** (`design.md - Decision 6`); verify that on the
       current corpus the allowlist is empty, since the largest eligible rule (`AWS-0164`)
       is n=2
-- [ ] 7.2 Implement dismissal for allowlisted rules with the rationale recorded on the
+      (`autonomy.json` holds the floor and the allowlist; the allowlist is empty.
+      The emptiness is *derived* rather than asserted: a test computes the largest
+      eligible rule from the baseline corpus, gets 2, and checks it against the
+      floor — so widening the corpus moves the test instead of falsifying it.
+      One thing built beyond the task, because "populated only from rules that
+      reached full agreement" is otherwise a comment: the allowlist is necessary
+      and not sufficient. Evidence is re-checked at run time against the scoring
+      report, so a grant that outlives its evidence is reported as an error
+      rather than honoured, and the file can only narrow what the measurement
+      permits. Note 5.1 has not run, so the allowlist is empty for two
+      independent reasons — no rule can reach n=5, and there is no agreement
+      figure at all yet.)
+- [x] 7.2 Implement dismissal for allowlisted rules with the rationale recorded on the
       alert; verify a dismissed alert remains visible and can be reopened
-- [ ] 7.3 Verify a finding from a non-allowlisted rule leaves alert state unchanged and
+      (`autonomy.py --apply` PATCHes the alert to `dismissed` with
+      `dismissed_reason: won't fix` — not `false positive`, since a finding that
+      does not apply here is not a scanner error — and a comment carrying the
+      agent's rationale, the rule, the finding key and the fact that reopening
+      withdraws the closure. Reversibility is a real operation rather than a
+      claim: `--reopen <alert>` PATCHes it back. Visibility and reversal are
+      asserted structurally, on the request shape — the call is an edit and
+      never a delete — because verifying them against live alerts needs a rule
+      that has earned dismissal and there is none.
+      Deliberately **not** wired into CI. No workflow is granted
+      `security-events: write` for triage and a test asserts that per job:
+      standing authority to close alerts is not worth holding while the
+      allowlist is empty. That becomes a wiring question when a rule first
+      clears the floor.)
+- [x] 7.3 Verify a finding from a non-allowlisted rule leaves alert state unchanged and
       is presented for a human, covering the never-scored case, the scored-below-full
       case, and the fully-agreed-but-below-support case
-- [ ] 7.4 Document the ratchet policy — both the agreement bar and the support floor,
+      (all three, each with its own distinct reason on the decision so a human
+      reading the report can tell "never measured" from "measured and
+      disagreed". Two more cases the task did not enumerate are covered because
+      the code has to handle them: a grant whose evidence has gone stale, and a
+      verdict that was never `not-applicable` — tested across every other class
+      in the vocabulary. The end-to-end case is the one that matters: every
+      eligible finding judged `not-applicable` and scored at 100% on every rule,
+      against the committed policy, dismisses nothing — all 7 withheld on the
+      support floor.)
+- [x] 7.4 Document the ratchet policy — both the agreement bar and the support floor,
       and why the floor is the load-bearing half — and the evidence behind the current
       allowlist in `docs/`; consider recording it as an ADR alongside the existing
       records
+      (`docs/adr/0007-autonomous-alert-dismissal-is-earned-per-rule.md`, recorded
+      as an ADR because the number `k = 5` is a judgment someone will later want
+      to lower and the reasoning has to outlive whoever made it. It states both
+      bars, why the agreement bar is the one that looks strict and is in fact
+      almost free at n=1, and the evidence behind the empty allowlist — including
+      that the fixture's single entry is model-authored and excluded, so the
+      corpus supports no agreement figure at all today. Being under `docs/adr/`
+      it is now also triage context, so the agent reads the policy governing it.)

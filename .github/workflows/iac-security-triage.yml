@@ -29,10 +29,15 @@ on:
         required: false
         default: '../fixtures/baseline-scan.json'
 
-# Propose-only. Triage forms verdicts and writes them to an artifact; it does
-# not resolve an alert and does not open an issue. `security-events` is absent
+# Propose-only, and the default for every job here. `security-events` is absent
 # deliberately -- the taskflow gives its agent no toolboxes, so it cannot reach
-# alert state, and this permissions block means the job could not either.
+# alert state, and this permissions block means the job could not either. No job
+# in this workflow may write alert state; a verdict travels as an issue instead
+# (design.md - Decision 4).
+#
+# The `file-issues` job below widens this to `issues: write` for itself alone.
+# The split is the point: the job that runs the model cannot open an issue, and
+# the job that opens issues does not run a model and does not see the token.
 permissions:
   contents: read
 
@@ -91,3 +96,63 @@ jobs:
           name: triage-verdicts-${{ github.run_id }}
           path: security/iac-security-triage/runs/
           if-no-files-found: warn
+
+      - name: Upload findings
+        # The partition the verdicts were formed over. `file-issues` needs it to
+        # decide what may be filed at all, and re-deriving it there could
+        # disagree with what was triaged if the working tree moved underneath.
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: triage-findings-${{ github.run_id }}
+          path: /tmp/findings.json
+          if-no-files-found: warn
+
+  file-issues:
+    name: File an issue per triaged finding
+    needs: triage
+    # A run that produced no verdicts uploads nothing, and this job then has
+    # nothing to file. `always()` so that a *partial* run still files what it
+    # managed to triage: a finding with no verdict is left untriaged, which is
+    # the degradation tasks.md 4.7 asks for, not a reason to withhold the rest.
+    if: always()
+    runs-on: ubuntu-latest
+    # The only widened permission in this workflow, and it is scoped to the job
+    # that cannot reach a model or a secret. `security-events` stays absent:
+    # a `not-applicable` verdict files an issue and leaves the alert open until
+    # its rule earns dismissal (design.md - Decision 6).
+    permissions:
+      contents: read
+      issues: write
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Download verdicts
+        id: verdicts
+        continue-on-error: true
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        with:
+          name: triage-verdicts-${{ github.run_id }}
+          path: /tmp/verdicts
+
+      - name: Download findings
+        if: steps.verdicts.outcome == 'success'
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        with:
+          name: triage-findings-${{ github.run_id }}
+          path: /tmp/findings
+
+      - name: File issues
+        if: steps.verdicts.outcome == 'success'
+        working-directory: security/iac-security-triage
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          verdicts="$(ls /tmp/verdicts/*.json | head -1)"
+          [ -n "$verdicts" ] || { echo 'no verdicts to file'; exit 0; }
+          python3 file_issues.py \
+            --findings /tmp/findings/findings.json \
+            --verdicts "$verdicts"
