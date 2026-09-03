@@ -192,7 +192,18 @@ class ScopeSelection(unittest.TestCase):
         )
 
     def test_empty_scope_selects_every_eligible_finding(self) -> None:
-        self.assertEqual(len(self.select("")), 7)
+        """Asserted as the eligible *set*, not as a count.
+
+        What the fan-out must do is cover exactly what the severity gate
+        admitted, which stays true when the configured threshold moves — as it
+        did in task 3.6, from `HIGH` to `MEDIUM`. A hard-coded 7 would have been
+        testing `config.json` instead.
+        """
+        self.assertEqual(
+            [f["key"] for f in self.select("")],
+            [f["key"] for f in self.findings["eligible"]],
+        )
+        self.assertTrue(self.findings["eligible"])
 
     def test_scope_cannot_reach_an_ineligible_finding(self) -> None:
         """A below-threshold key named in the scope selects nothing."""

@@ -99,11 +99,11 @@ survives is gated on `Severity`:
      |                    never sent to a model
      v
   +---------------------+
-  | gate on severity    |   threshold: HIGH
+  | gate on severity    |   threshold: MEDIUM (was HIGH; see below)
   +---------------------+
      |               |
-  >= HIGH          < HIGH
-  ELIGIBLE (7)     (5) -> published as open alerts,
+  >= threshold     < threshold
+  ELIGIBLE (9)     (3) -> published as open alerts,
      |                    left untriaged, no issue
      v
   agent triage
@@ -123,10 +123,19 @@ admit exactly the eight findings that can never be actioned here while excluding
 first-party ones. Ownership answers "can this repository fix it"; severity answers "is it
 worth the reasoning". Only the intersection reaches the model.
 
-The threshold is `HIGH`, recorded as configuration rather than compiled into the
-partition, so raising or lowering it is a reviewable diff. Below-threshold findings are
-not dismissed — dismissal is a verdict, and no verdict has been formed. They stay open in
-code scanning, visible and re-triageable if the threshold moves.
+The threshold is recorded as configuration rather than compiled into the partition, so
+raising or lowering it is a reviewable diff. Below-threshold findings are not dismissed —
+dismissal is a verdict, and no verdict has been formed. They stay open in code scanning,
+visible and re-triageable if the threshold moves.
+
+It moved. The threshold was `HIGH` as designed, and dropped to `MEDIUM` under task 3.6 to
+show that the export is repeatable rather than a one-off. The counts above are the
+post-drop ones; the `HIGH` split of 7 eligible against 5 below is the baseline the rest of
+this document reasons about and is retained in § Context. The drop admitted `AWS-0090` and
+`AWS-0178`, the two `MEDIUM` findings this document repeatedly names as the corpus's most
+independent judgments, and the extension worked exactly as this decision claims it would —
+existing entries kept their keys and their verdicts. What it cost is recorded in
+Decision 5.
 
 *Alternative considered:* letting the agent classify ownership. Rejected — it converts a
 reliable path check into a probabilistic one, and 8 of 20 findings is too large a share
@@ -285,9 +294,24 @@ for an open alert the promoted issue *is* the verdict store, so once an issue ca
 agent's verdict there is no second slot a human verdict could occupy without overwriting
 the output it would be scored against.
 
-The constraint itself is not relaxed by having been spent. It binds the next corpus: the
-below-threshold findings admitted by a threshold drop, which are the only findings left
-that the agent has not been shown.
+**Spent again, and now exhausted (2026-09-03).** The threshold was lowered to `MEDIUM`
+under task 3.6, admitting the two findings the paragraph above reserved as the next
+corpus — `AWS-0178` on the VPC and `AWS-0090` on the scratch bucket — and, on the repo
+owner's instruction, both were triaged by a model rather than by a human. They are
+recorded as issues #64 and #63 with `verdict_author: model`.
+
+The repeatability claim this drop was meant to demonstrate holds and is now held by a
+test: the fixture extended from 7 entries to 9 with no existing entry altered. What does
+not hold is the reservation. There is no first-party finding left in this repo that the
+agent has not been shown, so the corpus this decision describes cannot be assembled from
+the current scan at any threshold. The fixture holds 9 entries and 0 scorable ones.
+
+The constraint itself is still not relaxed by having been spent — it binds whatever
+corpus comes next. But the next corpus can no longer come from a threshold move. It has
+to come from findings that do not exist yet: `live/gitlab/` landing, a Trivy ruleset
+update introducing rules this repo has never been scanned against, or the second scanner
+Decision 1 leaves open. That is a materially worse position than the one this decision
+was written in, and it is recorded here rather than left to be rediscovered.
 
 Each fixture entry carries the verdict, a written rationale, and `evidence` — the ADRs and
 design docs relied on, parsed from the dismissal comment. `evidence` exists so that

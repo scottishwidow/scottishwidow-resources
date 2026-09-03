@@ -32,7 +32,13 @@ SUBNET_2 = "AWS-0164:module.vpc:aws_subnet.public_zone_2"
 
 def normalised() -> dict:
     with open(BASELINE, encoding="utf-8") as handle:
-        return normalise.normalise(json.load(handle))
+        # Pinned to `HIGH`, the threshold this corpus was designed and measured
+        # against, rather than read from `config.json`. The configured threshold
+        # is meant to move — task 3.6 moved it to `MEDIUM` — and every count in
+        # this file describes the baseline corpus, not wherever the gate sits
+        # today. `ThresholdDropTest` in test_ground_truth.py is where moving it
+        # is the subject rather than an accident.
+        return normalise.normalise(json.load(handle), threshold="HIGH")
 
 
 def issue(number: int, key: str, verdict: str, author: str = "human", **kwargs) -> dict:
@@ -224,6 +230,119 @@ class ExportTest(unittest.TestCase):
         reloaded = yaml.safe_load(export_fixture.render(fixture))
         self.assertEqual(fixture_schema.validate(reloaded), [])
         self.assertEqual(len(reloaded["entries"]), 7)
+
+
+
+class ThresholdDropTest(unittest.TestCase):
+    """Task 3.6: the export is a repeatable operation, not a one-off.
+
+    Lowering the threshold is the only way the corpus grows before
+    `live/gitlab/` lands, so the property that matters is that a re-export
+    *extends* the fixture: the findings admitted by the drop gain entries, and
+    the entries already recorded are neither rewritten nor invalidated. If a
+    drop reset the corpus, every threshold move would cost the verdicts already
+    spent on it.
+
+    The two findings a drop to `MEDIUM` admits are the ones named in
+    `design.md - Decision 5` as the corpus's most independent judgments —
+    `AWS-0178` on the VPC and `AWS-0090` on the scratch bucket — and they are
+    the only first-party findings the agent has not already been shown.
+    """
+
+    NEWLY_ELIGIBLE = {
+        "AWS-0178:module.vpc:aws_vpc.main",
+        "AWS-0090:module.ssm_scratch:aws_s3_bucket.this",
+    }
+
+    def setUp(self):
+        with open(BASELINE, encoding="utf-8") as handle:
+            self.report = json.load(handle)
+        self.high = normalise.normalise(self.report, threshold="HIGH")
+        self.medium = normalise.normalise(self.report, threshold="MEDIUM")
+        self.alerts = baseline_alerts()
+
+    def keys(self, normalised: dict, bucket: str) -> set:
+        return {r["key"] for r in normalised[bucket]}
+
+    def test_drop_admits_the_below_threshold_findings_and_loses_none(self):
+        self.assertEqual(
+            self.keys(self.medium, "eligible") - self.keys(self.high, "eligible"),
+            self.NEWLY_ELIGIBLE,
+        )
+        self.assertTrue(
+            self.keys(self.high, "eligible") <= self.keys(self.medium, "eligible")
+        )
+        # Ownership is decided before severity, so a severity move must not
+        # disturb the vendored partition at all.
+        self.assertEqual(self.keys(self.high, "vendored"), self.keys(self.medium, "vendored"))
+
+    def test_keys_survive_the_drop_unchanged(self):
+        """A finding carries the same identity at either threshold.
+
+        This is what makes the corpus cumulative: the key in an entry recorded
+        under `HIGH` still names the same finding under `MEDIUM`, so existing
+        verdicts keep pointing at what they judged (`design.md - Decision 3`).
+        """
+        before = {r["key"]: r for r in self.high["eligible"] + self.high["below_threshold"]}
+        after = {r["key"]: r for r in self.medium["eligible"] + self.medium["below_threshold"]}
+        self.assertEqual(set(before), set(after))
+        for key, record in before.items():
+            self.assertEqual(record["rule_id"], after[key]["rule_id"])
+            self.assertEqual(record["severity"], after[key]["severity"])
+
+    def test_re_export_extends_the_fixture_without_rewriting_it(self):
+        original = [
+            issue(100 + i, r["key"], "real-mechanical")
+            for i, r in enumerate(self.high["eligible"])
+        ]
+        first = export_fixture.build(self.high, self.alerts, original)
+
+        # 3.1 re-run over the newly eligible findings, then 3.2 again.
+        widened = original + [
+            issue(200 + i, key, "not-applicable")
+            for i, key in enumerate(sorted(self.NEWLY_ELIGIBLE))
+        ]
+        second = export_fixture.build(self.medium, self.alerts, widened)
+
+        self.assertEqual(len(first["entries"]), 7)
+        self.assertEqual(len(second["entries"]), 9)
+        self.assertEqual(second["severity_threshold"], "MEDIUM")
+        self.assertEqual(second["untriaged_keys"], [])
+
+        carried = {e["key"]: e for e in second["entries"]}
+        for entry in first["entries"]:
+            self.assertIn(entry["key"], carried)
+            self.assertEqual(entry, carried[entry["key"]])
+
+    def test_the_newly_eligible_pair_is_an_error_before_the_drop_and_legal_after(self):
+        """The same verdicts, judged by whether the finding was submitted for triage.
+
+        Triaging these two under `HIGH` contaminates the corpus and is reported
+        as such; the drop is precisely what makes recording them legitimate.
+        """
+        issues = [
+            issue(200 + i, key, "not-applicable")
+            for i, key in enumerate(sorted(self.NEWLY_ELIGIBLE))
+        ]
+        before = export_fixture.build(self.high, self.alerts, issues)
+        self.assertEqual(set(before["ineligible_verdicts"]), self.NEWLY_ELIGIBLE)
+        self.assertEqual(before["entries"], [])
+
+        after = export_fixture.build(self.medium, self.alerts, issues)
+        self.assertEqual(after["ineligible_verdicts"], [])
+        self.assertEqual({e["key"] for e in after["entries"]}, self.NEWLY_ELIGIBLE)
+
+    def test_a_widened_fixture_still_validates(self):
+        import yaml
+
+        issues = [
+            issue(100 + i, r["key"], "real-judgment")
+            for i, r in enumerate(self.medium["eligible"])
+        ]
+        fixture = export_fixture.build(self.medium, self.alerts, issues)
+        reloaded = yaml.safe_load(export_fixture.render(fixture))
+        self.assertEqual(fixture_schema.validate(reloaded), [])
+        self.assertEqual(len(reloaded["entries"]), 9)
 
 
 class SchemaTest(unittest.TestCase):

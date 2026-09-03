@@ -177,14 +177,57 @@ binds 3.6, which is where measurement resumes over findings the agent has not be
       figures and flagged, using a synthetic record
       (reported as `unscored_rules`; the test asserts the unlabelled finding does not
       inflate the figure it is absent from)
-- [ ] 3.6 Verify the export is repeatable rather than a one-off: lowering the threshold in
+- [x] 3.6 Verify the export is repeatable rather than a one-off: lowering the threshold in
       configuration and re-running 3.1/3.2 over the newly eligible findings extends the
       fixture without invalidating existing entries (`design.md - Decision 5`)
       (this is now also where measurement *resumes*, not merely where repeatability is
       shown — see 3.1's forfeiture. The newly eligible findings are the only ones left
       that the agent has not already been shown, so the ordering constraint has to hold
       here even though it was spent for the original 7: triage the newly eligible alerts
-      before the next triage run, not after.)
+      before the next triage run, not after.
+
+      **Repeatability: shown. Measurement: forfeited a second time, 2026-09-03.**
+
+      `config.json` moved from `HIGH` to `MEDIUM`, which admits exactly the two findings
+      named above — `AWS-0178:module.vpc:aws_vpc.main` (alert #10) and
+      `AWS-0090:module.ssm_scratch:aws_s3_bucket.this` (alert #16). Both were triaged and
+      filed as issues #64 (`real-judgment`) and #63 (`not-applicable`), and the export
+      re-run against them. The repeatability property holds on the live corpus and not
+      merely in a test: the fixture went from 7 entries to 9, no entry was removed, and
+      **no pre-existing entry changed in any field** — the threshold move extended the
+      corpus rather than resetting it, which is the claim this task exists to check. The
+      widened fixture validates clean and reports no untriaged and no ineligible keys.
+
+      `ThresholdDropTest` in `tests/test_ground_truth.py` holds the same property in
+      code, so it survives the one live run that demonstrated it: a drop admits the two
+      and loses none, keys are unchanged across the move (which is what makes the corpus
+      cumulative), a re-export extends without rewriting, and the pair that is an
+      `ineligible_verdicts` error under `HIGH` becomes a legitimate entry under `MEDIUM`.
+
+      **What was given up, on the repo owner's instruction and against the
+      recommendation recorded here.** Both verdicts were written by a model, not a
+      human, so they carry `verdict_author: model` and `score.py` excludes them exactly
+      as it excludes the original 7. The fixture now holds 9 entries of which **0 are
+      scorable**, and there is no first-party finding left in this repo that the agent
+      has not been shown. The ordering constraint was not violated — triage still
+      preceded the next triage run — but the independence the ordering exists to protect
+      was spent, and this was the last set that could have supplied it. Measurement now
+      resumes only when the corpus widens from outside: `live/gitlab/` landing, a Trivy
+      ruleset update, or a second scanner (`design.md - Decision 1`). 5.2 and 5.3 stay
+      deferred on the same grounds and are no closer than before.
+
+      Marked complete on the repeatability claim, which is fully met. It does not
+      retroactively enable 5.1: `score.py` and `autonomy.py` gate on
+      `verdict_author: human`, so nothing downstream is fooled by this being checked.
+
+      One defect surfaced and is reported rather than absorbed: `AWS-0090` appears in
+      `unjoined_keys`, so its entry carries `alert: null`. Code scanning reports the
+      alert at the module's *source* path while Trivy's `Target` composes the module
+      instance into it, and `alert_join_key` matches exactly. The finding was
+      below-threshold until now, so this join had never been exercised for it. The
+      verdict itself is unaffected — it is read from issue #63 — and the export reported
+      the miss rather than silently dropping the link. Left unfixed as scope beyond this
+      task.)
 
 ## 4. Triage taskflow, propose-only
 
