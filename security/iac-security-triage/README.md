@@ -33,7 +33,9 @@ taskflow/   the agent's verdicts, for the same findings, to be scored against
         |   the fixture above -- see taskflow/README.md
         v
 file_issues.py   one GitHub issue per triaged finding, under needs-triage,
-                 idempotent on the finding key
+        |        idempotent on the finding key
+        v
+autonomy.py   which alerts, if any, may be dismissed without a human
 ```
 
 The two arms meet at `score.py`, and the order between them is the point: the
@@ -180,6 +182,46 @@ fixture entries the run never covered. Every figure it prints comes with the
 number of findings behind it — eight of the ten first-party rules here fire once,
 so an agreement figure without its support is a coin flip reported as a
 measurement.
+
+## Autonomy is earned, per rule
+
+`autonomy.py` is the only thing here that can write alert state, and on this
+corpus it writes nothing. Dismissal requires all three of
+(`design.md - Decision 6`, `docs/adr/0007-autonomous-alert-dismissal-is-earned-per-rule.md`):
+
+    agreement == 100%   AND   scored >= support_floor   AND   rule allowlisted
+
+    python3 security/iac-security-triage/autonomy.py \
+      --verdicts runs/<id>.json --evidence score.json     # report only
+    python3 security/iac-security-triage/autonomy.py ... --apply
+    python3 security/iac-security-triage/autonomy.py --reopen <alert>
+
+The support floor is the load-bearing half. Five of the six eligible rules fire
+exactly once, so an agreement-only gate would grant five sixths of the ruleset
+permanent dismissal authority on single cases going the right way. `k = 5` is a
+judgment, not a derivation, and a floor of 1 or less is refused at load rather
+than accepted.
+
+`autonomy.json` holds the floor and the allowlist. It is **empty**, and no rule
+on this corpus could qualify — the largest, `AWS-0164`, is n=2. A test derives
+that from the baseline rather than restating it, so it moves when the corpus
+does.
+
+The allowlist is necessary and *not* sufficient: evidence is re-checked at run
+time against the scoring report, so a grant that outlives its evidence is
+reported as an error instead of being honoured. The file can only narrow what
+the measurement permits, never widen it.
+
+Everything else is proposed — never scored, scored below full agreement, agreed
+but under-supported, or qualifying-but-not-granted all leave the alert open and
+send the verdict to a human as an issue. Dismissal itself is an edit and not a
+deletion: the alert stays listed, the rationale and finding key are written onto
+it, and `--reopen` reverses it.
+
+Nothing runs this in CI. No workflow in this repository is granted
+`security-events: write` for triage, and a test asserts that per job — standing
+authority to close alerts is not something to hold while the allowlist is empty.
+It becomes a wiring question when a rule first clears the floor, and not before.
 
 ## Tests
 
