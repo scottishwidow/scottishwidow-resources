@@ -7,23 +7,32 @@ previous one is verified.
 - [x] 1.1 Add a CI workflow that runs Trivy config scanning over the repository and
       uploads SARIF to code scanning; verify by opening a pull request that touches a
       `.tf` file and confirming alerts appear annotated on the changed lines
-- [ ] 1.2 Confirm the workflow requests only `security-events: write` and no cloud
+- [x] 1.2 Confirm the workflow requests only `security-events: write` and no cloud
       credentials, and that a fork pull request degrades as the spec's fork scenario
       describes: the scan runs, findings reach the run's output, the rejected SARIF upload
       does not fail the run, and no alert state is written. Assert the first three by test
       over the workflow file — permissions, absence of cloud credentials, and
       `continue-on-error` on the upload step — rather than by inspection, since each is a
       property of a file that can be edited
-      (permissions confirmed by inspection: `contents: read` + `security-events: write`
-      only, no cloud credentials referenced. Restated 2026-09-03: the original wording
+      (the three file-borne properties are now held by test in
+      `taskflow/tests/test_workflows.py` rather than by inspection: permissions
+      exactly `contents: read` + `security-events: write` with no job widening
+      them, no cloud credential by any route — `id-token` absent from the
+      workflow and every job, no credential-configuring action, no key or
+      `role-to-assume` by name, no step handed a secret, and the checkout
+      declining to persist its token — and `continue-on-error: true` plus
+      `if: always()` on the upload step, located by the action it runs rather
+      than by its name. One test carries the reasoning the others rest on: every
+      step other than the upload is asserted to touch no code scanning API, so
+      "a fork writes no alert state" follows from that single step being
+      rejected. Restated 2026-09-03: the original wording
       required a fork PR to complete "with findings reported", which the implementation
       cannot deliver and never intended to — a fork's `GITHUB_TOKEN` is read-only whatever
       the permissions block says, so `upload-sarif` is rejected and the step carries
       `continue-on-error: true`. Findings reach the job log, not alert state. That is the
       accepted degradation, and the inability of a fork PR to write alert state is a
-      security property worth asserting rather than a shortfall. The test half is
-      unimplemented; observing a real fork PR remains a one-off that needs a second
-      account and blocks nothing.)
+      security property worth asserting rather than a shortfall. Observing a real
+      fork PR remains a one-off that needs a second account and blocks nothing.)
 - [x] 1.3 Verify a documentation-only pull request does not re-report existing findings
       as new, by comparing alert numbers before and after
 - [x] 1.4 Record the baseline scan output as a committed fixture; verify it contains 20
