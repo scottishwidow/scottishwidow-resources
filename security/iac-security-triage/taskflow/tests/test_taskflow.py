@@ -75,24 +75,50 @@ class TaskflowShape(unittest.TestCase):
 
 
 class VerdictVocabularyIsShared(unittest.TestCase):
-    """The schema, the prompt and vocabulary.py must not drift apart."""
+    """The prompt and vocabulary.py must not drift apart.
 
-    def test_schema_enum_matches_the_vocabulary(self) -> None:
-        schema = task_by_id(load(TASKFLOW_PATH), "verdicts")["outputs"]
-        self.assertEqual(
-            sorted(schema["properties"]["verdict"]["enum"]),
-            sorted(vocabulary.VERDICTS),
-        )
+    The taskflow schema was the third copy and is no longer one: it describes
+    the verdict object nowhere, so there is nothing there to drift. What the
+    model is told and what the collector accepts are now the only two
+    statements of the vocabulary, and `collect_verdicts` reads `vocabulary.py`
+    rather than restating it -- leaving the prompt as the one place a class
+    could go missing.
+    """
 
     def test_personality_names_every_verdict(self) -> None:
         text = PERSONALITY_PATH.read_text(encoding="utf-8")
         for verdict in vocabulary.VERDICTS:
             self.assertIn(verdict, text, f"{verdict} is not described to the agent")
 
-    def test_schema_requires_a_rationale(self) -> None:
-        schema = task_by_id(load(TASKFLOW_PATH), "verdicts")["outputs"]
-        self.assertIn("rationale", schema["required"])
-        self.assertEqual(schema["properties"]["rationale"]["minLength"], 1)
+    def test_the_collector_judges_against_the_shared_vocabulary(self) -> None:
+        """Not a restatement of it: the same object, so drift is impossible."""
+        self.assertIs(collect_verdicts.vocabulary.VERDICTS, vocabulary.VERDICTS)
+
+
+class BranchSchemaChecksLivenessNotShape(unittest.TestCase):
+    """Why the `outputs` schema stopped describing the verdict object.
+
+    The framework decodes a captured response with a bare `json.loads`, so a
+    fenced reply is a string. An object schema therefore failed every real
+    verdict Sonnet produced and recorded the branch as `result: null` --
+    destroying the answer instead of reporting it, which is the opposite of
+    what 4.5 asks for. The schema keeps the half it can enforce on a prose
+    channel: that the branch said something.
+    """
+
+    def setUp(self) -> None:
+        self.schema = task_by_id(load(TASKFLOW_PATH), "verdicts")["outputs"]
+
+    def test_the_schema_accepts_the_text_of_a_reply(self) -> None:
+        self.assertEqual(self.schema["type"], "string")
+
+    def test_the_schema_still_rejects_a_branch_that_said_nothing(self) -> None:
+        self.assertEqual(self.schema["minLength"], 1)
+
+    def test_the_schema_does_not_restate_the_verdict_object(self) -> None:
+        """Two guards on one property is where they drift; this leaves one."""
+        self.assertNotIn("properties", self.schema)
+        self.assertNotIn("required", self.schema)
 
 
 class ModelSelection(unittest.TestCase):
@@ -209,7 +235,7 @@ class DiscardRule(unittest.TestCase):
         self.assertEqual(record["discarded_verdict"], "real-judgment")
 
     def test_whitespace_rationale_becomes_undetermined(self) -> None:
-        """The schema's minLength passes this; the collector must not."""
+        """A rationale of spaces is a string of length 3, and JSON-legal."""
         record = self.record(self.good(rationale="   \n\t "))
         self.assertEqual(record["verdict"], "undetermined")
         self.assertEqual(record["discarded_because"], collect_verdicts.DISCARD_BLANK_RATIONALE)
@@ -237,6 +263,34 @@ class DiscardRule(unittest.TestCase):
     def test_a_json_string_response_is_decoded(self) -> None:
         record = self.record(json.dumps(self.good()))
         self.assertEqual(record["verdict"], "real-judgment")
+
+    def test_a_fenced_response_is_decoded(self) -> None:
+        """The reply Sonnet actually sends, on every run, however it is asked."""
+        record = self.record("```json\n" + json.dumps(self.good()) + "\n```")
+        self.assertEqual(record["verdict"], "real-judgment")
+        self.assertNotIn("discarded_because", record)
+
+    def test_a_fence_without_a_language_tag_is_decoded(self) -> None:
+        record = self.record("```\n" + json.dumps(self.good()) + "\n```")
+        self.assertEqual(record["verdict"], "real-judgment")
+
+    def test_prose_around_an_object_is_still_discarded(self) -> None:
+        """The line the fence tolerance must not cross.
+
+        Seeing through a fence reads a reply that answered the question in the
+        shape asked for. Digging an object out of commentary would accept one
+        that did not, and the discard rule would quietly become a scraper.
+        """
+        record = self.record("Here is my verdict:\n" + json.dumps(self.good()))
+        self.assertEqual(record["verdict"], "undetermined")
+        self.assertEqual(record["discarded_because"], collect_verdicts.DISCARD_UNPARSEABLE)
+
+    def test_a_fence_with_a_trailing_remark_is_still_discarded(self) -> None:
+        record = self.record(
+            "```json\n" + json.dumps(self.good()) + "\n```\nLet me know if that helps."
+        )
+        self.assertEqual(record["verdict"], "undetermined")
+        self.assertEqual(record["discarded_because"], collect_verdicts.DISCARD_UNPARSEABLE)
 
     def test_evidence_is_always_a_list(self) -> None:
         record = self.record(self.good(evidence="docs/adr/0001-ansible-over-ssm.md"))

@@ -144,6 +144,118 @@ class ScanDoesNotDependOnTriage(unittest.TestCase):
             {"contents": "read", "security-events": "write"},
         )
 
+    def test_no_job_widens_the_scan_beyond_that(self) -> None:
+        """The top-level block is not the whole story once a job overrides it."""
+        for name, job in self.workflow["jobs"].items():
+            granted = job.get("permissions", self.workflow["permissions"])
+            self.assertEqual(
+                granted, {"contents": "read", "security-events": "write"}, name
+            )
+
+
+class ScanNeedsNoCloudCredentials(unittest.TestCase):
+    """Static HCL scanning reads files; it never reaches AWS.
+
+    `proposal.md - Impact` turns on this: no OIDC role is needed by this change,
+    and that holds only while the scan asks for nothing that could carry one.
+    Asserted rather than inspected, because the cheapest way to debug a scanner
+    is to give it credentials and the second cheapest is to notice you did.
+    """
+
+    def setUp(self) -> None:
+        self.text = SCAN.read_text(encoding="utf-8")
+        self.workflow = load(SCAN)
+
+    def test_no_permission_can_mint_a_cloud_credential(self) -> None:
+        """`id-token: write` is the whole OIDC handshake; without it there is none."""
+        self.assertNotIn("id-token", self.workflow["permissions"])
+        for name, job in self.workflow["jobs"].items():
+            self.assertNotIn("id-token", job.get("permissions", {}), name)
+
+    def test_no_cloud_credential_action_is_used(self) -> None:
+        for action in (
+            "aws-actions/configure-aws-credentials",
+            "google-github-actions/auth",
+            "azure/login",
+        ):
+            self.assertNotIn(action, self.text)
+
+    def test_no_credential_is_passed_by_name(self) -> None:
+        """Covers the static-key and assume-role spellings alike."""
+        for name in (
+            "AWS_ACCESS_KEY_ID",
+            "AWS_SECRET_ACCESS_KEY",
+            "AWS_SESSION_TOKEN",
+            "role-to-assume",
+        ):
+            self.assertNotIn(name, self.text)
+
+    def test_no_step_is_handed_a_secret(self) -> None:
+        """Whatever a secret is called, it reaches a step through `env` or `with`."""
+        for job in self.workflow["jobs"].values():
+            for step in job["steps"]:
+                for field in ("env", "with"):
+                    supplied = yaml.safe_dump(step.get(field, {}))
+                    self.assertNotIn("secrets.", supplied, step.get("name"))
+
+    def test_the_checkout_leaves_no_token_on_disk(self) -> None:
+        """The one credential a scan job gets for free, declined explicitly."""
+        checkout = next(
+            step for step in self.workflow["jobs"]["trivy"]["steps"]
+            if "actions/checkout" in step.get("uses", "")
+        )
+        self.assertIs(checkout["with"]["persist-credentials"], False)
+
+
+class ForkPullRequestDegradesSafely(unittest.TestCase):
+    """The spec's fork scenario, as far as a file can carry it.
+
+    A fork's `GITHUB_TOKEN` is read-only whatever the permissions block asks
+    for, so the SARIF upload is rejected. What the workflow controls is what
+    happens next: the scan still runs, its findings still reach the run's
+    output, and the rejected upload does not fail the run. The last of those is
+    one deleted line away from being false, so it is asserted and not trusted.
+    """
+
+    def setUp(self) -> None:
+        self.workflow = load(SCAN)
+        self.steps = self.workflow["jobs"]["trivy"]["steps"]
+
+    def upload_steps(self) -> list[dict]:
+        """Every step that publishes alert state, found by what it runs."""
+        return [
+            step
+            for step in self.steps
+            if "upload-sarif" in step.get("uses", "")
+        ]
+
+    def test_the_scan_runs_on_a_pull_request(self) -> None:
+        self.assertIn("pull_request", triggers(self.workflow))
+
+    def test_the_scan_step_does_not_fail_the_run_on_findings(self) -> None:
+        """Findings reaching the output is the point; a non-zero exit hides them."""
+        scan = next(step for step in self.steps if "trivy-action" in step.get("uses", ""))
+        self.assertEqual(str(scan["with"]["exit-code"]), "0")
+
+    def test_a_rejected_upload_does_not_fail_the_run(self) -> None:
+        uploads = self.upload_steps()
+        self.assertTrue(uploads, "no step uploads SARIF")
+        for step in uploads:
+            self.assertIs(step.get("continue-on-error"), True, step.get("name"))
+
+    def test_the_upload_runs_even_after_an_earlier_failure(self) -> None:
+        """`if: always()` is why a scan failure still reports what it found."""
+        for step in self.upload_steps():
+            self.assertEqual(step.get("if"), "always()")
+
+    def test_uploading_is_the_only_way_the_scan_writes_alert_state(self) -> None:
+        """So a fork writing nothing follows from that one step being rejected."""
+        for step in self.steps:
+            if step in self.upload_steps():
+                continue
+            self.assertNotIn("code-scanning", yaml.safe_dump(step))
+            self.assertNotIn("sarifs", yaml.safe_dump(step))
+
 
 if __name__ == "__main__":
     unittest.main()
