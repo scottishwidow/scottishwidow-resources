@@ -42,11 +42,15 @@ implementation that transfers elsewhere.
   and design docs supplied as context so that intentional decisions can be recognised as
   such. Scanning stays automatic on every change; triage is started deliberately. The
   framework is a CLI with no event model of its own, so this is also its natural shape.
-- **Add a ground-truth fixture set.** The seven triage-eligible findings triaged once in
-  code scanning and the resulting verdicts exported to a committed fixture, so agent
-  output can be scored rather than merely inspected. Labelling happens in the tool that
-  holds the state rather than in a parallel file, and covers exactly the set the agent
-  triages.
+- **Add a ground-truth fixture set.** An export that harvests triage decisions from code
+  scanning alert state into a committed fixture, plus schema validation and a scorer, so
+  agent output can be scored rather than merely inspected. Labelling happens in the tool
+  that holds the state rather than in a parallel file, and never extends beyond the set
+  the agent triages. The ordering rule is what gives the corpus its value: a verdict is
+  recorded before the agent has produced one, never after. This change ships the
+  mechanism rather than a populated corpus — the original seven eligible findings were
+  deliberately released to the agent untriaged (`design.md - Decision 5`, task 3.1), so
+  population begins with the findings admitted by the next threshold drop.
 - **Route verdicts to existing sinks.** All findings land in GitHub code scanning (free
   on this public repo) as durable per-finding state. Every *triaged* finding is
   additionally promoted to a GitHub Issue carrying the agent's verdict and rationale,

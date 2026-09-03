@@ -275,6 +275,20 @@ The ordering constraint is unchanged and non-negotiable: triage is performed and
 support an agreement figure. Alert timestamps make the ordering auditable, which a
 hand-edited file could not.
 
+**Spent once, deliberately (2026-09-03).** The original seven eligible findings were
+released to the agent without an independent human verdict, forfeiting them as a corpus.
+The reasoning is recorded under task 3.1: what was given up is a mechanism check rather
+than an accuracy figure, since no rule in that set exceeds n=2 against Decision 6's
+support floor of 5, so the allowlist could never have opened on it whatever the agreement
+rate. The forfeit is one-way for a structural reason, not merely a psychological one —
+for an open alert the promoted issue *is* the verdict store, so once an issue carries the
+agent's verdict there is no second slot a human verdict could occupy without overwriting
+the output it would be scored against.
+
+The constraint itself is not relaxed by having been spent. It binds the next corpus: the
+below-threshold findings admitted by a threshold drop, which are the only findings left
+that the agent has not been shown.
+
 Each fixture entry carries the verdict, a written rationale, and `evidence` — the ADRs and
 design docs relied on, parsed from the dismissal comment. `evidence` exists so that
 Decision 7's comparison can ask whether the agent reached a verdict *for the same reason*
