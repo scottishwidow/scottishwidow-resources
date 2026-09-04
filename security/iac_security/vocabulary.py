@@ -1,8 +1,8 @@
 """The fixed triage vocabulary.
 
 Defined once here so the verdict collector and the triage personality cannot
-drift apart. The verdict classes are those in `specs/iac-security-triage/spec.md
-- Every triaged finding receives a verdict with a rationale`.
+drift apart. The verdict classes are those in `docs/design/iac-security-triage.md
+- Decisions that are load-bearing in the code`.
 """
 
 from __future__ import annotations

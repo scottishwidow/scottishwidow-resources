@@ -59,12 +59,14 @@ class TriageIsDispatchOnly(unittest.TestCase):
     def test_no_job_can_write_alert_state(self) -> None:
         """The workflow default is not the whole story once jobs widen it.
 
-        `file-issues` needs `issues: write`, so the propose-only claim can no
-        longer rest on the top-level block alone. Every job is checked.
+        `file-issues` needs `issues: write` and `security-events: read` --
+        read, to resolve each finding's alert number, never write -- so the
+        propose-only claim can no longer rest on the top-level block alone or
+        on `security-events` being wholly absent. Every job is checked.
         """
         for name, job in self.workflow["jobs"].items():
             granted = job.get("permissions", self.workflow["permissions"])
-            self.assertNotIn("security-events", granted, name)
+            self.assertNotEqual(granted.get("security-events"), "write", name)
 
 
 class IssuesAreFiledByAJobThatRunsNoModel(unittest.TestCase):
@@ -91,8 +93,15 @@ class IssuesAreFiledByAJobThatRunsNoModel(unittest.TestCase):
         self.assertNotIn(TOKEN, yaml.safe_dump(self.filer))
 
     def test_the_job_opening_issues_cannot_write_alert_state(self) -> None:
-        """A `not-applicable` verdict files an issue; it does not dismiss."""
-        self.assertEqual(self.granted(self.filer), {"contents": "read", "issues": "write"})
+        """A `not-applicable` verdict files an issue; it does not dismiss.
+
+        `security-events: read` is present -- resolving a finding's alert
+        number needs it -- but there is no `write` anywhere in the grant.
+        """
+        self.assertEqual(
+            self.granted(self.filer),
+            {"contents": "read", "issues": "write", "security-events": "read"},
+        )
 
     def test_issue_filing_waits_for_triage(self) -> None:
         self.assertEqual(self.filer["needs"], "triage")

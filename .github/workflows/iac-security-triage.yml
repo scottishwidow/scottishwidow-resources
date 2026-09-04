@@ -29,9 +29,11 @@ on:
 # in this workflow may write alert state; a verdict travels as an issue instead
 # (design.md - Decision 4).
 #
-# The `file-issues` job below widens this to `issues: write` for itself alone.
-# The split is the point: the job that runs the model cannot open an issue, and
-# the job that opens issues does not run a model and does not see the token.
+# The `file-issues` job below widens this to `issues: write`, and to
+# `security-events: read` so it can resolve each finding's alert number
+# (CONTEXT.md - Tracker item). The split is the point: the job that runs the
+# model cannot open an issue or read alert state, and the job that opens
+# issues does not run a model and does not see the token.
 permissions:
   contents: read
 
@@ -108,13 +110,15 @@ jobs:
     # the degradation tasks.md 4.7 asks for, not a reason to withhold the rest.
     if: always()
     runs-on: ubuntu-latest
-    # The only widened permission in this workflow, and it is scoped to the job
-    # that cannot reach a model or a secret. `security-events` stays absent:
-    # a `not-applicable` verdict files an issue and leaves the alert open until
-    # its rule earns dismissal (design.md - Decision 6).
+    # The only widened permissions in this workflow, and both are scoped to the
+    # job that cannot reach a model or a secret. `security-events: read` is for
+    # resolving a finding's alert number, never for writing alert state -- a
+    # `not-applicable` verdict still files an issue and leaves the alert open
+    # until its rule earns dismissal (design.md - Decision 6).
     permissions:
       contents: read
       issues: write
+      security-events: read
     steps:
       - name: Checkout
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1

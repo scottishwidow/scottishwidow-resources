@@ -51,5 +51,31 @@ class EvidencePathPattern(unittest.TestCase):
         )
 
 
+class AlertRow(unittest.TestCase):
+    """The second identity row, beside Key (`CONTEXT.md` - Tracker item)."""
+
+    def test_parses_the_alert_number_from_the_link_the_filer_writes(self) -> None:
+        body = (
+            "| **Key** | `AWS-0086:module.x:aws_s3_bucket.y` |\n"
+            "| **Alert** | [#42](https://github.com/o/r/security/code-scanning/42) |\n"
+        )
+        self.assertEqual(issue_body.parse(body)["alert"], 42)
+
+    def test_parses_the_alert_number_from_a_code_span(self) -> None:
+        body = "| **Key** | `AWS-0086:module.x:aws_s3_bucket.y` |\n| **Alert** | `#42` |\n"
+        self.assertEqual(issue_body.parse(body)["alert"], 42)
+
+    def test_parses_a_bare_alert_number(self) -> None:
+        """The shape a body filed before the row became a link still carries."""
+        body = "| **Key** | `AWS-0086:module.x:aws_s3_bucket.y` |\n| **Alert** | #42 |\n"
+        self.assertEqual(issue_body.parse(body)["alert"], 42)
+
+    def test_a_body_with_no_alert_row_reports_it_absent(self) -> None:
+        body = "| **Key** | `AWS-0086:module.x:aws_s3_bucket.y` |\n"
+        parsed = issue_body.parse(body)
+        self.assertIsNotNone(parsed)
+        self.assertIsNone(parsed["alert"])
+
+
 if __name__ == "__main__":
     unittest.main()

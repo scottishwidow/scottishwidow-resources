@@ -64,7 +64,7 @@ class FilesOnePerTriagedFinding(unittest.TestCase):
 
     def setUp(self) -> None:
         self.findings = normalised()
-        self.plan = file_issues.plan(self.findings, full_run(self.findings), [])
+        self.plan = file_issues.plan(self.findings, full_run(self.findings), [], [])
 
     def test_a_full_run_files_one_issue_per_eligible_finding(self) -> None:
         self.assertEqual(len(self.plan["create"]), 7)
@@ -98,7 +98,7 @@ class FilesOnePerTriagedFinding(unittest.TestCase):
     def test_evidence_cited_by_the_agent_reaches_the_issue(self) -> None:
         tf_file = "modules/vpc/main.tf"
         key = self.findings["eligible"][0]["key"]
-        plan = file_issues.plan(self.findings, [verdict(key, evidence=[tf_file])], [])
+        plan = file_issues.plan(self.findings, [verdict(key, evidence=[tf_file])], [], [])
         self.assertEqual(issue_body.parse(plan["create"][0]["body"])["evidence"], [tf_file])
 
 
@@ -137,7 +137,7 @@ class EvidenceOutsideTheCorpusIsMarkedInPlace(unittest.TestCase):
 
     def test_the_marker_does_not_disturb_the_paths_read_back(self) -> None:
         """Both paths are still evidence on read-back; the marker is prose."""
-        body = file_issues.body(self.finding, self.record)
+        body = file_issues.body(self.finding, self.record, None)
         self.assertEqual(issue_body.parse(body)["evidence"], self.record["evidence"])
 
 
@@ -147,18 +147,18 @@ class IsIdempotentOnTheFindingKey(unittest.TestCase):
     def setUp(self) -> None:
         self.findings = normalised()
         self.run = full_run(self.findings)
-        first = file_issues.plan(self.findings, self.run, [])
+        first = file_issues.plan(self.findings, self.run, [], [])
         self.existing = [
             issue_for(item, number=100 + index) for index, item in enumerate(first["create"])
         ]
 
     def test_a_second_run_with_unchanged_verdicts_files_nothing(self) -> None:
-        second = file_issues.plan(self.findings, self.run, self.existing)
+        second = file_issues.plan(self.findings, self.run, self.existing, [])
         self.assertEqual(second["create"], [])
         self.assertEqual(len(second["skipped_existing"]), 7)
 
     def test_a_second_run_reports_the_issue_each_finding_already_has(self) -> None:
-        second = file_issues.plan(self.findings, self.run, self.existing)
+        second = file_issues.plan(self.findings, self.run, self.existing, [])
         self.assertEqual(
             {item["key"]: item["issue"] for item in second["skipped_existing"]},
             {issue_body.parse(i["body"])["key"]: i["number"] for i in self.existing},
@@ -167,7 +167,7 @@ class IsIdempotentOnTheFindingKey(unittest.TestCase):
     def test_a_changed_verdict_still_files_nothing_for_a_known_key(self) -> None:
         """The key is the identity, not the verdict: a re-run must not duplicate."""
         changed = full_run(self.findings, "not-applicable")
-        self.assertEqual(file_issues.plan(self.findings, changed, self.existing)["create"], [])
+        self.assertEqual(file_issues.plan(self.findings, changed, self.existing, [])["create"], [])
 
     def test_a_human_applied_disposition_label_is_left_untouched(self) -> None:
         """Nothing in a second run's plan edits an existing issue at all.
@@ -178,7 +178,7 @@ class IsIdempotentOnTheFindingKey(unittest.TestCase):
         that could reach an existing issue.
         """
         labelled = [dict(issue, labels=[{"name": "ready-for-human"}]) for issue in self.existing]
-        second = file_issues.plan(self.findings, self.run, labelled)
+        second = file_issues.plan(self.findings, self.run, labelled, [])
         self.assertEqual(second["create"], [])
         self.assertNotIn("edit", second)
         self.assertNotIn("relabel", second)
@@ -201,7 +201,7 @@ class IsIdempotentOnTheFindingKey(unittest.TestCase):
 
     def test_an_unrelated_issue_does_not_block_filing(self) -> None:
         unrelated = [{"number": 7, "body": "A bug report with no finding key in it."}]
-        self.assertEqual(len(file_issues.plan(self.findings, self.run, unrelated)["create"]), 7)
+        self.assertEqual(len(file_issues.plan(self.findings, self.run, unrelated, [])["create"]), 7)
 
 
 class FilesNotApplicableVerdictsToo(unittest.TestCase):
@@ -209,7 +209,8 @@ class FilesNotApplicableVerdictsToo(unittest.TestCase):
 
     def setUp(self) -> None:
         self.findings = normalised()
-        self.plan = file_issues.plan(self.findings, full_run(self.findings, "not-applicable"), [])
+        run = full_run(self.findings, "not-applicable")
+        self.plan = file_issues.plan(self.findings, run, [], [])
 
     def test_a_not_applicable_verdict_still_creates_an_issue(self) -> None:
         self.assertEqual(len(self.plan["create"]), 7)
@@ -221,15 +222,17 @@ class FilesNotApplicableVerdictsToo(unittest.TestCase):
             self.assertTrue(parsed["rationale"])
 
     def test_nothing_here_can_dismiss_an_alert(self) -> None:
-        """Structural: this module never speaks to the code scanning API.
+        """Structural: this module speaks to the code scanning API to read, never write.
 
-        With no rule allowlisted (`design.md - Decision 6`) a `not-applicable`
-        verdict must leave the alert open. That holds because there is no code
-        path from here to a dismissal, which is a stronger statement than any
-        conditional would be.
+        `fetch_alerts` resolves each finding's alert number (`CONTEXT.md` -
+        Tracker item) with a plain `GET`. With no rule allowlisted
+        (`design.md - Decision 6`) a `not-applicable` verdict must still leave
+        the alert open, and there is no code path here to a dismissal -- no
+        write verb and nothing naming a dismissal reason -- which is a
+        stronger statement than any conditional would be.
         """
         source = (Path(file_issues.__file__)).read_text(encoding="utf-8")
-        for forbidden in ("code-scanning", "dismissed_reason", "--state dismissed", "PATCH"):
+        for forbidden in ("dismissed_reason", "--state dismissed", "PATCH", "POST", "DELETE"):
             self.assertNotIn(forbidden, source)
 
     def test_a_discarded_verdict_is_filed_as_undetermined_and_says_why(self) -> None:
@@ -241,11 +244,144 @@ class FilesNotApplicableVerdictsToo(unittest.TestCase):
             discarded_verdict="real-mechanical",
             discarded_because="rationale was empty or whitespace",
         )
-        plan = file_issues.plan(self.findings, [record], [])
+        plan = file_issues.plan(self.findings, [record], [], [])
         parsed = issue_body.parse(plan["create"][0]["body"])
         self.assertEqual(parsed["verdict"], "undetermined")
         self.assertIn("rationale was empty or whitespace", parsed["rationale"])
         self.assertIn("real-mechanical", parsed["rationale"])
+
+
+ALERT_URL = "https://github.com/o/r/security/code-scanning"
+
+
+def alert(number: int, rule_id: str, path: str, start_line: int) -> dict:
+    """A code scanning alert in the shape the `gh api` alerts list returns."""
+    return {
+        "number": number,
+        "html_url": f"{ALERT_URL}/{number}",
+        "rule": {"id": rule_id},
+        "most_recent_instance": {"location": {"path": path, "start_line": start_line}},
+    }
+
+
+class RecordsTheAlertItWasFiledFor(unittest.TestCase):
+    """`CONTEXT.md` - Tracker item: the second identity row, beside Key.
+
+    The join has no other path: an alert carries no finding key, so the
+    reverse join back from an issue to its alert exists only because this
+    module writes the alert's number at filing time.
+    """
+
+    def setUp(self) -> None:
+        self.findings = normalised()
+        self.finding = self.findings["eligible"][0]
+
+    def matching(self, number: int = 42) -> dict:
+        """An alert at exactly this finding's rule and declared location."""
+        return alert(
+            number,
+            self.finding["rule_id"],
+            self.finding["code_path"],
+            self.finding["start_line"],
+        )
+
+    def test_a_matching_alert_is_resolved(self) -> None:
+        found = file_issues.find_alert(self.finding, [self.matching()])
+        self.assertEqual(found["number"], 42)
+
+    def test_an_ambiguous_match_resolves_to_none(self) -> None:
+        """Rule plus location does not separate two instantiations of one module.
+
+        Both alerts here are indistinguishable in rule, path and line, which is
+        the shape this repository's own vendored alerts already take. Filing
+        either number would be a wrong answer nothing downstream can detect, so
+        the match is refused rather than guessed.
+        """
+        self.assertIsNone(
+            file_issues.find_alert(self.finding, [self.matching(41), self.matching(42)])
+        )
+
+    def test_an_ambiguous_match_is_filed_with_no_alert_row(self) -> None:
+        plan = file_issues.plan(
+            self.findings, full_run(self.findings), [], [self.matching(41), self.matching(42)]
+        )
+        item = next(i for i in plan["create"] if i["key"] == self.finding["key"])
+        self.assertIsNone(item["alert"])
+        self.assertNotIn("**Alert**", item["body"])
+
+    def test_the_alert_row_links_to_the_alert_and_not_to_an_issue(self) -> None:
+        """A bare `#42` is an *issue* autolink, and would point at the wrong thing.
+
+        The row exists so a human can reach the alert. It is written as a link
+        to the alert's own URL, so nothing in it autolinks to an unrelated
+        issue of the same number.
+        """
+        plan = file_issues.plan(self.findings, full_run(self.findings), [], [self.matching()])
+        item = next(i for i in plan["create"] if i["key"] == self.finding["key"])
+        self.assertIn(f"| **Alert** | [#42]({ALERT_URL}/42) |", item["body"])
+        self.assertNotIn("| **Alert** | #42 |", item["body"])
+
+    def test_an_alert_with_no_url_is_written_as_a_code_span(self) -> None:
+        """Still not a bare `#42`: a code span autolinks to nothing."""
+        self.assertEqual(file_issues.alert_cell({"number": 42}), "`#42`")
+        parsed = issue_body.parse("| **Key** | `k` |\n| **Alert** | `#42` |")
+        self.assertEqual(parsed["alert"], 42)
+
+    def test_an_alert_for_a_different_rule_does_not_match(self) -> None:
+        alerts = [alert(42, "AWS-9999", self.finding["code_path"], self.finding["start_line"])]
+        self.assertIsNone(file_issues.find_alert(self.finding, alerts))
+
+    def test_an_alert_at_a_different_location_does_not_match(self) -> None:
+        alerts = [alert(42, self.finding["rule_id"], "live/other/main.tf", 1)]
+        self.assertIsNone(file_issues.find_alert(self.finding, alerts))
+
+    def test_no_alerts_resolves_to_none(self) -> None:
+        self.assertIsNone(file_issues.find_alert(self.finding, []))
+
+    def test_round_trip_through_filer_and_reader(self) -> None:
+        """The number the filer resolves is exactly the number the reader parses back."""
+        plan = file_issues.plan(self.findings, full_run(self.findings), [], [self.matching()])
+        item = next(i for i in plan["create"] if i["key"] == self.finding["key"])
+        self.assertEqual(item["alert"], 42)
+        self.assertEqual(issue_body.parse(item["body"])["alert"], 42)
+
+    def test_a_body_with_no_resolved_alert_carries_no_alert_row(self) -> None:
+        plan = file_issues.plan(self.findings, full_run(self.findings), [], alerts=[])
+        item = next(i for i in plan["create"] if i["key"] == self.finding["key"])
+        self.assertIsNone(item["alert"])
+        self.assertNotIn("**Alert**", item["body"])
+        self.assertIsNone(issue_body.parse(item["body"])["alert"])
+
+    def test_a_body_with_no_alert_row_is_read_without_error(self) -> None:
+        """A body predating this row, or an unrelated issue, reports the row absent."""
+        parsed = issue_body.parse("| **Key** | `AWS-0086:module.x:aws_s3_bucket.y` |")
+        self.assertIsNotNone(parsed)
+        self.assertIsNone(parsed["alert"])
+
+
+class TheDeadSpecPathIsGone(unittest.TestCase):
+    """The `openspec/` tree is deleted; nothing here may still cite it.
+
+    The filed issue's footer is the one that matters -- it is read by whoever
+    triages -- but a reference that resolves nowhere is no better in a
+    docstring, so the whole package is checked.
+    """
+
+    def test_the_issue_body_names_no_openspec_path(self) -> None:
+        source = Path(file_issues.__file__).read_text(encoding="utf-8")
+        self.assertNotIn("openspec/", source)
+
+    def test_no_module_or_document_in_the_package_names_one(self) -> None:
+        # This file is excluded: it is the only one that must name the dead
+        # path, to say that nothing else may.
+        root = Path(file_issues.__file__).parent
+        guard = Path(__file__).resolve()
+        named = [
+            str(path.relative_to(root))
+            for path in sorted(list(root.rglob("*.py")) + list(root.rglob("*.md")))
+            if path.resolve() != guard and "openspec/" in path.read_text(encoding="utf-8")
+        ]
+        self.assertEqual(named, [])
 
 
 class NeverAppliesReadyForAgent(unittest.TestCase):
@@ -265,7 +401,7 @@ class NeverAppliesReadyForAgent(unittest.TestCase):
 
     def test_a_run_of_all_mechanical_fixes_still_files_under_needs_triage(self) -> None:
         findings = normalised()
-        plan = file_issues.plan(findings, full_run(findings, "real-mechanical"), [])
+        plan = file_issues.plan(findings, full_run(findings, "real-mechanical"), [], [])
         self.assertEqual(len(plan["create"]), 7)
         for item in plan["create"]:
             self.assertEqual(tuple(item["labels"]), (file_issues.NEEDS_TRIAGE,))
@@ -274,7 +410,7 @@ class NeverAppliesReadyForAgent(unittest.TestCase):
     def test_no_verdict_in_the_vocabulary_unlocks_a_different_label(self) -> None:
         findings = normalised()
         for verdict_class in vocabulary.VERDICTS:
-            plan = file_issues.plan(findings, full_run(findings, verdict_class), [])
+            plan = file_issues.plan(findings, full_run(findings, verdict_class), [], [])
             labels = {label for item in plan["create"] for label in item["labels"]}
             self.assertEqual(labels, {file_issues.NEEDS_TRIAGE}, verdict_class)
 
@@ -286,7 +422,7 @@ class FilesNothingForFilteredFindings(unittest.TestCase):
         self.findings = normalised()
 
     def test_below_threshold_and_vendored_findings_are_never_candidates(self) -> None:
-        plan = file_issues.plan(self.findings, full_run(self.findings), [])
+        plan = file_issues.plan(self.findings, full_run(self.findings), [], [])
         filed = {item["key"] for item in plan["create"]}
         for group in ("below_threshold", "vendored"):
             for record in self.findings[group]:
@@ -296,24 +432,24 @@ class FilesNothingForFilteredFindings(unittest.TestCase):
 
     def test_a_verdict_for_a_below_threshold_finding_is_rejected_not_filed(self) -> None:
         key = self.findings["below_threshold"][0]["key"]
-        plan = file_issues.plan(self.findings, [verdict(key)], [])
+        plan = file_issues.plan(self.findings, [verdict(key)], [], [])
         self.assertEqual(plan["create"], [])
         self.assertEqual(plan["ineligible_verdicts"], [{"key": key, "reason": "below-threshold"}])
 
     def test_a_verdict_for_a_vendored_finding_is_rejected_not_filed(self) -> None:
         key = self.findings["vendored"][0]["key"]
-        plan = file_issues.plan(self.findings, [verdict(key)], [])
+        plan = file_issues.plan(self.findings, [verdict(key)], [], [])
         self.assertEqual(plan["create"], [])
         self.assertEqual(plan["ineligible_verdicts"], [{"key": key, "reason": "vendored"}])
 
     def test_a_verdict_for_an_unknown_key_is_rejected_not_filed(self) -> None:
-        plan = file_issues.plan(self.findings, [verdict("AWS-9999:module.x:aws_thing.y")], [])
+        plan = file_issues.plan(self.findings, [verdict("AWS-9999:module.x:aws_thing.y")], [], [])
         self.assertEqual(plan["create"], [])
         self.assertEqual(len(plan["ineligible_verdicts"]), 1)
 
     def test_a_partial_run_reports_the_eligible_findings_it_left_untriaged(self) -> None:
         scoped = [record["key"] for record in self.findings["eligible"][:2]]
-        plan = file_issues.plan(self.findings, [verdict(key) for key in scoped], [])
+        plan = file_issues.plan(self.findings, [verdict(key) for key in scoped], [], [])
         self.assertEqual(len(plan["create"]), 2)
         self.assertEqual(
             plan["untriaged_eligible"],
