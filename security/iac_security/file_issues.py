@@ -14,10 +14,13 @@ than a convenience:
   label authorises unattended remediation, so an agent able to apply it would be
   authorising its own downstream work. The emittable vocabulary is a constant
   here and a label outside it raises rather than being filed.
-- **It touches no alert state.** Nothing in this file speaks to the code
-  scanning API. A ``not-applicable`` verdict still files an issue and still
-  leaves the alert open; closing one is earned per rule under Decision 6 and
-  happens elsewhere when it does.
+- **It reads alert state and writes none of it.** The only reason this file
+  speaks to the code scanning API at all is to resolve, per finding, the
+  number of the alert it was filed for (``CONTEXT.md`` — Tracker item), so the
+  two can be rejoined later without re-deriving a line number that has since
+  moved. A ``not-applicable`` verdict still files an issue and still leaves the
+  alert open; closing one is earned per rule under Decision 6 and happens
+  elsewhere when it does.
 - **It files only for findings the pipeline submitted for triage.** A verdict
   arriving for a vendored or below-threshold finding is reported as an error,
   not filed: the severity gate exists to keep those out, and quietly honouring
@@ -33,6 +36,7 @@ Usage::
     file_issues.py --verdicts runs/<id>.json --findings normalised.json
     file_issues.py --verdicts run.json --findings f.json --dry-run
     file_issues.py --verdicts run.json --findings f.json --issues issues.json
+    file_issues.py --verdicts run.json --findings f.json --alerts alerts.json
 """
 
 from __future__ import annotations
@@ -94,6 +98,38 @@ def fetch_issues() -> list[dict[str, Any]]:
     return gh_json(
         ["gh", "issue", "list", "--state", "all", "--limit", "500", "--json", "number,body"]
     )
+
+
+def fetch_alerts() -> list[dict[str, Any]]:
+    """Every code scanning alert, for resolving a finding's alert number.
+
+    Reading alert state is what widens this job to `security-events: read`
+    (`CONTEXT.md` — Tracker item). Nothing here writes it back.
+    """
+    return gh_json(["gh", "api", "/repos/{owner}/{repo}/code-scanning/alerts", "--paginate"])
+
+
+def find_alert(finding: dict[str, Any], alerts: list[dict[str, Any]]) -> int | None:
+    """The code scanning alert this finding surfaced as, or ``None``.
+
+    An alert is identified by rule plus *location* (`CONTEXT.md`), not by the
+    finding key — the key exists so a *human reading an issue* need not match
+    on a line number, but the alert itself carries no finding key, so matching
+    on rule and declared location is the join available here.
+    """
+    rule_id = finding.get("rule_id")
+    path = finding.get("code_path")
+    start = finding.get("start_line")
+    for alert in alerts:
+        if (alert.get("rule") or {}).get("id") != rule_id:
+            continue
+        location = ((alert.get("most_recent_instance") or {}).get("location")) or {}
+        if location.get("path") != path:
+            continue
+        if start is not None and location.get("start_line") != start:
+            continue
+        return alert.get("number")
+    return None
 
 
 def existing_keys(issues: list[dict[str, Any]]) -> dict[str, int]:
@@ -174,20 +210,26 @@ def evidence_section(record: dict[str, Any]) -> str:
     return "\n".join(lines) + "\n"
 
 
-def body(finding: dict[str, Any], record: dict[str, Any]) -> str:
+def body(finding: dict[str, Any], record: dict[str, Any], alert_number: int | None = None) -> str:
     """The issue body, in the shape `issue_body.py` reads back.
 
-    The table's **Key** row is the join: the fixture export and this module's own
-    idempotency both find a finding's issue by it, and nothing else in the body
-    is load-bearing for that.
+    The table's **Key** row is the join: this module's own idempotency finds a
+    finding's issue by it, and nothing else in the body is load-bearing for
+    that. **Alert** sits beside it, carrying the second identity — the code
+    scanning alert this finding was filed for — so the two can be rejoined
+    without re-deriving a line number that has since moved (`CONTEXT.md` —
+    Tracker item). It is written only when a matching alert was resolved; a
+    body with none simply carries no such row.
     """
     rule_id = finding["rule_id"]
     url = finding.get("primary_url") or ""
     rule_cell = f"[{rule_id}]({url})" if url else f"`{rule_id}`"
     rule_title = finding.get("title") or ""
 
-    rows = [
-        ("Key", f"`{record['key']}`"),
+    rows = [("Key", f"`{record['key']}`")]
+    if alert_number is not None:
+        rows.append(("Alert", f"#{alert_number}"))
+    rows += [
         ("Rule", f"{rule_cell} — {rule_title}" if rule_title else rule_cell),
         ("Severity", finding.get("severity", "")),
         ("Instantiated at", f"`{finding.get('owner_path', '')}`"),
@@ -216,8 +258,9 @@ def body(finding: dict[str, Any], record: dict[str, Any]) -> str:
         "proposal, not a disposition: apply `ready-for-agent`, `ready-for-human` or\n"
         "`wontfix` from `docs/agents/triage-labels.md` to say what happens next. The\n"
         "pipeline never applies `ready-for-agent` itself\n"
-        "(`openspec/changes/add-iac-security-triage/design.md` — Decisions 4 and 6), and it\n"
-        "leaves this finding's code scanning alert open whatever the verdict says.*\n"
+        "(`docs/design/iac-security-triage.md` — Decisions that are load-bearing in the\n"
+        "code), and it leaves this finding's code scanning alert open whatever the\n"
+        "verdict says.*\n"
     )
 
 
@@ -225,12 +268,14 @@ def plan(
     findings: dict[str, Any],
     verdicts: list[dict[str, Any]],
     issues: list[dict[str, Any]],
+    alerts: list[dict[str, Any]] | None = None,
 ) -> dict[str, Any]:
     """Decide what to file, without filing anything.
 
     Split out from the filing so that every rule above is testable without a
     network, and so a `--dry-run` exercises the same decisions a real run makes.
     """
+    alerts = alerts or []
     eligible = {record["key"]: record for record in findings.get("eligible", [])}
     ineligible = {
         record["key"]: status
@@ -260,13 +305,15 @@ def plan(
             skipped.append({"key": key, "issue": already[key]})
             continue
         finding = eligible[key]
+        alert_number = find_alert(finding, alerts)
         create.append(
             {
                 "key": key,
                 "rule_id": finding["rule_id"],
                 "verdict": record["verdict"],
+                "alert": alert_number,
                 "title": title(finding),
-                "body": body(finding, record),
+                "body": body(finding, record, alert_number),
                 "labels": check_labels(EMITTABLE_LABELS),
             }
         )
@@ -316,6 +363,9 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--verdicts", required=True, help="verdict records from collect_verdicts.py")
     parser.add_argument("--issues", help="existing issues JSON; reads `gh` when omitted")
     parser.add_argument(
+        "--alerts", help="code scanning alerts JSON; reads `gh` when omitted"
+    )
+    parser.add_argument(
         "--dry-run",
         action="store_true",
         help="decide everything and file nothing",
@@ -326,8 +376,9 @@ def main(argv: list[str] | None = None) -> int:
     findings = load(args.findings)
     verdicts = load(args.verdicts)
     issues = load(args.issues) if args.issues else fetch_issues()
+    alerts = load(args.alerts) if args.alerts else fetch_alerts()
 
-    report = plan(findings, verdicts, issues)
+    report = plan(findings, verdicts, issues, alerts)
 
     for item in report["ineligible_verdicts"]:
         print(

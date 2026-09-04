@@ -221,15 +221,17 @@ class FilesNotApplicableVerdictsToo(unittest.TestCase):
             self.assertTrue(parsed["rationale"])
 
     def test_nothing_here_can_dismiss_an_alert(self) -> None:
-        """Structural: this module never speaks to the code scanning API.
+        """Structural: this module speaks to the code scanning API to read, never write.
 
-        With no rule allowlisted (`design.md - Decision 6`) a `not-applicable`
-        verdict must leave the alert open. That holds because there is no code
-        path from here to a dismissal, which is a stronger statement than any
-        conditional would be.
+        `fetch_alerts` resolves each finding's alert number (`CONTEXT.md` -
+        Tracker item) with a plain `GET`. With no rule allowlisted
+        (`design.md - Decision 6`) a `not-applicable` verdict must still leave
+        the alert open, and there is no code path here to a dismissal -- no
+        write verb and nothing naming a dismissal reason -- which is a
+        stronger statement than any conditional would be.
         """
         source = (Path(file_issues.__file__)).read_text(encoding="utf-8")
-        for forbidden in ("code-scanning", "dismissed_reason", "--state dismissed", "PATCH"):
+        for forbidden in ("dismissed_reason", "--state dismissed", "PATCH", "POST", "DELETE"):
             self.assertNotIn(forbidden, source)
 
     def test_a_discarded_verdict_is_filed_as_undetermined_and_says_why(self) -> None:
@@ -246,6 +248,84 @@ class FilesNotApplicableVerdictsToo(unittest.TestCase):
         self.assertEqual(parsed["verdict"], "undetermined")
         self.assertIn("rationale was empty or whitespace", parsed["rationale"])
         self.assertIn("real-mechanical", parsed["rationale"])
+
+
+def alert(number: int, rule_id: str, path: str, start_line: int) -> dict:
+    """A code scanning alert in the shape the `gh api` alerts list returns."""
+    return {
+        "number": number,
+        "rule": {"id": rule_id},
+        "most_recent_instance": {"location": {"path": path, "start_line": start_line}},
+    }
+
+
+class RecordsTheAlertItWasFiledFor(unittest.TestCase):
+    """`CONTEXT.md` - Tracker item: the second identity row, beside Key.
+
+    The join has no other path: an alert carries no finding key, so the
+    reverse join back from an issue to its alert exists only because this
+    module writes the alert's number at filing time.
+    """
+
+    def setUp(self) -> None:
+        self.findings = normalised()
+        self.finding = self.findings["eligible"][0]
+
+    def test_a_matching_alert_s_number_is_resolved(self) -> None:
+        alerts = [
+            alert(
+                42,
+                self.finding["rule_id"],
+                self.finding["code_path"],
+                self.finding["start_line"],
+            )
+        ]
+        self.assertEqual(file_issues.find_alert(self.finding, alerts), 42)
+
+    def test_an_alert_for_a_different_rule_does_not_match(self) -> None:
+        alerts = [alert(42, "AWS-9999", self.finding["code_path"], self.finding["start_line"])]
+        self.assertIsNone(file_issues.find_alert(self.finding, alerts))
+
+    def test_an_alert_at_a_different_location_does_not_match(self) -> None:
+        alerts = [alert(42, self.finding["rule_id"], "live/other/main.tf", 1)]
+        self.assertIsNone(file_issues.find_alert(self.finding, alerts))
+
+    def test_no_alerts_resolves_to_none(self) -> None:
+        self.assertIsNone(file_issues.find_alert(self.finding, []))
+
+    def test_round_trip_through_filer_and_reader(self) -> None:
+        """The number the filer resolves is exactly the number the reader parses back."""
+        alerts = [
+            alert(
+                42,
+                self.finding["rule_id"],
+                self.finding["code_path"],
+                self.finding["start_line"],
+            )
+        ]
+        plan = file_issues.plan(self.findings, full_run(self.findings), [], alerts)
+        item = next(i for i in plan["create"] if i["key"] == self.finding["key"])
+        self.assertEqual(item["alert"], 42)
+        self.assertEqual(issue_body.parse(item["body"])["alert"], 42)
+
+    def test_a_body_with_no_resolved_alert_carries_no_alert_row(self) -> None:
+        plan = file_issues.plan(self.findings, full_run(self.findings), [], alerts=[])
+        item = next(i for i in plan["create"] if i["key"] == self.finding["key"])
+        self.assertIsNone(item["alert"])
+        self.assertNotIn("**Alert**", item["body"])
+        self.assertIsNone(issue_body.parse(item["body"])["alert"])
+
+    def test_a_body_with_no_alert_row_is_read_without_error(self) -> None:
+        """A body predating this row, or an unrelated issue, reports the row absent."""
+        parsed = issue_body.parse("| **Key** | `AWS-0086:module.x:aws_s3_bucket.y` |")
+        self.assertIsNotNone(parsed)
+        self.assertIsNone(parsed["alert"])
+
+
+class TheDeadSpecPathIsGone(unittest.TestCase):
+    def test_the_issue_body_names_no_openspec_path(self) -> None:
+        source = Path(file_issues.__file__).read_text(encoding="utf-8")
+        self.assertNotIn("openspec/", source)
 
 
 class NeverAppliesReadyForAgent(unittest.TestCase):
