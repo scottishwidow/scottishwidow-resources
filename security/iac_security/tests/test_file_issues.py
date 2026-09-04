@@ -96,10 +96,49 @@ class FilesOnePerTriagedFinding(unittest.TestCase):
         self.assertTrue(item["title"].endswith(rest), item["title"])
 
     def test_evidence_cited_by_the_agent_reaches_the_issue(self) -> None:
-        adr = "docs/adr/0004-gitlab-downsized-2k-reference-architecture.md"
+        tf_file = "modules/vpc/main.tf"
         key = self.findings["eligible"][0]["key"]
-        plan = file_issues.plan(self.findings, [verdict(key, evidence=[adr])], [])
-        self.assertEqual(issue_body.parse(plan["create"][0]["body"])["evidence"], [adr])
+        plan = file_issues.plan(self.findings, [verdict(key, evidence=[tf_file])], [])
+        self.assertEqual(issue_body.parse(plan["create"][0]["body"])["evidence"], [tf_file])
+
+
+class EvidenceOutsideTheCorpusIsMarkedInPlace(unittest.TestCase):
+    """A discrepant path is marked where it stands, not listed twice.
+
+    `evidence_discrepancy` is a subset of `evidence`, so rendering it as a
+    second list would print the same path once unmarked and once marked. One
+    list, each path carrying its own status, is what a reader can act on.
+    """
+
+    def setUp(self) -> None:
+        self.finding = {"rule_id": "AWS-0164", "title": "t", "severity": "HIGH"}
+        self.record = {
+            "key": "AWS-0164:module.vpc:aws_subnet.public_zone_1",
+            "verdict": "real-judgment",
+            "rationale": "why",
+            "evidence": ["modules/vpc/main.tf", "live/nonexistent/main.tf"],
+            "evidence_discrepancy": ["live/nonexistent/main.tf"],
+        }
+
+    def test_each_cited_path_appears_exactly_once(self) -> None:
+        section = file_issues.evidence_section(self.record)
+        for path in self.record["evidence"]:
+            self.assertEqual(section.count(f"`{path}`"), 1, section)
+
+    def test_only_the_discrepant_path_is_marked(self) -> None:
+        section = file_issues.evidence_section(self.record)
+        self.assertIn("- `live/nonexistent/main.tf` — **not in the Terraform corpus**", section)
+        self.assertIn("- `modules/vpc/main.tf`\n", section)
+
+    def test_a_verdict_with_no_discrepancy_says_nothing_about_one(self) -> None:
+        del self.record["evidence_discrepancy"]
+        section = file_issues.evidence_section(self.record)
+        self.assertNotIn("not in the Terraform corpus", section)
+
+    def test_the_marker_does_not_disturb_the_paths_read_back(self) -> None:
+        """Both paths are still evidence on read-back; the marker is prose."""
+        body = file_issues.body(self.finding, self.record)
+        self.assertEqual(issue_body.parse(body)["evidence"], self.record["evidence"])
 
 
 class IsIdempotentOnTheFindingKey(unittest.TestCase):

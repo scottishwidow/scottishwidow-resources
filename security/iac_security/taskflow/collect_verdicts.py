@@ -25,6 +25,13 @@ Discarded is not dropped. A finding whose verdict was thrown away still appears
 in the output as `undetermined`, carrying why it was discarded, because a
 finding that vanishes from a run is invisible to both scoring and the tracker.
 
+A cited evidence path that is not in the Terraform corpus is a different case
+entirely, and is not the discard rule (ADR-0008): the corpus is complete, so a
+path outside it was never actually shown to the model. The verdict is kept and
+the discrepancy recorded on it as `evidence_discrepancy` -- discarding a
+verdict over a citation slip would throw away a judgment that may still be
+right.
+
 Usage::
 
     collect_verdicts.py --manifest ../runs/artifacts/<id>/manifest.json
@@ -58,6 +65,11 @@ DISCARD_BLANK_RATIONALE = "rationale was empty or whitespace"
 DISCARD_UNKNOWN_VERDICT = "verdict not in the vocabulary"
 DISCARD_NO_RESULT = "branch produced no result"
 DISCARD_UNPARSEABLE = "branch result was not a JSON object"
+
+# Not a discard reason: a verdict citing a path outside the corpus is kept, the
+# discrepancy recorded alongside it (ADR-0008's corpus is exhaustive, so a cited
+# path that is not in it was never actually shown to the model).
+EVIDENCE_DISCREPANCY = "evidence_discrepancy"
 
 
 def latest_manifest(root: pathlib.Path = RUNS) -> pathlib.Path:
@@ -112,7 +124,24 @@ def discard(record: dict[str, Any], reason: str) -> dict[str, Any]:
     return record
 
 
-def branch_to_record(branch: dict[str, Any], finding_keys: dict[str, str]) -> dict[str, Any]:
+def corpus_paths_from_manifest(manifest: dict[str, Any]) -> set[str] | None:
+    """The Terraform corpus's own file set, or `None` if the manifest has none.
+
+    `None` rather than the empty set distinguishes "the corpus task did not
+    run" from "the corpus was empty" -- only the latter should flag every cited
+    path as a discrepancy.
+    """
+    corpus = (manifest.get("outputs") or {}).get("corpus")
+    if not isinstance(corpus, dict):
+        return None
+    return {doc["path"] for doc in corpus.get("documents", [])}
+
+
+def branch_to_record(
+    branch: dict[str, Any],
+    finding_keys: dict[str, str],
+    corpus_paths: set[str] | None = None,
+) -> dict[str, Any]:
     """One fan-out branch to one verdict record, applying the discard rule."""
     result = decode(branch.get("result"))
     item = branch.get("item")
@@ -148,6 +177,11 @@ def branch_to_record(branch: dict[str, Any], finding_keys: dict[str, str]) -> di
     if record["verdict"] not in vocabulary.VERDICTS:
         return discard(record, DISCARD_UNKNOWN_VERDICT)
 
+    if corpus_paths is not None:
+        unknown = [path for path in record["evidence"] if path not in corpus_paths]
+        if unknown:
+            record[EVIDENCE_DISCREPANCY] = unknown
+
     return record
 
 
@@ -167,7 +201,8 @@ def collect(
     if not isinstance(branches, list):
         raise SystemExit(f"output {output_id!r} is not a fan-in list; got {type(branches).__name__}")
 
-    return [branch_to_record(branch, findings) for branch in branches]
+    paths = corpus_paths_from_manifest(manifest)
+    return [branch_to_record(branch, findings, paths) for branch in branches]
 
 
 def finding_rule_ids(path: pathlib.Path | None) -> dict[str, str]:
@@ -210,6 +245,14 @@ def main(argv: list[str] | None = None) -> int:
         )
         for record in discarded:
             print(f"  {record['key'] or '(unidentified)'}: {record['discarded_because']}", file=sys.stderr)
+
+    discrepant = [r for r in records if r.get(EVIDENCE_DISCREPANCY)]
+    for record in discrepant:
+        print(
+            f"warning: {record['key']} cites evidence not in the Terraform corpus: "
+            + ", ".join(record[EVIDENCE_DISCREPANCY]),
+            file=sys.stderr,
+        )
 
     rendered = json.dumps(records, indent=2)
     if args.output:

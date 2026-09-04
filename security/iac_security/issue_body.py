@@ -22,8 +22,11 @@ import vocabulary
 # finding; nothing else in the body is load-bearing for the join.
 KEY_ROW = re.compile(r"\|\s*\*\*Key\*\*\s*\|\s*`([^`]+)`\s*\|")
 
-# Repo-relative paths cited as the basis for a verdict.
-EVIDENCE_PATH = re.compile(r"\b((?:docs|live|modules|security|openspec)/[\w./-]+\.\w+)")
+# Repo-relative paths cited as the basis for a verdict. Narrowed to `.tf` files
+# under the two roots the Terraform corpus draws from (ADR-0008): the agent's
+# only input beyond the finding is that corpus, so a document path is not
+# evidence -- it is a citation of something the agent was never shown.
+EVIDENCE_PATH = re.compile(r"\b((?:live|modules)/[\w./-]+\.tf)\b")
 
 HTML_COMMENT = re.compile(r"<!--.*?-->", re.DOTALL)
 

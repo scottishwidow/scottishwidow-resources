@@ -2,10 +2,10 @@
 #
 # IaC triage, propose-only (tasks.md 4.3, design.md - Decision 10).
 #
-# Three tasks, and only the middle one involves a model:
+# Three tasks, and only the last one involves a model:
 #
 #   findings  run:  scan + normalise + partition + severity gate  (deterministic)
-#   context   run:  the repository's decision records              (deterministic)
+#   corpus    run:  every first-party .tf file (ADR-0008)         (deterministic)
 #   verdicts  over: outputs.findings.eligible, one branch per finding
 #
 # The pipeline assigns no verdict to anything the deterministic half excluded:
@@ -32,10 +32,6 @@ globals:
   # reproducible and a score refers to a known corpus. Override for a live scan:
   #   -g report=""
   report: "../fixtures/baseline-scan.json"
-
-  # The control arm of the deferred context comparison (tasks.md 5.2):
-  #   -g context_flag=--without-context
-  context_flag: ""
 
 taskflow:
   - task:
@@ -92,13 +88,11 @@ taskflow:
         required: [eligible, below_threshold, vendored, severity_threshold]
 
   - task:
-      name: context
-      id: context
+      name: corpus
+      id: corpus
       must_complete: true
-      env:
-        CONTEXT_FLAG: "{{ globals.context_flag }}"
       run: |
-        python3 context.py ${CONTEXT_FLAG:-}
+        python3 terraform_corpus.py
       outputs:
         type: object
         properties:
@@ -110,9 +104,8 @@ taskflow:
                 path: {type: string, minLength: 1}
                 text: {type: string}
               required: [path, text]
-          included: {type: boolean}
           missing_dirs: {type: array}
-        required: [documents, included]
+        required: [documents]
 
   - task:
       name: verdicts
@@ -166,15 +159,11 @@ taskflow:
         {{ line.number }}: {{ line.content }}
         {%- endfor %}
 
-        {% if outputs.context.documents -%}
-        The repository's recorded decisions follow. Cite by path any you rely on.
-        {% for doc in outputs.context.documents %}
+        The repository's Terraform corpus follows: every first-party `.tf` file,
+        complete and exhaustive. Cite by path any files you rely on.
+        {% for doc in outputs.corpus.documents %}
         ===== {{ doc.path }} =====
         {{ doc.text }}
         {% endfor %}
-        {%- else -%}
-        No decision records are available for this run. Judge the finding on the
-        code alone, and use `undetermined` where that is not enough.
-        {%- endif %}
 
         Reply with the JSON object described in your task, and nothing else.

@@ -149,13 +149,29 @@ def rationale_section(record: dict[str, Any]) -> str:
 
 
 def evidence_section(record: dict[str, Any]) -> str:
+    """The cited paths, each marked if the corpus did not contain it.
+
+    `evidence_discrepancy` is a subset of `evidence`, so a discrepant path is
+    marked where it already stands rather than listed a second time below. A
+    reader sees one list, and no path in it is unmarked and suspect at once.
+    """
     evidence = record.get("evidence") or []
     if not evidence:
-        return (
-            "*None.* No architecture decision record or design document was cited for\n"
-            "this finding.\n"
+        return "*None.* No Terraform corpus file was cited for this finding.\n"
+
+    unknown = set(record.get("evidence_discrepancy") or [])
+    lines = [
+        f"- `{path}`" + (" — **not in the Terraform corpus**" if path in unknown else "")
+        for path in evidence
+    ]
+    if unknown:
+        lines.append(
+            "\nA marked path was cited but was not in the corpus this verdict was "
+            "formed from, so the agent was never shown it. The verdict is recorded "
+            "rather than discarded: the citation may be wrong while the judgment is "
+            "right.\n"
         )
-    return "\n".join(f"- `{path}`" for path in evidence) + "\n"
+    return "\n".join(lines) + "\n"
 
 
 def body(finding: dict[str, Any], record: dict[str, Any]) -> str:
