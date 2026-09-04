@@ -5,8 +5,9 @@
 # pipeline needs:
 #
 #   * The repository root is mounted, and stays the working directory, because
-#     the deterministic tasks read `modules/`, `docs/adr/` and `docs/design/`,
-#     and the taskflow is addressed by its full dotted name from that root.
+#     the deterministic tasks read `live/` and `modules/` for the Terraform
+#     corpus (ADR-0008), and the taskflow is addressed by its full dotted name
+#     from that root.
 #   * The agent's data directory is bound to `../runs/` here, so the run
 #     manifest that `collect_verdicts.py` reads survives the container, in the
 #     same place the collected verdicts are written.

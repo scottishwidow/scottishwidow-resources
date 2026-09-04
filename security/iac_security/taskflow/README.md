@@ -60,9 +60,9 @@ package is `iac_security` rather than `iac-security-triage`.
 ## Shape
 
 ```
-findings   run:   ./scan.sh  ->  {eligible, below_threshold, vendored}   deterministic
-context    run:   ./context.py  ->  {documents: [ADRs, design docs]}     deterministic
-verdicts   over:  outputs.findings.eligible   one branch per finding     the only model step
+findings   run:   ./scan.sh  ->  {eligible, below_threshold, vendored}       deterministic
+corpus     run:   ./terraform_corpus.py  ->  {documents: [every .tf file]}  deterministic
+verdicts   over:  outputs.findings.eligible   one branch per finding         the only model step
 ```
 
 Only `eligible` is fanned out over, so the ownership-then-severity order of
@@ -72,7 +72,7 @@ below-threshold finding is never in a prompt.
 ## Why the agent has no tools
 
 The `toolboxes` list is empty, deliberately. Every fact the agent may use
-arrives in its prompt — the finding record and the decision records — so:
+arrives in its prompt — the finding record and the Terraform corpus — so:
 
 - a run is reproducible from its inputs, and the exact bytes the model saw are
   recoverable from the run manifest;
@@ -82,9 +82,10 @@ arrives in its prompt — the finding record and the decision records — so:
 - the agent cannot read alert state, and so cannot read a verdict it is about to
   be scored against. Read-only access would not be enough here.
 
-The cost is that context is pushed rather than pulled: every document goes into
-every finding's prompt. That is affordable only because the deterministic
-filters cut twenty findings to seven.
+The cost is that the corpus is pushed rather than pulled: every first-party
+`.tf` file goes into every finding's prompt. ADR-0008 sizes that cost at 24
+files, 770 lines — about 6k tokens per finding, cacheable, and affordable enough
+that pull is not worth building until the corpus is roughly ten times larger.
 
 ## The discard rule
 
@@ -129,7 +130,7 @@ that vanished from a run would be invisible to both scoring and the tracker.
 | `taskflows/iac_triage.yaml` | the pipeline: two shell tasks and one fan-out |
 | `personalities/iac_triage.yaml` | the system prompt: vocabulary, rationale requirement |
 | `scan.sh` | scan or replay, then normalise. A `run:` field is not templated, so configuration arrives as `TRIVY_REPORT` |
-| `context.py` | the decision records, as JSON. `--without-context` is the control arm of the comparison deferred in 5.2 |
+| `terraform_corpus.py` | every first-party `.tf` file, as JSON (ADR-0008) |
 | `collect_verdicts.py` | run manifest → verdict records, applying the discard rule |
 | `model_configs/iac_triage.yaml` | the model and the API behind it: Anthropic, not the framework's Copilot default |
 | `run.sh` | the Docker invocation, with the mounts the above needs |

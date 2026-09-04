@@ -151,11 +151,17 @@ def rationale_section(record: dict[str, Any]) -> str:
 def evidence_section(record: dict[str, Any]) -> str:
     evidence = record.get("evidence") or []
     if not evidence:
-        return (
-            "*None.* No architecture decision record or design document was cited for\n"
-            "this finding.\n"
+        return "*None.* No Terraform corpus file was cited for this finding.\n"
+
+    lines = [f"- `{path}`" for path in evidence]
+    unknown = record.get("evidence_discrepancy") or []
+    if unknown:
+        lines.append(
+            "\n*Discrepancy:* the following cited paths were not in the Terraform "
+            "corpus this verdict was formed from — recorded, not discarded:\n"
         )
-    return "\n".join(f"- `{path}`" for path in evidence) + "\n"
+        lines.extend(f"- `{path}`" for path in unknown)
+    return "\n".join(lines) + "\n"
 
 
 def body(finding: dict[str, Any], record: dict[str, Any]) -> str:

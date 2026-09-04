@@ -96,10 +96,10 @@ class FilesOnePerTriagedFinding(unittest.TestCase):
         self.assertTrue(item["title"].endswith(rest), item["title"])
 
     def test_evidence_cited_by_the_agent_reaches_the_issue(self) -> None:
-        adr = "docs/adr/0004-gitlab-downsized-2k-reference-architecture.md"
+        tf_file = "modules/vpc/main.tf"
         key = self.findings["eligible"][0]["key"]
-        plan = file_issues.plan(self.findings, [verdict(key, evidence=[adr])], [])
-        self.assertEqual(issue_body.parse(plan["create"][0]["body"])["evidence"], [adr])
+        plan = file_issues.plan(self.findings, [verdict(key, evidence=[tf_file])], [])
+        self.assertEqual(issue_body.parse(plan["create"][0]["body"])["evidence"], [tf_file])
 
 
 class IsIdempotentOnTheFindingKey(unittest.TestCase):
