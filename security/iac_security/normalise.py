@@ -152,9 +152,8 @@ def triage_status(ownership: str, severity: str, threshold: str) -> str:
 def finding_key(rule_id: str, module_address: str, resource_address: str) -> str:
     """The readable identity a verdict is recorded against.
 
-    Deliberately not a hash: this key appears in the committed ground-truth
-    fixture and in issue bodies, where being able to read it is worth more than
-    being able to compute it compactly.
+    Deliberately not a hash: this key appears in issue bodies, where being able
+    to read it is worth more than being able to compute it compactly.
     """
     return f"{rule_id}:{module_address}:{resource_address}"
 

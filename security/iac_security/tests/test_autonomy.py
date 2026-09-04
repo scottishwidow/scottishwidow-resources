@@ -22,7 +22,6 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 import autonomy  # noqa: E402
 import normalise  # noqa: E402
-import score  # noqa: E402
 import vocabulary  # noqa: E402
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -39,8 +38,7 @@ def normalised() -> dict:
         # against, rather than read from `config.json`. The configured threshold
         # is meant to move — task 3.6 moved it to `MEDIUM` — and every count in
         # this file describes the baseline corpus, not wherever the gate sits
-        # today. `ThresholdDropTest` in test_ground_truth.py is where moving it
-        # is the subject rather than an accident.
+        # today.
         return normalise.normalise(json.load(handle), threshold="HIGH")
 
 
@@ -52,7 +50,7 @@ def policy(allowlist: list[str] | None = None, floor: int = 5) -> dict:
 
 
 def evidence(rule: str = RULE, scored: int = 5, agreement: float = 1.0) -> dict:
-    """A scoring report in the shape `score.py --json` emits."""
+    """A scoring report shaped {"per_rule": {rule_id: {scored, agreed, agreement}}}."""
     return {
         "per_rule": {
             rule: {
@@ -251,63 +249,6 @@ class AuthorityIsWithheldEverywhereElse(unittest.TestCase):
         self.assertEqual(
             {d["reason"] for d in decisions}, {autonomy.BELOW_SUPPORT}
         )
-
-
-class TheGateAgreesWithTheScorer(unittest.TestCase):
-    """The evidence the ratchet reads is the report the scorer writes.
-
-    Asserted against a real `score.py` report rather than a hand-built dict, so
-    a change to the report's shape fails here instead of silently making every
-    rule unqualifiable — which would fail safe, but silently.
-    """
-
-    def test_a_real_score_report_drives_the_gate(self) -> None:
-        fixture = {
-            "entries": [
-                {
-                    "key": f"{RULE}:module.vpc:aws_subnet.n{index}",
-                    "rule_id": RULE,
-                    "verdict": "not-applicable",
-                    "verdict_author": "human",
-                    "rationale": "Public by design.",
-                }
-                for index in range(5)
-            ]
-        }
-        run = [
-            {"key": entry["key"], "rule_id": RULE, "verdict": "not-applicable"}
-            for entry in fixture["entries"]
-        ]
-        report = score.score(fixture, run)
-        self.assertEqual(report["per_rule"][RULE]["scored"], 5)
-        self.assertTrue(autonomy.qualifies(RULE, report, 5)[0])
-        self.assertFalse(autonomy.qualifies(RULE, report, 6)[0])
-
-    def test_one_disagreement_removes_the_authority(self) -> None:
-        fixture = {
-            "entries": [
-                {
-                    "key": f"{RULE}:module.vpc:aws_subnet.n{index}",
-                    "rule_id": RULE,
-                    "verdict": "not-applicable",
-                    "verdict_author": "human",
-                    "rationale": "Public by design.",
-                }
-                for index in range(5)
-            ]
-        }
-        run = [
-            {
-                "key": entry["key"],
-                "rule_id": RULE,
-                "verdict": "real-judgment" if index == 0 else "not-applicable",
-            }
-            for index, entry in enumerate(fixture["entries"])
-        ]
-        report = score.score(fixture, run)
-        permitted, why = autonomy.qualifies(RULE, report, 5)
-        self.assertFalse(permitted)
-        self.assertEqual(why, autonomy.BELOW_AGREEMENT)
 
 
 if __name__ == "__main__":

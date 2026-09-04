@@ -33,20 +33,6 @@ globals:
   #   -g report=""
   report: "../fixtures/baseline-scan.json"
 
-  # Restrict the run to named finding keys, comma-separated; empty means every
-  # eligible finding.
-  #
-  # Currently the two AWS-0164 subnet findings, and the reason is ordering
-  # rather than cost. A finding the agent has judged cannot afterwards be given
-  # an independent human verdict -- whoever labels it has seen the answer -- so
-  # the run is confined to the findings whose ground truth is already recorded.
-  # The other five stay clean until they are triaged in code scanning, which is
-  # the repeatability that tasks.md 3.6 asks for, exercised rather than argued.
-  #
-  # Widen it by adding keys, or clear it for the whole eligible set:
-  #   -g scope_keys=""
-  scope_keys: "AWS-0164:module.vpc:aws_subnet.public_zone_1,AWS-0164:module.vpc:aws_subnet.public_zone_2"
-
   # The control arm of the deferred context comparison (tasks.md 5.2):
   #   -g context_flag=--without-context
   context_flag: ""
@@ -137,15 +123,7 @@ taskflow:
       # the framework's DEFAULT_MODEL -- `gpt-4.1` -- which is not in that file's
       # `models:` map and would be passed through to Anthropic verbatim.
       model: triage
-      # Scope, if set, is applied here rather than in the normaliser: the
-      # partition is what the pipeline believes about the findings and should
-      # not change because one run was narrower than another.
-      over: >-
-        outputs.findings.eligible
-        if not globals.scope_keys
-        else (outputs.findings.eligible
-              | selectattr('key', 'in', globals.scope_keys.split(','))
-              | list)
+      over: outputs.findings.eligible
       agents:
         - security.iac_security.taskflow.personalities.iac_triage
       # The verdict is the agent's answer, not a tool result -- it calls no

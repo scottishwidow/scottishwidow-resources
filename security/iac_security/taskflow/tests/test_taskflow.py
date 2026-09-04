@@ -25,13 +25,11 @@ import yaml  # noqa: E402
 
 import collect_verdicts  # noqa: E402
 import context  # noqa: E402
-import normalise  # noqa: E402
 import vocabulary  # noqa: E402
 
 TASKFLOW_PATH = TASKFLOW_DIR / "taskflows" / "iac_triage.yaml"
 PERSONALITY_PATH = TASKFLOW_DIR / "personalities" / "iac_triage.yaml"
 MODEL_CONFIG_PATH = TASKFLOW_DIR / "model_configs" / "iac_triage.yaml"
-BASELINE = TRIAGE_DIR / "fixtures" / "baseline-scan.json"
 
 
 def load(path: pathlib.Path) -> dict:
@@ -166,54 +164,6 @@ class ModelSelection(unittest.TestCase):
         )
 
 
-class ScopeSelection(unittest.TestCase):
-    """The `over:` expression is what confines a run to named findings."""
-
-    def setUp(self) -> None:
-        self.taskflow = load(TASKFLOW_PATH)
-        self.findings = normalise.normalise(json.loads(BASELINE.read_text(encoding="utf-8")))
-
-    def select(self, scope_keys: str) -> list[dict]:
-        import jinja2
-
-        over = task_by_id(self.taskflow, "verdicts")["over"]
-        env = jinja2.Environment()
-        rendered = env.compile_expression(over, undefined_to_none=False)(
-            globals={**self.taskflow["globals"], "scope_keys": scope_keys},
-            outputs={"findings": self.findings},
-        )
-        return list(rendered)
-
-    def test_default_scope_is_the_two_recorded_findings(self) -> None:
-        keys = [f["key"] for f in self.select(self.taskflow["globals"]["scope_keys"])]
-        self.assertEqual(
-            keys,
-            [
-                "AWS-0164:module.vpc:aws_subnet.public_zone_1",
-                "AWS-0164:module.vpc:aws_subnet.public_zone_2",
-            ],
-        )
-
-    def test_empty_scope_selects_every_eligible_finding(self) -> None:
-        """Asserted as the eligible *set*, not as a count.
-
-        What the fan-out must do is cover exactly what the severity gate
-        admitted, which stays true when the configured threshold moves — as it
-        did in task 3.6, from `HIGH` to `MEDIUM`. A hard-coded 7 would have been
-        testing `config.json` instead.
-        """
-        self.assertEqual(
-            [f["key"] for f in self.select("")],
-            [f["key"] for f in self.findings["eligible"]],
-        )
-        self.assertTrue(self.findings["eligible"])
-
-    def test_scope_cannot_reach_an_ineligible_finding(self) -> None:
-        """A below-threshold key named in the scope selects nothing."""
-        below = self.findings["below_threshold"][0]["key"]
-        self.assertEqual(self.select(below), [])
-
-
 class DiscardRule(unittest.TestCase):
     """A verdict without a rationale is discarded, not accepted (4.5)."""
 
@@ -340,16 +290,14 @@ class CollectFromManifest(unittest.TestCase):
 
         This is the shape of a run that failed before the model step -- the
         degradation case of 4.7. It has to raise rather than return an empty
-        list, because an empty list would be written to `runs/`, and a non-empty
-        `runs/` is what tells `export_fixture.py` that a triage run has already
-        happened and ground truth can no longer be recorded independently. A run
-        that produced nothing must not spend that guard.
+        list, so a failed run is reported as a failure rather than silently
+        collected as zero verdicts.
         """
         with self.assertRaises(SystemExit):
             collect_verdicts.collect({"outputs": {"findings": {}, "context": {}}}, {})
 
-    def test_records_are_scoreable(self) -> None:
-        """The output shape is the one score.py documents: key, rule_id, verdict."""
+    def test_records_carry_the_fields_a_verdict_consumer_needs(self) -> None:
+        """key, rule_id and verdict are the fields file_issues.py and autonomy.py read."""
         record = collect_verdicts.branch_to_record(
             {
                 "model": "m",

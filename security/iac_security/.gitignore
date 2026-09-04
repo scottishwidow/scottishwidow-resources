@@ -1,0 +1,3 @@
+# Scratch state from a triage run: the taskflow's agent data directory and the
+# verdict records collect_verdicts.py writes out of it. Neither is committed.
+runs/
