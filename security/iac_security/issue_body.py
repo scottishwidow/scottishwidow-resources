@@ -33,7 +33,12 @@ KEY_ROW = re.compile(r"\|\s*\*\*Key\*\*\s*\|\s*`([^`]+)`\s*\|")
 # join (`CONTEXT.md` — Tracker item). Absent on a body filed before this row
 # existed, or one no matching alert was resolved for; read back as `None`
 # rather than an error either way.
-ALERT_ROW = re.compile(r"\|\s*\*\*Alert\*\*\s*\|\s*#(\d+)\s*\|")
+#
+# The number is read out of the cell wherever it sits, because the filer writes
+# it as a link to the alert -- a bare `#42` would autolink to *issue* 42 -- and
+# the cell is a code span when no URL was available. All three shapes, the bare
+# one included, read back the same.
+ALERT_ROW = re.compile(r"\|\s*\*\*Alert\*\*\s*\|[^|\n]*?#(\d+)")
 
 # Repo-relative paths cited as the basis for a verdict. Narrowed to `.tf` files
 # under the two roots the Terraform corpus draws from (ADR-0008): the agent's

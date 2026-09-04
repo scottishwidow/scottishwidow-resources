@@ -1,7 +1,7 @@
 # IaC security triage
 
 Tooling for the `iac-security-triage` capability
-(`openspec/specs/iac-security-triage/spec.md`). Everything in this directory is
+(`docs/design/iac-security-triage.md`). Everything in this directory is
 stdlib Python: no framework, no network, no cloud credentials.
 
 `taskflow/` is the exception and the boundary is deliberate. It holds the only
@@ -120,13 +120,25 @@ Three properties, each a boundary rather than a convenience:
   remediation, so an agent that could apply it would be authorising its own
   downstream work. It is absent from the emittable vocabulary and a label
   outside that vocabulary raises rather than being filed.
-- **No alert state is touched.** Nothing in the module speaks to the code
-  scanning API, so a `not-applicable` verdict files an issue and leaves the alert
-  open. Nothing merges and nothing is dismissed without a human, permanently
-  (ADR-0008).
+- **Alert state is read and never written.** The module speaks to the code
+  scanning API for one reason: to resolve, per finding, the number of the alert
+  it was filed for, which it writes as the issue's **Alert** row beside the
+  **Key** row so the two can be rejoined later without re-deriving a line
+  number that has since moved. That read is what widens the filing job to
+  `security-events: read`. A `not-applicable` verdict still files an issue and
+  still leaves the alert open. Nothing merges and nothing is dismissed without
+  a human, permanently (ADR-0008).
 - **Only findings the pipeline submitted for triage are filed.** A verdict
   arriving for a vendored or below-threshold finding is reported as an error,
   because honouring it would defeat the gate that excluded it.
+
+An alert is identified by rule plus location, and the finding key is not part of
+it, so the **Alert** row is the whole of the reverse join from an issue back to
+its alert. Rule plus location does not always name one alert — two
+instantiations of one module raise two alerts at the same line — and an
+ambiguous match is filed with no row rather than with a guess. A body carrying
+no row, whether from an ambiguous match or from before the row existed, is read
+back as absent rather than as an error.
 
 Idempotency is keyed on the finding key, read back out of existing issue bodies
 by `issue_body.py` across open *and* closed issues. A second run over unchanged
