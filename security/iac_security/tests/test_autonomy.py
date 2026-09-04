@@ -1,7 +1,7 @@
 """Tests for the autonomy ratchet (`tasks.md` group 7, `design.md - Decision 6`).
 
 Run from the repository root with `python3 -m unittest discover -s
-security/iac-security-triage/tests`.
+security/iac_security/tests`.
 
 The property under test is a negative one — that alert state is *not* written —
 so most of these assert an absence. The cases are the spec's three withholding

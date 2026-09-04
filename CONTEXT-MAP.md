@@ -9,7 +9,7 @@
   GitLab modelled on GitLab's 2k reference architecture, with RDS, ElastiCache and
   S3 in place of the self-managed Postgres, Redis and local storage. **Design only —
   nothing provisioned yet.** Start at [the design draft](./docs/design/gitlab-on-aws.md).
-- [IaC security triage](./security/iac-security-triage/CONTEXT.md) — the pipeline
+- [IaC security triage](./security/iac_security/CONTEXT.md) — the pipeline
   that scans the Terraform for misconfigurations, assigns each finding a verdict
   with a rationale, and proposes a patch where a human asks for one. Nothing
   merges and nothing is dismissed without a human ([ADR-0008](./docs/adr/0008-this-repository-is-not-a-memory-bank.md)).

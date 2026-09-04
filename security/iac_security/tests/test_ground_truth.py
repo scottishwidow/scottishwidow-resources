@@ -1,7 +1,7 @@
 """Tests for the fixture export, its schema and the scorer.
 
 Run from the repository root with `python3 -m unittest discover -s
-security/iac-security-triage/tests`.
+security/iac_security/tests`.
 
 The corpus is the one in `design.md - Context`: 7 triage-eligible findings across
 6 rule IDs, `AWS-0164` the only rule at n=2.

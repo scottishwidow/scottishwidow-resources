@@ -10,7 +10,7 @@ measurably right. This file is still accurate about the code as it stands, which
 why it is still here; it goes when that code goes.
 
 This is the measurement record for the IaC triage pipeline
-(`security/iac-security-triage/`). It exists to answer one question — *how well does the
+(`security/iac_security/`). It exists to answer one question — *how well does the
 agent triage findings in this repository?* — and today the honest answer is that the
 question has not been asked yet, for a reason worth recording rather than a gap worth
 quietly filling later.

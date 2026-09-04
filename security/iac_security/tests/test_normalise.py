@@ -1,7 +1,7 @@
 """Tests for the finding normaliser, ownership partition and finding key.
 
 Run from the repository root with `python3 -m unittest discover -s
-security/iac-security-triage/tests`.
+security/iac_security/tests`.
 
 The expected counts are the corpus described in `design.md - Context`: 20
 findings across 11 rule IDs, 12 first-party and 8 vendored, of which the

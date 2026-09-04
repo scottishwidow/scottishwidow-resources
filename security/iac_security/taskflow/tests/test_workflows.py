@@ -122,7 +122,7 @@ class ScanDoesNotDependOnTriage(unittest.TestCase):
         """Every way one workflow can depend on another, checked by name.
 
         Not a bare substring search for the triage workflow's name: the scan
-        mentions `security/iac-security-triage/` in a comment about the baseline
+        mentions `security/iac_security/` in a comment about the baseline
         fixture, which is a path and not a dependency.
         """
         self.assertNotIn(TRIAGE.name, self.text)

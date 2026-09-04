@@ -220,7 +220,7 @@ rather than wonder.
 
 ## Boundaries worth keeping
 
-Everything under `security/iac-security-triage/` is stdlib Python: no framework,
+Everything under `security/iac_security/` is stdlib Python: no framework,
 no network, no cloud credentials. `taskflow/` is the single exception and the
 boundary is deliberate — it holds the only part needing
 `seclab-taskflow-agent`, Docker and a model token, so replacing the orchestration
@@ -245,8 +245,8 @@ models is a one-line edit to `models:`.
 
 ## Verification
 
-    python3 -m unittest discover -s security/iac-security-triage/tests           # 100
-    python3 -m unittest discover -s security/iac-security-triage/taskflow/tests  #  62
+    python3 -m unittest discover -s security/iac_security/tests           # 100
+    python3 -m unittest discover -s security/iac_security/taskflow/tests  #  62
 
 Both suites are offline — no Trivy, no AWS, no Docker, no model token, no
 network, and no Terraform once the patch gate lands. They run against the
@@ -263,8 +263,8 @@ run's default report.
 - `openspec/specs/iac-security-triage/spec.md` — the behaviour contract
 - `openspec/changes/add-iac-security-triage/design.md` — Decisions 1–11, with the
   rejected alternatives this document omits
-- `security/iac-security-triage/README.md` — the deterministic arm, in operating detail
-- `security/iac-security-triage/taskflow/README.md` — the agentic arm, ditto
+- `security/iac_security/README.md` — the deterministic arm, in operating detail
+- `security/iac_security/taskflow/README.md` — the agentic arm, ditto
 - `docs/security/iac-triage-measurement.md` — the forfeited corpus; superseded, and
   deleted with the measurement arm
 - `docs/adr/0007-autonomous-alert-dismissal-is-earned-per-rule.md` — superseded by
