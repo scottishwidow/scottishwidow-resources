@@ -1,11 +1,3 @@
-"""Tests for the triage taskflow's deterministic parts.
-
-Everything here runs offline against the committed baseline: no Docker, no
-model, no network. What cannot be tested this way -- that the model returns a
-verdict at all -- is not tested here, on purpose. What *is* tested is every
-place a bad model response is supposed to be caught.
-"""
-
 from __future__ import annotations
 
 import json
@@ -37,10 +29,6 @@ def load(path: pathlib.Path) -> dict:
     return yaml.safe_load(path.read_text(encoding="utf-8"))
 
 
-# One finding and one well-formed verdict for it, shared by every test that
-# needs a branch result to start from. Module level rather than a method on the
-# first class that wanted it, so a second class borrowing it does not have to
-# call that class's method with a foreign `self`.
 FINDING_KEYS = {"AWS-0164:module.vpc:aws_subnet.public_zone_1": "AWS-0164"}
 
 
@@ -93,36 +81,16 @@ class TaskflowShape(unittest.TestCase):
 
 
 class VerdictVocabularyIsShared(unittest.TestCase):
-    """The prompt and vocabulary.py must not drift apart.
-
-    The taskflow schema was the third copy and is no longer one: it describes
-    the verdict object nowhere, so there is nothing there to drift. What the
-    model is told and what the collector accepts are now the only two
-    statements of the vocabulary, and `collect_verdicts` reads `vocabulary.py`
-    rather than restating it -- leaving the prompt as the one place a class
-    could go missing.
-    """
-
     def test_personality_names_every_verdict(self) -> None:
         text = PERSONALITY_PATH.read_text(encoding="utf-8")
         for verdict in vocabulary.VERDICTS:
             self.assertIn(verdict, text, f"{verdict} is not described to the agent")
 
     def test_the_collector_judges_against_the_shared_vocabulary(self) -> None:
-        """Not a restatement of it: the same object, so drift is impossible."""
         self.assertIs(collect_verdicts.vocabulary.VERDICTS, vocabulary.VERDICTS)
 
 
 class BranchSchemaChecksLivenessNotShape(unittest.TestCase):
-    """Why the `outputs` schema stopped describing the verdict object.
-
-    The framework decodes a captured response with a bare `json.loads`, so a
-    fenced reply is a string. An object schema therefore failed every real
-    verdict Sonnet produced and recorded the branch as `result: null` --
-    destroying the answer instead of reporting it, which is the opposite of
-    what 4.5 asks for. The schema keeps the half it can enforce on a prose
-    channel: that the branch said something.
-    """
 
     def setUp(self) -> None:
         self.schema = task_by_id(load(TASKFLOW_PATH), "verdicts")["outputs"]
@@ -140,13 +108,6 @@ class BranchSchemaChecksLivenessNotShape(unittest.TestCase):
 
 
 class ModelSelection(unittest.TestCase):
-    """The model config is load-bearing in two ways a reviewer would not see.
-
-    The framework defaults to Copilot, so an unreferenced model config leaves
-    the run wanting a GitHub PAT; and a task with no `model:` silently falls
-    back to the framework's own default rather than to anything named here.
-    """
-
     def setUp(self) -> None:
         self.taskflow = load(TASKFLOW_PATH)
         self.config = load(MODEL_CONFIG_PATH)
@@ -166,13 +127,6 @@ class ModelSelection(unittest.TestCase):
         self.assertEqual(self.config["backend"], "anthropic_sdk")
 
     def test_every_model_is_sent_to_an_unregistered_endpoint(self) -> None:
-        """The endpoint is what selects `x-api-key` over a bearer token.
-
-        `capi.get_provider()` returns `bearer_auth=False` only for a host it
-        does not recognise, and the Anthropic backend sends the token natively
-        only then. A registered host here would ship the key as a bearer token
-        to an API that expects neither.
-        """
         for name in self.config["models"]:
             settings = self.config["model_settings"][name]
             self.assertEqual(settings["endpoint"], "https://api.anthropic.com")
@@ -185,7 +139,6 @@ class ModelSelection(unittest.TestCase):
 
 
 class DiscardRule(unittest.TestCase):
-    """A verdict without a rationale is discarded, not accepted (4.5)."""
 
     findings = FINDING_KEYS
 
@@ -252,12 +205,6 @@ class DiscardRule(unittest.TestCase):
         self.assertEqual(record["verdict"], "real-judgment")
 
     def test_prose_around_an_object_is_still_discarded(self) -> None:
-        """The line the fence tolerance must not cross.
-
-        Seeing through a fence reads a reply that answered the question in the
-        shape asked for. Digging an object out of commentary would accept one
-        that did not, and the discard rule would quietly become a scraper.
-        """
         record = self.record("Here is my verdict:\n" + json.dumps(self.good()))
         self.assertEqual(record["verdict"], "undetermined")
         self.assertEqual(record["discarded_because"], collect_verdicts.DISCARD_UNPARSEABLE)

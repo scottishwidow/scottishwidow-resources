@@ -1,42 +1,7 @@
 #!/usr/bin/env python3
 """File one GitHub issue per triaged finding.
 
-The second half of ``design.md - Decision 4``: code scanning holds per-finding
-state, Issues hold the work. Every *triaged* finding is promoted to an issue
-carrying its key, verdict and rationale, whatever the verdict — deciding that a
-finding is not worth acting on is the judgment this pipeline exists to inform,
-and burying it in a dismissal comment hides it from where work is reviewed.
-
-Three properties this module exists to hold, each of them a boundary rather
-than a convenience:
-
-- **It files under ``needs-triage`` and never under ``ready-for-agent``.** That
-  label authorises unattended remediation, so an agent able to apply it would be
-  authorising its own downstream work. The emittable vocabulary is a constant
-  here and a label outside it raises rather than being filed.
-- **It reads alert state and writes none of it.** The only reason this file
-  speaks to the code scanning API at all is to resolve, per finding, the
-  number of the alert it was filed for (``CONTEXT.md`` — Tracker item), so the
-  two can be rejoined later without re-deriving a line number that has since
-  moved. A ``not-applicable`` verdict still files an issue and still leaves the
-  alert open; closing one is earned per rule under Decision 6 and happens
-  elsewhere when it does.
-- **It files only for findings the pipeline submitted for triage.** A verdict
-  arriving for a vendored or below-threshold finding is reported as an error,
-  not filed: the severity gate exists to keep those out, and quietly honouring
-  such a verdict would defeat it.
-
-Idempotency is keyed on the finding key, read back out of the bodies of existing
-issues by ``issue_body.py``. A second run over unchanged verdicts creates
-nothing and, in particular, edits no labels — a human disposition applied to an
-issue is the output of this pipeline and must survive the next run of it.
-
-Usage::
-
-    file_issues.py --verdicts runs/<id>.json --findings normalised.json
-    file_issues.py --verdicts run.json --findings f.json --dry-run
-    file_issues.py --verdicts run.json --findings f.json --issues issues.json
-    file_issues.py --verdicts run.json --findings f.json --alerts alerts.json
+See `docs/design/iac-security-triage.md` — Decisions that are load-bearing in the code.
 """
 
 from __future__ import annotations
@@ -56,26 +21,19 @@ HERE = pathlib.Path(__file__).resolve().parent
 # The one label this system may apply, from `docs/agents/triage-labels.md`.
 NEEDS_TRIAGE = "needs-triage"
 
-# The labels it may emit at all. `ready-for-agent` is absent by construction and
-# a test asserts it: this is the boundary the remediation successor change
-# depends on (`spec.md - Scenario: Agent judges a finding ready for unattended
-# work`).
+# `ready-for-agent` is absent by construction: it authorises unattended remediation.
 EMITTABLE_LABELS = (NEEDS_TRIAGE,)
 
-# Named so that the guard fails loudly rather than by omission if someone adds
-# a label parameter and forgets what it must never carry.
 FORBIDDEN_LABELS = ("ready-for-agent",)
 
-# Where a verdict lands when its rationale did not survive `collect_verdicts.py`.
 UNDETERMINED = "undetermined"
 
 
 class ForbiddenLabel(Exception):
-    """A label outside the emittable vocabulary was about to be applied."""
+    pass
 
 
 def check_labels(labels: tuple[str, ...]) -> tuple[str, ...]:
-    """Refuse to file under anything outside the emittable vocabulary."""
     for label in labels:
         if label in FORBIDDEN_LABELS or label not in EMITTABLE_LABELS:
             raise ForbiddenLabel(
@@ -86,7 +44,6 @@ def check_labels(labels: tuple[str, ...]) -> tuple[str, ...]:
 
 
 def gh_json(args: list[str]) -> Any:
-    """Run a `gh` command that prints JSON, or fail loudly."""
     result = subprocess.run(args, capture_output=True, text=True)
     if result.returncode != 0:
         raise SystemExit(f"{' '.join(args)} failed: {result.stderr.strip()}")
@@ -94,43 +51,21 @@ def gh_json(args: list[str]) -> Any:
 
 
 def fetch_issues() -> list[dict[str, Any]]:
-    """Every issue, open or closed: a closed one still claims its key."""
+    """A closed issue still claims its key, so this reads all states."""
     return gh_json(
         ["gh", "issue", "list", "--state", "all", "--limit", "500", "--json", "number,body"]
     )
 
 
 def fetch_alerts() -> list[dict[str, Any]]:
-    """Every open code scanning alert, for resolving a finding's alert number.
-
-    Reading alert state is what widens this job to `security-events: read`
-    (`CONTEXT.md` — Tracker item). Nothing here writes it back.
-
-    Scoped to open alerts. A finding submitted for triage came from the current
-    scan, so its alert is open; a fixed or dismissed alert at the same rule and
-    location is a *former* state of that code and can only make the match below
-    ambiguous.
-    """
+    """Open alerts only: a fixed or dismissed one is a former state that could only confuse the match below."""
     return gh_json(
         ["gh", "api", "/repos/{owner}/{repo}/code-scanning/alerts?state=open", "--paginate"]
     )
 
 
 def find_alert(finding: dict[str, Any], alerts: list[dict[str, Any]]) -> dict[str, Any] | None:
-    """The code scanning alert this finding surfaced as, or ``None``.
-
-    An alert is identified by rule plus *location* (`CONTEXT.md`), not by the
-    finding key — the key exists so a *human reading an issue* need not match
-    on a line number, but the alert itself carries no finding key, so matching
-    on rule and declared location is the join available here.
-
-    That match is not always unique. The finding key separates two
-    instantiations of one module by module address; two alerts raised from the
-    same line of that module do not differ in rule or location at all. An
-    ambiguous match therefore resolves to ``None``: an issue with no alert row
-    is one a human can still rejoin by hand, and an issue naming the wrong
-    alert is a wrong answer nothing downstream can detect.
-    """
+    """Matched by rule plus location, since an alert carries no finding key; an ambiguous match is `None`."""
     rule_id = finding.get("rule_id")
     path = finding.get("code_path")
     start = finding.get("start_line")
@@ -164,7 +99,6 @@ def title(finding: dict[str, Any]) -> str:
 
 
 def code_block(finding: dict[str, Any]) -> str:
-    """The offending HCL, as the scanner reported it."""
     lines = finding.get("code") or []
     if not lines:
         return ""
@@ -181,13 +115,7 @@ def declared_at(finding: dict[str, Any]) -> str:
 
 
 def rationale_section(record: dict[str, Any]) -> str:
-    """The rationale, or why there is none.
-
-    A record whose verdict was discarded reaches here with an empty rationale by
-    design (`tasks.md` 4.5). The issue still says what happened, because the
-    finding is exactly as outstanding as one nobody looked at, and a blank
-    section would not say so.
-    """
+    """A discarded verdict still says so, rather than leaving a blank section indistinguishable from unreviewed."""
     if record.get("discarded_because"):
         discarded = record.get("discarded_verdict")
         proposed = f"`{discarded}`" if discarded else "a verdict"
@@ -200,12 +128,7 @@ def rationale_section(record: dict[str, Any]) -> str:
 
 
 def evidence_section(record: dict[str, Any]) -> str:
-    """The cited paths, each marked if the corpus did not contain it.
-
-    `evidence_discrepancy` is a subset of `evidence`, so a discrepant path is
-    marked where it already stands rather than listed a second time below. A
-    reader sees one list, and no path in it is unmarked and suspect at once.
-    """
+    """A discrepant path is marked where it already stands, not listed a second time."""
     evidence = record.get("evidence") or []
     if not evidence:
         return "*None.* No Terraform corpus file was cited for this finding.\n"
@@ -226,32 +149,14 @@ def evidence_section(record: dict[str, Any]) -> str:
 
 
 def alert_cell(alert: dict[str, Any]) -> str:
-    """The **Alert** row's value: a link to the alert, never a bare ``#n``.
-
-    A bare ``#42`` in an issue body is an *issue* autolink: GitHub renders it
-    as a link to issue 42 and posts a cross-reference on it. The row exists so
-    a human can reach the alert, so it is written as a link to the alert
-    itself, and as a code span when no URL came back — either way, nothing
-    that autolinks to an unrelated issue.
-    """
+    """Never a bare ``#42``: GitHub reads that as an autolink to issue 42, not the alert."""
     number = alert.get("number")
     url = alert.get("html_url") or ""
     return f"[#{number}]({url})" if url else f"`#{number}`"
 
 
 def body(finding: dict[str, Any], record: dict[str, Any], alert: dict[str, Any] | None) -> str:
-    """The issue body, in the shape `issue_body.py` reads back.
-
-    The table's **Key** row is the join: this module's own idempotency finds a
-    finding's issue by it, and nothing else in the body is load-bearing for
-    that. **Alert** sits beside it, carrying the second identity — the code
-    scanning alert this finding was filed for — so the two can be rejoined
-    without re-deriving a line number that has since moved (`CONTEXT.md` —
-    Tracker item). It is written only when a matching alert was resolved
-    unambiguously; a body with none simply carries no such row. `alert` is
-    required rather than defaulted: an issue filed without the row can never be
-    rejoined, so omitting it is a decision to state, not one to fall into.
-    """
+    """In the shape `issue_body.py` reads back. `alert` has no default: omitting the row is a decision to state."""
     rule_id = finding["rule_id"]
     url = finding.get("primary_url") or ""
     rule_cell = f"[{rule_id}]({url})" if url else f"`{rule_id}`"
@@ -301,15 +206,7 @@ def plan(
     issues: list[dict[str, Any]],
     alerts: list[dict[str, Any]],
 ) -> dict[str, Any]:
-    """Decide what to file, without filing anything.
-
-    Split out from the filing so that every rule above is testable without a
-    network, and so a `--dry-run` exercises the same decisions a real run makes.
-
-    `alerts` has no default. An issue filed without its alert row can never be
-    rejoined, so a caller that has no alerts to offer says so with an empty
-    list rather than by omission.
-    """
+    """Decide what to file, without filing anything, so `--dry-run` exercises the same decisions a real run makes."""
     eligible = {record["key"]: record for record in findings.get("eligible", [])}
     ineligible = {
         record["key"]: status
@@ -358,8 +255,6 @@ def plan(
         "skipped_existing": skipped,
         "ineligible_verdicts": rejected,
         "untriaged_eligible": sorted(key for key in eligible if key not in triaged),
-        # Stated rather than implied: no eligible finding was left out by a
-        # filter, and nothing outside the eligible set was ever a candidate.
         "not_filed_below_threshold": sorted(
             r["key"] for r in findings.get("below_threshold", [])
         ),
@@ -421,8 +316,6 @@ def main(argv: list[str] | None = None) -> int:
     for key in report["untriaged_eligible"]:
         print(f"warning: eligible finding carries no verdict, no issue filed: {key}", file=sys.stderr)
     for item in report["create"]:
-        # An issue filed without this row can never be rejoined to its alert,
-        # so a miss is said out loud rather than left to be noticed later.
         if item["alert"] is None:
             print(
                 f"warning: no single code scanning alert matches this finding, "

@@ -1,14 +1,3 @@
-"""Tests for issue promotion (`tasks.md` group 6, `design.md - Decision 4`).
-
-Run from the repository root with `python3 -m unittest discover -s
-security/iac_security/tests`.
-
-The corpus is the one in `design.md - Context`: 7 triage-eligible findings, 5
-below-threshold and 8 vendored. Every count asserted here is derived from the
-committed baseline rather than written down, so a change to the corpus moves the
-tests with it instead of failing them.
-"""
-
 from __future__ import annotations
 
 import json
@@ -28,16 +17,11 @@ BASELINE = Path(__file__).resolve().parents[1] / "fixtures" / "baseline-scan.jso
 
 def normalised() -> dict:
     with open(BASELINE, encoding="utf-8") as handle:
-        # Pinned to `HIGH`, the threshold this corpus was designed and measured
-        # against, rather than read from `config.json`. The configured threshold
-        # is meant to move — task 3.6 moved it to `MEDIUM` — and every count in
-        # this file describes the baseline corpus, not wherever the gate sits
-        # today.
+        # Pinned to `HIGH`: every count in this file describes the baseline corpus, not `config.json`'s current gate.
         return normalise.normalise(json.load(handle), threshold="HIGH")
 
 
 def verdict(key: str, verdict_class: str = "real-mechanical", **kwargs) -> dict:
-    """A verdict record in the shape `collect_verdicts.py` emits."""
     record = {
         "key": key,
         "rule_id": key.split(":", 1)[0],
@@ -50,18 +34,14 @@ def verdict(key: str, verdict_class: str = "real-mechanical", **kwargs) -> dict:
 
 
 def full_run(findings: dict, verdict_class: str = "real-mechanical") -> list[dict]:
-    """A verdict for every eligible finding, as a completed run produces."""
     return [verdict(record["key"], verdict_class) for record in findings["eligible"]]
 
 
 def issue_for(item: dict, number: int = 1) -> dict:
-    """The issue `gh` would return for something this module just filed."""
     return {"number": number, "body": item["body"]}
 
 
 class FilesOnePerTriagedFinding(unittest.TestCase):
-    """`tasks.md` 6.1."""
-
     def setUp(self) -> None:
         self.findings = normalised()
         self.plan = file_issues.plan(self.findings, full_run(self.findings), [], [])
@@ -103,13 +83,6 @@ class FilesOnePerTriagedFinding(unittest.TestCase):
 
 
 class EvidenceOutsideTheCorpusIsMarkedInPlace(unittest.TestCase):
-    """A discrepant path is marked where it stands, not listed twice.
-
-    `evidence_discrepancy` is a subset of `evidence`, so rendering it as a
-    second list would print the same path once unmarked and once marked. One
-    list, each path carrying its own status, is what a reader can act on.
-    """
-
     def setUp(self) -> None:
         self.finding = {"rule_id": "AWS-0164", "title": "t", "severity": "HIGH"}
         self.record = {
@@ -136,14 +109,11 @@ class EvidenceOutsideTheCorpusIsMarkedInPlace(unittest.TestCase):
         self.assertNotIn("not in the Terraform corpus", section)
 
     def test_the_marker_does_not_disturb_the_paths_read_back(self) -> None:
-        """Both paths are still evidence on read-back; the marker is prose."""
         body = file_issues.body(self.finding, self.record, None)
         self.assertEqual(issue_body.parse(body)["evidence"], self.record["evidence"])
 
 
 class IsIdempotentOnTheFindingKey(unittest.TestCase):
-    """`tasks.md` 6.2."""
-
     def setUp(self) -> None:
         self.findings = normalised()
         self.run = full_run(self.findings)
@@ -165,18 +135,10 @@ class IsIdempotentOnTheFindingKey(unittest.TestCase):
         )
 
     def test_a_changed_verdict_still_files_nothing_for_a_known_key(self) -> None:
-        """The key is the identity, not the verdict: a re-run must not duplicate."""
         changed = full_run(self.findings, "not-applicable")
         self.assertEqual(file_issues.plan(self.findings, changed, self.existing, [])["create"], [])
 
     def test_a_human_applied_disposition_label_is_left_untouched(self) -> None:
-        """Nothing in a second run's plan edits an existing issue at all.
-
-        The disposition a human applied is this pipeline's output. It survives
-        because the second run has no instruction to emit — not because the
-        instruction is careful — so the plan is asserted empty in every field
-        that could reach an existing issue.
-        """
         labelled = [dict(issue, labels=[{"name": "ready-for-human"}]) for issue in self.existing]
         second = file_issues.plan(self.findings, self.run, labelled, [])
         self.assertEqual(second["create"], [])
@@ -184,11 +146,6 @@ class IsIdempotentOnTheFindingKey(unittest.TestCase):
         self.assertNotIn("relabel", second)
 
     def test_closed_issues_are_fetched_so_a_wontfix_is_not_refiled(self) -> None:
-        """Idempotency spans state: a finding closed as `wontfix` stays closed.
-
-        Asserted on the query rather than on the plan, because the plan never
-        sees an issue the query did not ask for.
-        """
         captured: list[list[str]] = []
         original = file_issues.gh_json
         file_issues.gh_json = lambda args: captured.append(args) or []
@@ -205,8 +162,6 @@ class IsIdempotentOnTheFindingKey(unittest.TestCase):
 
 
 class FilesNotApplicableVerdictsToo(unittest.TestCase):
-    """`tasks.md` 6.3."""
-
     def setUp(self) -> None:
         self.findings = normalised()
         run = full_run(self.findings, "not-applicable")
@@ -222,15 +177,6 @@ class FilesNotApplicableVerdictsToo(unittest.TestCase):
             self.assertTrue(parsed["rationale"])
 
     def test_nothing_here_can_dismiss_an_alert(self) -> None:
-        """Structural: this module speaks to the code scanning API to read, never write.
-
-        `fetch_alerts` resolves each finding's alert number (`CONTEXT.md` -
-        Tracker item) with a plain `GET`. With no rule allowlisted
-        (`design.md - Decision 6`) a `not-applicable` verdict must still leave
-        the alert open, and there is no code path here to a dismissal -- no
-        write verb and nothing naming a dismissal reason -- which is a
-        stronger statement than any conditional would be.
-        """
         source = (Path(file_issues.__file__)).read_text(encoding="utf-8")
         for forbidden in ("dismissed_reason", "--state dismissed", "PATCH", "POST", "DELETE"):
             self.assertNotIn(forbidden, source)
@@ -255,7 +201,6 @@ ALERT_URL = "https://github.com/o/r/security/code-scanning"
 
 
 def alert(number: int, rule_id: str, path: str, start_line: int) -> dict:
-    """A code scanning alert in the shape the `gh api` alerts list returns."""
     return {
         "number": number,
         "html_url": f"{ALERT_URL}/{number}",
@@ -265,19 +210,11 @@ def alert(number: int, rule_id: str, path: str, start_line: int) -> dict:
 
 
 class RecordsTheAlertItWasFiledFor(unittest.TestCase):
-    """`CONTEXT.md` - Tracker item: the second identity row, beside Key.
-
-    The join has no other path: an alert carries no finding key, so the
-    reverse join back from an issue to its alert exists only because this
-    module writes the alert's number at filing time.
-    """
-
     def setUp(self) -> None:
         self.findings = normalised()
         self.finding = self.findings["eligible"][0]
 
     def matching(self, number: int = 42) -> dict:
-        """An alert at exactly this finding's rule and declared location."""
         return alert(
             number,
             self.finding["rule_id"],
@@ -290,13 +227,6 @@ class RecordsTheAlertItWasFiledFor(unittest.TestCase):
         self.assertEqual(found["number"], 42)
 
     def test_an_ambiguous_match_resolves_to_none(self) -> None:
-        """Rule plus location does not separate two instantiations of one module.
-
-        Both alerts here are indistinguishable in rule, path and line, which is
-        the shape this repository's own vendored alerts already take. Filing
-        either number would be a wrong answer nothing downstream can detect, so
-        the match is refused rather than guessed.
-        """
         self.assertIsNone(
             file_issues.find_alert(self.finding, [self.matching(41), self.matching(42)])
         )
@@ -310,19 +240,12 @@ class RecordsTheAlertItWasFiledFor(unittest.TestCase):
         self.assertNotIn("**Alert**", item["body"])
 
     def test_the_alert_row_links_to_the_alert_and_not_to_an_issue(self) -> None:
-        """A bare `#42` is an *issue* autolink, and would point at the wrong thing.
-
-        The row exists so a human can reach the alert. It is written as a link
-        to the alert's own URL, so nothing in it autolinks to an unrelated
-        issue of the same number.
-        """
         plan = file_issues.plan(self.findings, full_run(self.findings), [], [self.matching()])
         item = next(i for i in plan["create"] if i["key"] == self.finding["key"])
         self.assertIn(f"| **Alert** | [#42]({ALERT_URL}/42) |", item["body"])
         self.assertNotIn("| **Alert** | #42 |", item["body"])
 
     def test_an_alert_with_no_url_is_written_as_a_code_span(self) -> None:
-        """Still not a bare `#42`: a code span autolinks to nothing."""
         self.assertEqual(file_issues.alert_cell({"number": 42}), "`#42`")
         parsed = issue_body.parse("| **Key** | `k` |\n| **Alert** | `#42` |")
         self.assertEqual(parsed["alert"], 42)
@@ -339,7 +262,6 @@ class RecordsTheAlertItWasFiledFor(unittest.TestCase):
         self.assertIsNone(file_issues.find_alert(self.finding, []))
 
     def test_round_trip_through_filer_and_reader(self) -> None:
-        """The number the filer resolves is exactly the number the reader parses back."""
         plan = file_issues.plan(self.findings, full_run(self.findings), [], [self.matching()])
         item = next(i for i in plan["create"] if i["key"] == self.finding["key"])
         self.assertEqual(item["alert"], 42)
@@ -353,27 +275,18 @@ class RecordsTheAlertItWasFiledFor(unittest.TestCase):
         self.assertIsNone(issue_body.parse(item["body"])["alert"])
 
     def test_a_body_with_no_alert_row_is_read_without_error(self) -> None:
-        """A body predating this row, or an unrelated issue, reports the row absent."""
         parsed = issue_body.parse("| **Key** | `AWS-0086:module.x:aws_s3_bucket.y` |")
         self.assertIsNotNone(parsed)
         self.assertIsNone(parsed["alert"])
 
 
 class TheDeadSpecPathIsGone(unittest.TestCase):
-    """The `openspec/` tree is deleted; nothing here may still cite it.
-
-    The filed issue's footer is the one that matters -- it is read by whoever
-    triages -- but a reference that resolves nowhere is no better in a
-    docstring, so the whole package is checked.
-    """
-
     def test_the_issue_body_names_no_openspec_path(self) -> None:
         source = Path(file_issues.__file__).read_text(encoding="utf-8")
         self.assertNotIn("openspec/", source)
 
     def test_no_module_or_document_in_the_package_names_one(self) -> None:
-        # This file is excluded: it is the only one that must name the dead
-        # path, to say that nothing else may.
+        # This file is excluded: it is the only one that must name the dead path.
         root = Path(file_issues.__file__).parent
         guard = Path(__file__).resolve()
         named = [
@@ -385,8 +298,6 @@ class TheDeadSpecPathIsGone(unittest.TestCase):
 
 
 class NeverAppliesReadyForAgent(unittest.TestCase):
-    """`tasks.md` 6.4 — the boundary the remediation change depends on."""
-
     def test_the_label_is_absent_from_the_emittable_vocabulary(self) -> None:
         self.assertNotIn("ready-for-agent", file_issues.EMITTABLE_LABELS)
         self.assertEqual(file_issues.EMITTABLE_LABELS, (file_issues.NEEDS_TRIAGE,))
@@ -416,8 +327,6 @@ class NeverAppliesReadyForAgent(unittest.TestCase):
 
 
 class FilesNothingForFilteredFindings(unittest.TestCase):
-    """`tasks.md` 6.5."""
-
     def setUp(self) -> None:
         self.findings = normalised()
 

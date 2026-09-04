@@ -1,18 +1,6 @@
 #!/usr/bin/env bash
 # Run the IaC triage taskflow in the published seclab-taskflow-agent image.
 #
-# Adapted from the framework's own docker/run.sh, with two changes this
-# pipeline needs:
-#
-#   * The repository root is mounted, and stays the working directory, because
-#     the taskflow is addressed by its full dotted name from that root. The
-#     mount is also what puts `live/` and `modules/` in reach of the Terraform
-#     corpus (ADR-0008), which resolves those two roots from its own location
-#     rather than from the working directory.
-#   * The agent's data directory is bound to `../runs/` here, so the run
-#     manifest that `collect_verdicts.py` reads survives the container, in the
-#     same place the collected verdicts are written.
-#
 # Usage:
 #   export AI_API_TOKEN=...            # an Anthropic API key; no token, no run
 #   ./run.sh                           # reproducible, propose-only
@@ -28,32 +16,15 @@ runs="$here/../runs"
 
 mkdir -p "$runs/logs"
 
-# The framework touches .env in its working directory, which is the repository
-# root: `load_dotenv(find_dotenv(usecwd=True))` starts at cwd, and the
-# container's cwd is the mount root, not this directory.
+# `load_dotenv(find_dotenv(usecwd=True))` reads .env from the repository root, the container's mount point.
 touch -a "$repo_root/.env"
 
-# Forward a token only when the host actually has one, using bare `-e VAR` so an
-# unset variable stays unset in the container.
-#
-# `-e VAR=""` would be wrong, and silently so. The framework calls
-# `load_dotenv(find_dotenv(usecwd=True))`, which does *not* override a variable
-# already present in the environment -- and an empty string counts as present.
-# Passing an empty value would therefore shadow a token supplied in .env, and
-# the run would fail with "AI_API_TOKEN environment variable is not set" while
-# the file holding it sat in the working directory.
+# Bare `-e VAR` so an unset variable stays unset; `-e VAR=""` would shadow a token already in .env.
 token_args=()
 if [[ -n "${AI_API_TOKEN:-}" ]]; then token_args+=(-e AI_API_TOKEN); fi
 if [[ -n "${GH_TOKEN:-}" ]]; then token_args+=(-e GH_TOKEN); fi
 
-# Run as the invoking user, not root. Without this the manifest, sessions and
-# logs come back owned by root, and `collect_verdicts.py` -- which runs on the
-# host -- can read them but the user cannot delete them.
-#
-# That in turn is why the data directory is bound under /data rather than at the
-# image's default /root/.local/share: /root is mode 700, so a non-root user
-# cannot traverse into it to reach a mount underneath. XDG_DATA_HOME moves
-# platformdirs' idea of the data directory to match.
+# Run as the invoking user so the manifest, sessions and logs are not left owned by root.
 exec docker run -i --rm \
     --user "$(id -u):$(id -g)" \
     -e HOME=/data \
