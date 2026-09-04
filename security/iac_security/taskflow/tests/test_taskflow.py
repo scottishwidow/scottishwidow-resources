@@ -297,7 +297,7 @@ class CollectFromManifest(unittest.TestCase):
             collect_verdicts.collect({"outputs": {"findings": {}, "context": {}}}, {})
 
     def test_records_carry_the_fields_a_verdict_consumer_needs(self) -> None:
-        """key, rule_id and verdict are the fields file_issues.py and autonomy.py read."""
+        """key, rule_id and verdict are the fields file_issues.py reads."""
         record = collect_verdicts.branch_to_record(
             {
                 "model": "m",

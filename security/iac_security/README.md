@@ -24,9 +24,7 @@ taskflow/   one verdict per eligible finding, with a rationale
         |   -- see taskflow/README.md
         v
 file_issues.py   one GitHub issue per triaged finding, under needs-triage,
-        |        idempotent on the finding key
-        v
-autonomy.py   which alerts, if any, may be dismissed without a human
+                 idempotent on the finding key
 ```
 
 The pipeline routes and reasons; it does not claim to be measurably right.
@@ -124,7 +122,8 @@ Three properties, each a boundary rather than a convenience:
   outside that vocabulary raises rather than being filed.
 - **No alert state is touched.** Nothing in the module speaks to the code
   scanning API, so a `not-applicable` verdict files an issue and leaves the alert
-  open. Dismissal is earned per rule under `Decision 6` and happens elsewhere.
+  open. Nothing merges and nothing is dismissed without a human, permanently
+  (ADR-0008).
 - **Only findings the pipeline submitted for triage are filed.** A verdict
   arriving for a vendored or below-threshold finding is reported as an error,
   because honouring it would defeat the gate that excluded it.
@@ -138,45 +137,16 @@ In CI this is a separate job from the one that runs the agent: the job holding
 `issues: write` never sees `AI_API_TOKEN`, and the job that runs the model
 cannot open an issue.
 
-## Autonomy is earned, per rule
+## Propose-only, permanently
 
-`autonomy.py` is the only thing here that can write alert state, and on this
-corpus it writes nothing. Dismissal requires all three of
-(`design.md - Decision 6`, `docs/adr/0007-autonomous-alert-dismissal-is-earned-per-rule.md`):
+Nothing here can write alert state. The pipeline's safety property is one
+sentence, per ADR-0008: nothing merges and nothing is dismissed without a
+human. There is no earned-autonomy ratchet — ADR-0007 proposed one, and
+ADR-0008 supersedes it and puts autonomous dismissal out of scope permanently
+rather than unearned.
 
-    agreement == 100%   AND   scored >= support_floor   AND   rule allowlisted
-
-    python3 security/iac_security/autonomy.py \
-      --verdicts runs/<id>.json --evidence evidence.json   # report only
-    python3 security/iac_security/autonomy.py ... --apply
-    python3 security/iac_security/autonomy.py --reopen <alert>
-
-The support floor is the load-bearing half. Five of the six eligible rules fire
-exactly once, so an agreement-only gate would grant five sixths of the ruleset
-permanent dismissal authority on single cases going the right way. `k = 5` is a
-judgment, not a derivation, and a floor of 1 or less is refused at load rather
-than accepted.
-
-`autonomy.json` holds the floor and the allowlist. It is **empty**, and no rule
-on this corpus could qualify — the largest, `AWS-0164`, is n=2. A test derives
-that from the baseline rather than restating it, so it moves when the corpus
-does.
-
-The allowlist is necessary and *not* sufficient: evidence is re-checked at run
-time against the scoring report, so a grant that outlives its evidence is
-reported as an error instead of being honoured. The file can only narrow what
-the measurement permits, never widen it.
-
-Everything else is proposed — never scored, scored below full agreement, agreed
-but under-supported, or qualifying-but-not-granted all leave the alert open and
-send the verdict to a human as an issue. Dismissal itself is an edit and not a
-deletion: the alert stays listed, the rationale and finding key are written onto
-it, and `--reopen` reverses it.
-
-Nothing runs this in CI. No workflow in this repository is granted
-`security-events: write` for triage, and a test asserts that per job — standing
-authority to close alerts is not something to hold while the allowlist is empty.
-It becomes a wiring question when a rule first clears the floor, and not before.
+No workflow in this repository is granted `security-events: write` for
+triage, and a test asserts that per job.
 
 ## Tests
 
