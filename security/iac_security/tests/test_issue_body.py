@@ -1,11 +1,3 @@
-"""Tests for `issue_body.py`'s evidence-path pattern.
-
-ADR-0008 replaces document context with the Terraform corpus, so a citation is
-now only ever a `.tf` file under one of the two roots the corpus draws from.
-Narrowing `EVIDENCE_PATH` to that shape means a cited document path fails to
-parse rather than being accepted as evidence the agent was never shown.
-"""
-
 from __future__ import annotations
 
 import sys
@@ -31,7 +23,6 @@ class EvidencePathPattern(unittest.TestCase):
         )
 
     def test_does_not_match_a_decision_record(self) -> None:
-        """The document context ADR-0008 deletes is no longer citable evidence."""
         self.assertEqual(
             issue_body.parse_evidence("- `docs/adr/0008-this-repository-is-not-a-memory-bank.md`"),
             [],
@@ -44,7 +35,6 @@ class EvidencePathPattern(unittest.TestCase):
         )
 
     def test_does_not_match_a_non_tf_file_under_a_corpus_root(self) -> None:
-        """The root alone is not enough -- only `.tf` is evidence."""
         self.assertEqual(
             issue_body.parse_evidence("- `live/management/README.md`"),
             [],
@@ -52,8 +42,6 @@ class EvidencePathPattern(unittest.TestCase):
 
 
 class AlertRow(unittest.TestCase):
-    """The second identity row, beside Key (`CONTEXT.md` - Tracker item)."""
-
     def test_parses_the_alert_number_from_the_link_the_filer_writes(self) -> None:
         body = (
             "| **Key** | `AWS-0086:module.x:aws_s3_bucket.y` |\n"
@@ -66,7 +54,6 @@ class AlertRow(unittest.TestCase):
         self.assertEqual(issue_body.parse(body)["alert"], 42)
 
     def test_parses_a_bare_alert_number(self) -> None:
-        """The shape a body filed before the row became a link still carries."""
         body = "| **Key** | `AWS-0086:module.x:aws_s3_bucket.y` |\n| **Alert** | #42 |\n"
         self.assertEqual(issue_body.parse(body)["alert"], 42)
 

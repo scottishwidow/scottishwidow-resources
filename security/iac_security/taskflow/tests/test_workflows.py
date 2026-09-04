@@ -1,16 +1,3 @@
-"""The two workflows, and the boundary between them.
-
-`design.md - Decision 11` rests on two claims that are one careless edit apart
-from being false: triage is reachable only by a deliberate dispatch, and the
-scan does not depend on triage. Both are properties of YAML, so both are
-asserted here rather than left to a reviewer noticing.
-
-The token argument is the reason this matters. `AI_API_TOKEN` is safe in a
-public repository only because the sole workflow referencing it cannot be
-triggered by a fork -- which is true only while that workflow's trigger list
-stays exactly `workflow_dispatch`.
-"""
-
 from __future__ import annotations
 
 import pathlib
@@ -48,36 +35,19 @@ class TriageIsDispatchOnly(unittest.TestCase):
         self.assertEqual(triggers(self.workflow), {"workflow_dispatch"})
 
     def test_no_event_trigger_can_reach_it(self) -> None:
-        """Named explicitly, so adding one fails here and not in review."""
         for event in ("push", "pull_request", "pull_request_target", "schedule"):
             self.assertNotIn(event, triggers(self.workflow))
 
     def test_it_cannot_write_alert_state(self) -> None:
-        """Propose-only is enforced by permissions, not only by good intent."""
         self.assertEqual(self.workflow["permissions"], {"contents": "read"})
 
     def test_no_job_can_write_alert_state(self) -> None:
-        """The workflow default is not the whole story once jobs widen it.
-
-        `file-issues` needs `issues: write` and `security-events: read` --
-        read, to resolve each finding's alert number, never write -- so the
-        propose-only claim can no longer rest on the top-level block alone or
-        on `security-events` being wholly absent. Every job is checked.
-        """
         for name, job in self.workflow["jobs"].items():
             granted = job.get("permissions", self.workflow["permissions"])
             self.assertNotEqual(granted.get("security-events"), "write", name)
 
 
 class IssuesAreFiledByAJobThatRunsNoModel(unittest.TestCase):
-    """`design.md - Decision 4`, and the split that keeps it safe.
-
-    A verdict travels to a human as an issue, so something in this workflow must
-    hold `issues: write`. The separation asserted here is what keeps that from
-    widening the model's authority: the job that runs the agent cannot open an
-    issue, and the job that opens issues never sees the token.
-    """
-
     def setUp(self) -> None:
         self.workflow = load(TRIAGE)
         self.triage = self.workflow["jobs"]["triage"]
@@ -93,11 +63,6 @@ class IssuesAreFiledByAJobThatRunsNoModel(unittest.TestCase):
         self.assertNotIn(TOKEN, yaml.safe_dump(self.filer))
 
     def test_the_job_opening_issues_cannot_write_alert_state(self) -> None:
-        """A `not-applicable` verdict files an issue; it does not dismiss.
-
-        `security-events: read` is present -- resolving a finding's alert
-        number needs it -- but there is no `write` anywhere in the grant.
-        """
         self.assertEqual(
             self.granted(self.filer),
             {"contents": "read", "issues": "write", "security-events": "read"},
@@ -121,19 +86,11 @@ class TokenIsConfinedToTriage(unittest.TestCase):
 
 
 class ScanDoesNotDependOnTriage(unittest.TestCase):
-    """A broken, unfunded or never-invoked triage must not stop publication."""
-
     def setUp(self) -> None:
         self.text = SCAN.read_text(encoding="utf-8")
         self.workflow = load(SCAN)
 
     def test_scan_does_not_invoke_or_chain_to_the_triage_workflow(self) -> None:
-        """Every way one workflow can depend on another, checked by name.
-
-        Not a bare substring search for the triage workflow's name: the scan
-        mentions `security/iac_security/` in a comment about the baseline
-        fixture, which is a path and not a dependency.
-        """
         self.assertNotIn(TRIAGE.name, self.text)
         self.assertNotIn("workflow_call", self.text)
         self.assertNotIn("workflow_run", self.text)
@@ -154,7 +111,6 @@ class ScanDoesNotDependOnTriage(unittest.TestCase):
         )
 
     def test_no_job_widens_the_scan_beyond_that(self) -> None:
-        """The top-level block is not the whole story once a job overrides it."""
         for name, job in self.workflow["jobs"].items():
             granted = job.get("permissions", self.workflow["permissions"])
             self.assertEqual(
@@ -163,20 +119,11 @@ class ScanDoesNotDependOnTriage(unittest.TestCase):
 
 
 class ScanNeedsNoCloudCredentials(unittest.TestCase):
-    """Static HCL scanning reads files; it never reaches AWS.
-
-    `proposal.md - Impact` turns on this: no OIDC role is needed by this change,
-    and that holds only while the scan asks for nothing that could carry one.
-    Asserted rather than inspected, because the cheapest way to debug a scanner
-    is to give it credentials and the second cheapest is to notice you did.
-    """
-
     def setUp(self) -> None:
         self.text = SCAN.read_text(encoding="utf-8")
         self.workflow = load(SCAN)
 
     def test_no_permission_can_mint_a_cloud_credential(self) -> None:
-        """`id-token: write` is the whole OIDC handshake; without it there is none."""
         self.assertNotIn("id-token", self.workflow["permissions"])
         for name, job in self.workflow["jobs"].items():
             self.assertNotIn("id-token", job.get("permissions", {}), name)
@@ -190,7 +137,6 @@ class ScanNeedsNoCloudCredentials(unittest.TestCase):
             self.assertNotIn(action, self.text)
 
     def test_no_credential_is_passed_by_name(self) -> None:
-        """Covers the static-key and assume-role spellings alike."""
         for name in (
             "AWS_ACCESS_KEY_ID",
             "AWS_SECRET_ACCESS_KEY",
@@ -200,7 +146,6 @@ class ScanNeedsNoCloudCredentials(unittest.TestCase):
             self.assertNotIn(name, self.text)
 
     def test_no_step_is_handed_a_secret(self) -> None:
-        """Whatever a secret is called, it reaches a step through `env` or `with`."""
         for job in self.workflow["jobs"].values():
             for step in job["steps"]:
                 for field in ("env", "with"):
@@ -208,7 +153,6 @@ class ScanNeedsNoCloudCredentials(unittest.TestCase):
                     self.assertNotIn("secrets.", supplied, step.get("name"))
 
     def test_the_checkout_leaves_no_token_on_disk(self) -> None:
-        """The one credential a scan job gets for free, declined explicitly."""
         checkout = next(
             step for step in self.workflow["jobs"]["trivy"]["steps"]
             if "actions/checkout" in step.get("uses", "")
@@ -217,21 +161,11 @@ class ScanNeedsNoCloudCredentials(unittest.TestCase):
 
 
 class ForkPullRequestDegradesSafely(unittest.TestCase):
-    """The spec's fork scenario, as far as a file can carry it.
-
-    A fork's `GITHUB_TOKEN` is read-only whatever the permissions block asks
-    for, so the SARIF upload is rejected. What the workflow controls is what
-    happens next: the scan still runs, its findings still reach the run's
-    output, and the rejected upload does not fail the run. The last of those is
-    one deleted line away from being false, so it is asserted and not trusted.
-    """
-
     def setUp(self) -> None:
         self.workflow = load(SCAN)
         self.steps = self.workflow["jobs"]["trivy"]["steps"]
 
     def upload_steps(self) -> list[dict]:
-        """Every step that publishes alert state, found by what it runs."""
         return [
             step
             for step in self.steps
@@ -242,7 +176,6 @@ class ForkPullRequestDegradesSafely(unittest.TestCase):
         self.assertIn("pull_request", triggers(self.workflow))
 
     def test_the_scan_step_does_not_fail_the_run_on_findings(self) -> None:
-        """Findings reaching the output is the point; a non-zero exit hides them."""
         scan = next(step for step in self.steps if "trivy-action" in step.get("uses", ""))
         self.assertEqual(str(scan["with"]["exit-code"]), "0")
 
@@ -253,12 +186,10 @@ class ForkPullRequestDegradesSafely(unittest.TestCase):
             self.assertIs(step.get("continue-on-error"), True, step.get("name"))
 
     def test_the_upload_runs_even_after_an_earlier_failure(self) -> None:
-        """`if: always()` is why a scan failure still reports what it found."""
         for step in self.upload_steps():
             self.assertEqual(step.get("if"), "always()")
 
     def test_uploading_is_the_only_way_the_scan_writes_alert_state(self) -> None:
-        """So a fork writing nothing follows from that one step being rejected."""
         for step in self.steps:
             if step in self.upload_steps():
                 continue
