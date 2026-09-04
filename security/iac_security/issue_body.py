@@ -22,16 +22,6 @@ import vocabulary
 # finding; nothing else in the body is load-bearing for the join.
 KEY_ROW = re.compile(r"\|\s*\*\*Key\*\*\s*\|\s*`([^`]+)`\s*\|")
 
-# Who formed the verdict. Absent is not the same as human: an issue that never
-# declared its provenance cannot be assumed to carry a human judgment, so the
-# reader reports `unknown` and the scorer refuses to count it.
-AUTHOR_ROW = re.compile(r"\|\s*\*\*Verdict author\*\*\s*\|\s*`?(\w+)`?\s*\|")
-
-HUMAN = "human"
-MODEL = "model"
-UNKNOWN = "unknown"
-AUTHORS = (HUMAN, MODEL, UNKNOWN)
-
 # Repo-relative paths cited as the basis for a verdict.
 EVIDENCE_PATH = re.compile(r"\b((?:docs|live|modules|security|openspec)/[\w./-]+\.\w+)")
 
@@ -76,13 +66,9 @@ def parse(body: str) -> dict[str, Any] | None:
     if not key_match:
         return None
 
-    author_match = AUTHOR_ROW.search(body)
-    author = author_match.group(1).lower() if author_match else UNKNOWN
-
     return {
         "key": key_match.group(1),
         "verdict": filled(section(body, "Verdict")).strip("`").strip(),
-        "verdict_author": author if author in AUTHORS else UNKNOWN,
         "rationale": filled(section(body, "Rationale")),
         "evidence": parse_evidence(section(body, "Evidence")),
     }

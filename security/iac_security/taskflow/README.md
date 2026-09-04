@@ -8,13 +8,11 @@ with a rationale. Propose-only — it changes no alert and files no issue.
 
 ```sh
 export AI_API_TOKEN=<an Anthropic API key>
-./run.sh                        # the scoped, reproducible, propose-only run
+./run.sh                        # the reproducible, propose-only run
 ./run.sh --lint --strict        # validate offline: no model, no token, no network
-./run.sh -g scope_keys=         # every eligible finding
 ./run.sh -g report=             # live Trivy scan instead of the baseline
 
 python3 collect_verdicts.py --latest --findings <(./scan.sh) -o ../runs/local.json
-python3 ../score.py --run ../runs/local.json
 ```
 
 The token can instead go in a `.env` file at the repository root, which the
@@ -124,18 +122,6 @@ Discarded is not dropped: the finding still appears in the output as
 `undetermined`, carrying `discarded_verdict` and `discarded_because`. A finding
 that vanished from a run would be invisible to both scoring and the tracker.
 
-## Scope
-
-`globals.scope_keys` confines a run to named findings. It currently holds the
-two `AWS-0164` subnet findings, and the reason is ordering rather than cost.
-
-A finding the agent has judged can no longer be given an *independent* human
-verdict — whoever labels it afterwards has seen the answer. So the run is
-confined to findings whose ground truth is already recorded, and the other five
-stay clean until they are triaged in code scanning. Widening the scope after
-labelling more of them is what `tasks.md` 3.6 asks to be shown, exercised rather
-than argued.
-
 ## Files
 
 | | |
@@ -144,15 +130,10 @@ than argued.
 | `personalities/iac_triage.yaml` | the system prompt: vocabulary, rationale requirement |
 | `scan.sh` | scan or replay, then normalise. A `run:` field is not templated, so configuration arrives as `TRIVY_REPORT` |
 | `context.py` | the decision records, as JSON. `--without-context` is the control arm of the comparison deferred in 5.2 |
-| `collect_verdicts.py` | run manifest → scoreable verdict records, applying the discard rule |
+| `collect_verdicts.py` | run manifest → verdict records, applying the discard rule |
 | `model_configs/iac_triage.yaml` | the model and the API behind it: Anthropic, not the framework's Copilot default |
 | `run.sh` | the Docker invocation, with the mounts the above needs |
-| `.agent-data/` | gitignored. The agent's data directory, bound out of the container so the run manifest survives it |
-
-`.agent-data/` is deliberately not `../runs/`: `export_fixture.py` treats a
-non-empty `runs/` as proof that a triage run has already happened and refuses to
-write ground truth afterwards. Scratch state landing there would spend that
-guard without a run ever having happened.
+| `../runs/` | gitignored. The agent's data directory, bound out of the container so the run manifest survives it, alongside the verdicts collected from it |
 
 ## Tests
 
@@ -161,7 +142,6 @@ python3 -m unittest discover -s security/iac_security/taskflow/tests
 ```
 
 Offline — no Docker, no model, no network. They cover the discard rule against
-deliberately non-compliant responses, the scope expression against the baseline
-corpus, the vocabulary staying shared between `vocabulary.py`, the schema and
-the prompt, and the workflow boundary that keeps `AI_API_TOKEN` out of reach of
-a fork.
+deliberately non-compliant responses, the vocabulary staying shared between
+`vocabulary.py`, the schema and the prompt, and the workflow boundary that keeps
+`AI_API_TOKEN` out of reach of a fork.

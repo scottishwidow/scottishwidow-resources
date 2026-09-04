@@ -1,11 +1,11 @@
 #!/usr/bin/env python3
-"""Turn a triage run's manifest into a scoreable verdict list.
+"""Turn a triage run's manifest into a verdict list.
 
 The taskflow's fan-out task publishes one branch per eligible finding. The
 framework writes those branches into the run manifest as
 ``outputs.<id> = [{"model": ..., "item": ..., "result": ...}]``; this reads that
 and emits the flat ``[{key, rule_id, verdict, rationale, evidence}]`` shape
-``score.py`` and the issue step consume.
+the issue step consumes.
 
 The whole point of this step is the discard rule (`spec.md - Scenario: Rationale
 is unavailable`, `tasks.md` 4.5):
@@ -27,7 +27,7 @@ finding that vanishes from a run is invisible to both scoring and the tracker.
 
 Usage::
 
-    collect_verdicts.py --manifest .agent-data/artifacts/<id>/manifest.json
+    collect_verdicts.py --manifest ../runs/artifacts/<id>/manifest.json
     collect_verdicts.py --latest -o ../runs/2026-09-02T12:00:00.json
 """
 
@@ -41,7 +41,10 @@ from typing import Any
 
 HERE = pathlib.Path(__file__).resolve().parent
 TRIAGE_DIR = HERE.parent
-AGENT_DATA = HERE / ".agent-data"
+
+# Where the taskflow's own run.sh binds the agent's data directory, and where
+# collected verdicts are written. One directory for both -- there is no longer
+# a guard that needs the agent's scratch state kept apart from it.
 RUNS = TRIAGE_DIR / "runs"
 
 sys.path.insert(0, str(TRIAGE_DIR))
@@ -57,7 +60,7 @@ DISCARD_NO_RESULT = "branch produced no result"
 DISCARD_UNPARSEABLE = "branch result was not a JSON object"
 
 
-def latest_manifest(root: pathlib.Path = AGENT_DATA) -> pathlib.Path:
+def latest_manifest(root: pathlib.Path = RUNS) -> pathlib.Path:
     """The most recently written manifest under the agent data directory."""
     manifests = sorted(
         root.glob("artifacts/*/manifest.json"),
@@ -182,7 +185,7 @@ def main(argv: list[str] | None = None) -> int:
     source.add_argument(
         "--latest",
         action="store_true",
-        help=f"use the newest manifest under {AGENT_DATA}",
+        help=f"use the newest manifest under {RUNS}",
     )
     parser.add_argument(
         "--findings",

@@ -32,8 +32,7 @@ def normalised() -> dict:
         # against, rather than read from `config.json`. The configured threshold
         # is meant to move — task 3.6 moved it to `MEDIUM` — and every count in
         # this file describes the baseline corpus, not wherever the gate sits
-        # today. `ThresholdDropTest` in test_ground_truth.py is where moving it
-        # is the subject rather than an accident.
+        # today.
         return normalise.normalise(json.load(handle), threshold="HIGH")
 
 
@@ -89,11 +88,6 @@ class FilesOnePerTriagedFinding(unittest.TestCase):
     def test_each_issue_is_filed_under_needs_triage(self) -> None:
         for item in self.plan["create"]:
             self.assertEqual(tuple(item["labels"]), (file_issues.NEEDS_TRIAGE,))
-
-    def test_the_body_declares_the_verdict_was_written_by_a_model(self) -> None:
-        """Provenance travels with the verdict; the scorer refuses to count it."""
-        for item in self.plan["create"]:
-            self.assertEqual(issue_body.parse(item["body"])["verdict_author"], issue_body.MODEL)
 
     def test_the_title_names_the_rule_and_where_it_fired(self) -> None:
         item = self.plan["create"][0]

@@ -7,18 +7,13 @@
 #   * The repository root is mounted, and stays the working directory, because
 #     the deterministic tasks read `modules/`, `docs/adr/` and `docs/design/`,
 #     and the taskflow is addressed by its full dotted name from that root.
-#   * The agent's data directory is bound to `.agent-data/` here, so the run
-#     manifest that `collect_verdicts.py` reads survives the container.
-#
-# `.agent-data/` deliberately is not `../runs/`. `export_fixture.py` treats a
-# non-empty `runs/` as proof that a triage run has happened and refuses to write
-# ground truth afterwards; scratch state landing there would spend that guard
-# without a run ever happening.
+#   * The agent's data directory is bound to `../runs/` here, so the run
+#     manifest that `collect_verdicts.py` reads survives the container, in the
+#     same place the collected verdicts are written.
 #
 # Usage:
 #   export AI_API_TOKEN=...            # an Anthropic API key; no token, no run
-#   ./run.sh                           # scoped, reproducible, propose-only
-#   ./run.sh -g scope_keys=            # every eligible finding
+#   ./run.sh                           # reproducible, propose-only
 #   ./run.sh -g report=                # live Trivy scan instead of the baseline
 #   ./run.sh --lint                    # validate offline, no model, no token
 
@@ -27,8 +22,9 @@ set -euo pipefail
 here="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 repo_root="$(cd "$here/../../.." && pwd)"
 image="${SECLAB_IMAGE:-ghcr.io/githubsecuritylab/seclab-taskflow-agent}"
+runs="$here/../runs"
 
-mkdir -p "$here/.agent-data/logs"
+mkdir -p "$runs/logs"
 
 # The framework touches .env in its working directory, which is the repository
 # root: `load_dotenv(find_dotenv(usecwd=True))` starts at cwd, and the
@@ -61,7 +57,7 @@ exec docker run -i --rm \
     -e HOME=/data \
     -e XDG_DATA_HOME=/data \
     --mount type=bind,src="$repo_root",dst=/app \
-    --mount type=bind,src="$here/.agent-data",dst=/data/seclab-taskflow-agent \
+    --mount type=bind,src="$runs",dst=/data/seclab-taskflow-agent \
     -w /app \
     -e LOG_DIR=/data/seclab-taskflow-agent/logs \
     "${token_args[@]}" \

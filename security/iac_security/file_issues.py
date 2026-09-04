@@ -62,11 +62,6 @@ EMITTABLE_LABELS = (NEEDS_TRIAGE,)
 # a label parameter and forgets what it must never carry.
 FORBIDDEN_LABELS = ("ready-for-agent",)
 
-# The agent wrote these verdicts. Recorded on the issue so the fixture export
-# reads provenance off the body rather than assuming it (`design.md -
-# Decision 5`).
-VERDICT_AUTHOR = issue_body.MODEL
-
 # Where a verdict lands when its rationale did not survive `collect_verdicts.py`.
 UNDETERMINED = "undetermined"
 
@@ -179,7 +174,6 @@ def body(finding: dict[str, Any], record: dict[str, Any]) -> str:
         ("Key", f"`{record['key']}`"),
         ("Rule", f"{rule_cell} — {rule_title}" if rule_title else rule_cell),
         ("Severity", finding.get("severity", "")),
-        ("Verdict author", f"`{VERDICT_AUTHOR}`"),
         ("Instantiated at", f"`{finding.get('owner_path', '')}`"),
         ("Declared at", declared_at(finding)),
         ("Module", f"`{finding.get('module_address', '')}`"),

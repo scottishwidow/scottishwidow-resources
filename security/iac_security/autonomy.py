@@ -45,8 +45,6 @@ import subprocess
 import sys
 from typing import Any
 
-import export_fixture
-
 HERE = pathlib.Path(__file__).resolve().parent
 POLICY_PATH = HERE / "autonomy.json"
 
@@ -232,12 +230,43 @@ def reopen_alert(number: int) -> Any:
     return patch_alert(number, {"state": "open"})
 
 
+def alert_join_key(rule_id: str, path: str, start_line: Any) -> tuple[str, str, Any]:
+    """What identifies an alert to a normalised record.
+
+    Not the finding key: an alert does not carry one. Rule, path and line are
+    unique across every first-party finding in this corpus — the only collisions
+    are the vendored `AWS-0104` pairs — and this join is only ever asked about
+    eligible findings.
+    """
+    return (rule_id, path, start_line)
+
+
+def index_alerts(alerts: list[dict[str, Any]]) -> dict[tuple, list[dict[str, Any]]]:
+    index: dict[tuple, list[dict[str, Any]]] = {}
+    for alert in alerts:
+        location = alert.get("most_recent_instance", {}).get("location", {})
+        join = alert_join_key(
+            alert.get("rule", {}).get("id", ""),
+            location.get("path", ""),
+            location.get("start_line"),
+        )
+        index.setdefault(join, []).append(alert)
+    return index
+
+
+def alert_for(record: dict[str, Any], index: dict[tuple, list[dict[str, Any]]]) -> dict | None:
+    """The single alert a record joins to, or ``None`` if that is ambiguous."""
+    join = alert_join_key(record["rule_id"], record["code_path"], record["start_line"])
+    matches = index.get(join, [])
+    return matches[0] if len(matches) == 1 else None
+
+
 def alert_numbers(findings: dict[str, Any], alerts: list[dict[str, Any]]) -> dict[str, int]:
     """Finding key -> alert number, for the findings that join to exactly one."""
-    index = export_fixture.index_alerts(alerts)
+    index = index_alerts(alerts)
     numbers: dict[str, int] = {}
     for record in findings.get("eligible", []):
-        alert = export_fixture.alert_for(record, index)
+        alert = alert_for(record, index)
         if alert is not None:
             numbers[record["key"]] = alert["number"]
     return numbers
@@ -253,7 +282,8 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--verdicts", help="verdict records from collect_verdicts.py")
     parser.add_argument(
         "--evidence",
-        help="scoring report from `score.py --json`; without it nothing is dismissible",
+        help="a scoring report shaped {'per_rule': {rule_id: {scored, agreed, agreement}}}; "
+        "without it nothing is dismissible",
     )
     parser.add_argument("--findings", help="normalised findings, to join keys to alerts")
     parser.add_argument("--alerts", help="alerts JSON; reads `gh` when omitted")
