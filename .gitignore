@@ -22,6 +22,10 @@ terraform.rc
 # Agents
 settings.local.json
 
+# IaC triage taskflow: AI_API_TOKEN, read from the repository root by
+# load_dotenv(find_dotenv(usecwd=True)) when the taskflow container runs.
+/.env
+
 # Python
 __pycache__/
 *.pyc

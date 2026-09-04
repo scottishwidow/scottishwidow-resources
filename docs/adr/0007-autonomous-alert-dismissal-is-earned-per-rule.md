@@ -15,7 +15,7 @@ rather than unearned.
 
 ## Context
 
-The IaC triage pipeline (`security/iac-security-triage/`) has a model assign a verdict to
+The IaC triage pipeline (`security/iac_security/`) has a model assign a verdict to
 each security finding this repository's own code produces. Four verdicts are possible, and
 one of them — `not-applicable` — is a claim that the finding need not be looked at again.
 Acting on that claim automatically means closing a code scanning alert with no human
@@ -53,7 +53,7 @@ Autonomous dismissal is granted **per rule ID**, and requires all three of:
 |---|---|---|
 | **Agreement** | 100% against the human-assigned corpus | one wrong dismissal is the failure this exists to prevent; there is no acceptable error rate for closing an alert unattended |
 | **Support** | scored over **`k = 5`** findings for that rule | so that unanimity is not cheap |
-| **Grant** | the rule ID present in `security/iac-security-triage/autonomy.json` | evidence never grants authority on its own; a human's reviewable diff does |
+| **Grant** | the rule ID present in `security/iac_security/autonomy.json` | evidence never grants authority on its own; a human's reviewable diff does |
 
 **The support floor is the load-bearing half.** The agreement bar is the one that looks
 strict and is in fact almost free — it is trivially met at n=1, which is precisely the

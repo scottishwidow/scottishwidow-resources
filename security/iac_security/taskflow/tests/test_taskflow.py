@@ -134,7 +134,10 @@ class ModelSelection(unittest.TestCase):
         self.config = load(MODEL_CONFIG_PATH)
 
     def test_the_taskflow_references_the_model_config(self) -> None:
-        self.assertEqual(self.taskflow["model_config"], "model_configs.iac_triage")
+        self.assertEqual(
+            self.taskflow["model_config"],
+            "security.iac_security.taskflow.model_configs.iac_triage",
+        )
 
     def test_the_verdict_task_names_a_configured_model(self) -> None:
         """A `model:` absent here resolves to the framework's DEFAULT_MODEL."""

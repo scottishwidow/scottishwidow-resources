@@ -1,7 +1,7 @@
 """Tests for issue promotion (`tasks.md` group 6, `design.md - Decision 4`).
 
 Run from the repository root with `python3 -m unittest discover -s
-security/iac-security-triage/tests`.
+security/iac_security/tests`.
 
 The corpus is the one in `design.md - Context`: 7 triage-eligible findings, 5
 below-threshold and 8 vendored. Every count asserted here is derived from the

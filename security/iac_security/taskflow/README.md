@@ -17,9 +17,9 @@ python3 collect_verdicts.py --latest --findings <(./scan.sh) -o ../runs/local.js
 python3 ../score.py --run ../runs/local.json
 ```
 
-The token can instead go in a `.env` file in this directory, which the framework
-reads itself (`load_dotenv(find_dotenv(usecwd=True))`) and which `.gitignore`
-excludes:
+The token can instead go in a `.env` file at the repository root, which the
+framework reads itself (`load_dotenv(find_dotenv(usecwd=True))`) and which
+`.gitignore` excludes:
 
     AI_API_TOKEN=<an Anthropic API key>
 
@@ -52,11 +52,12 @@ Swapping models is a one-line edit to `models:` in the model config. Reverting
 to Copilot is deleting the `model_config:` line from the taskflow and supplying
 a PAT.
 
-`run.sh` mounts the repository root into the published image and enters this
-directory, because the framework resolves `-t taskflows.iac_triage` with
-`importlib.resources.files()` — every component of a dotted name has to be a
-legal Python identifier, and `iac-security-triage` is not one. Entering below
-the hyphen is what makes these assets addressable.
+`run.sh` mounts the repository root into the published image and stays there,
+passing the taskflow's full dotted name,
+`-t security.iac_security.taskflow.taskflows.iac_triage`. The framework
+resolves that with `importlib.resources.files()`, which requires every
+component of a dotted name to be a legal Python identifier — the reason this
+package is `iac_security` rather than `iac-security-triage`.
 
 ## Shape
 
@@ -156,7 +157,7 @@ guard without a run ever having happened.
 ## Tests
 
 ```sh
-python3 -m unittest discover -s security/iac-security-triage/taskflow/tests
+python3 -m unittest discover -s security/iac_security/taskflow/tests
 ```
 
 Offline — no Docker, no model, no network. They cover the discard rule against

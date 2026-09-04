@@ -1,17 +1,12 @@
 #!/usr/bin/env bash
 # Run the IaC triage taskflow in the published seclab-taskflow-agent image.
 #
-# Adapted from the framework's own docker/run.sh, with three changes this
+# Adapted from the framework's own docker/run.sh, with two changes this
 # pipeline needs:
 #
-#   * The repository root is mounted, not this directory, because the
-#     deterministic tasks read `modules/`, `docs/adr/` and `docs/design/`.
-#   * The working directory is this directory, so that the framework's dotted
-#     names resolve to `taskflows.iac_triage` and `personalities.iac_triage`.
-#     They must: the framework resolves a dotted name with
-#     `importlib.resources.files()`, so every path component has to be a legal
-#     Python identifier -- and `iac-security-triage` is not one. Entering below
-#     the hyphen is what makes the assets addressable at all.
+#   * The repository root is mounted, and stays the working directory, because
+#     the deterministic tasks read `modules/`, `docs/adr/` and `docs/design/`,
+#     and the taskflow is addressed by its full dotted name from that root.
 #   * The agent's data directory is bound to `.agent-data/` here, so the run
 #     manifest that `collect_verdicts.py` reads survives the container.
 #
@@ -31,13 +26,14 @@ set -euo pipefail
 
 here="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 repo_root="$(cd "$here/../../.." && pwd)"
-workdir="/app/${here#"$repo_root"/}"
 image="${SECLAB_IMAGE:-ghcr.io/githubsecuritylab/seclab-taskflow-agent}"
 
 mkdir -p "$here/.agent-data/logs"
 
-# The framework touches .env in its working directory.
-touch -a "$here/.env"
+# The framework touches .env in its working directory, which is the repository
+# root: `load_dotenv(find_dotenv(usecwd=True))` starts at cwd, and the
+# container's cwd is the mount root, not this directory.
+touch -a "$repo_root/.env"
 
 # Forward a token only when the host actually has one, using bare `-e VAR` so an
 # unset variable stays unset in the container.
@@ -66,8 +62,8 @@ exec docker run -i --rm \
     -e XDG_DATA_HOME=/data \
     --mount type=bind,src="$repo_root",dst=/app \
     --mount type=bind,src="$here/.agent-data",dst=/data/seclab-taskflow-agent \
-    -w "$workdir" \
+    -w /app \
     -e LOG_DIR=/data/seclab-taskflow-agent/logs \
     "${token_args[@]}" \
     "$image" \
-    -t taskflows.iac_triage "$@"
+    -t security.iac_security.taskflow.taskflows.iac_triage "$@"

@@ -45,13 +45,13 @@ measure it. `taskflow/` is scoped to the findings whose ground truth already
 exists, so the rest stay clean until they are triaged.
 
     trivy config --format json . \
-      | python3 security/iac-security-triage/normalise.py
+      | python3 security/iac_security/normalise.py
 
 `normalise.py` accepts a report path instead of stdin, so the committed baseline
 can be replayed without a scanner:
 
-    python3 security/iac-security-triage/normalise.py \
-      security/iac-security-triage/fixtures/baseline-scan.json
+    python3 security/iac_security/normalise.py \
+      security/iac_security/fixtures/baseline-scan.json
 
 ## The two filters
 
@@ -128,8 +128,8 @@ A verdict is recorded in one of two places, and `export_fixture.py` reads both:
 
 Export, then check it, then score a run against it:
 
-    python3 security/iac-security-triage/export_fixture.py
-    python3 security/iac-security-triage/score.py --run verdicts.json
+    python3 security/iac_security/export_fixture.py
+    python3 security/iac_security/score.py --run verdicts.json
 
 The export refuses to run once `runs/` exists, because a fixture written after a
 triage run is not independent of it. `--allow-after-triage` overrides that, and
@@ -143,7 +143,7 @@ whatever the verdict — deciding that a finding is not worth acting on is the
 judgment this pipeline exists to inform, and burying it in a dismissal comment
 hides it from where work is reviewed.
 
-    python3 security/iac-security-triage/file_issues.py \
+    python3 security/iac_security/file_issues.py \
       --findings normalised.json --verdicts runs/<id>.json --dry-run
 
 | | issue filed | label applied | alert |
@@ -202,10 +202,10 @@ corpus it writes nothing. Dismissal requires all three of
 
     agreement == 100%   AND   scored >= support_floor   AND   rule allowlisted
 
-    python3 security/iac-security-triage/autonomy.py \
+    python3 security/iac_security/autonomy.py \
       --verdicts runs/<id>.json --evidence score.json     # report only
-    python3 security/iac-security-triage/autonomy.py ... --apply
-    python3 security/iac-security-triage/autonomy.py --reopen <alert>
+    python3 security/iac_security/autonomy.py ... --apply
+    python3 security/iac_security/autonomy.py --reopen <alert>
 
 The support floor is the load-bearing half. Five of the six eligible rules fire
 exactly once, so an agreement-only gate would grant five sixths of the ruleset
@@ -236,8 +236,8 @@ It becomes a wiring question when a rule first clears the floor, and not before.
 
 ## Tests
 
-    python3 -m unittest discover -s security/iac-security-triage/tests
-    python3 -m unittest discover -s security/iac-security-triage/taskflow/tests
+    python3 -m unittest discover -s security/iac_security/tests
+    python3 -m unittest discover -s security/iac_security/taskflow/tests
 
 They run against the committed baseline fixture, so they need neither Trivy nor
 AWS — nor, for the second suite, Docker or a model token.

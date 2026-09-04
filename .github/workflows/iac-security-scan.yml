@@ -34,7 +34,7 @@ jobs:
           output: 'trivy-results.sarif'
           exit-code: '0'
           # Pinned so the scanner moves deliberately with the baseline fixture
-          # in security/iac-security-triage/fixtures/ rather than drifting with
+          # in security/iac_security/fixtures/ rather than drifting with
           # the action's own default.
           version: 'v0.74.0'
 
