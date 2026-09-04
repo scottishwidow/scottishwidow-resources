@@ -87,6 +87,12 @@ The cost is that the corpus is pushed rather than pulled: every first-party
 files, 770 lines — about 6k tokens per finding, cacheable, and affordable enough
 that pull is not worth building until the corpus is roughly ten times larger.
 
+The prompt tells the agent the corpus is complete, and the personality withdraws
+"I was not shown enough" as a reason on that promise. `terraform_corpus.py`
+therefore exits non-zero when a corpus root is missing or the corpus is empty,
+and `must_complete: true` halts the run. A bad mount stops the pipeline instead
+of triaging every finding against nothing while claiming to show everything.
+
 ## The discard rule
 
 A verdict without a rationale is discarded and the finding recorded as

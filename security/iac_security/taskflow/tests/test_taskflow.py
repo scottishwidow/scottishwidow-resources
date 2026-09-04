@@ -37,6 +37,25 @@ def load(path: pathlib.Path) -> dict:
     return yaml.safe_load(path.read_text(encoding="utf-8"))
 
 
+# One finding and one well-formed verdict for it, shared by every test that
+# needs a branch result to start from. Module level rather than a method on the
+# first class that wanted it, so a second class borrowing it does not have to
+# call that class's method with a foreign `self`.
+FINDING_KEYS = {"AWS-0164:module.vpc:aws_subnet.public_zone_1": "AWS-0164"}
+
+
+def good_verdict(**overrides: object) -> dict:
+    """A verdict that survives the discard rule, with fields overridden."""
+    base = {
+        "key": "AWS-0164:module.vpc:aws_subnet.public_zone_1",
+        "verdict": "real-judgment",
+        "rationale": "Public IPs on these subnets are load-bearing for the NAT-less design.",
+        "evidence": ["modules/vpc/main.tf"],
+    }
+    base.update(overrides)
+    return base
+
+
 def task_by_id(taskflow: dict, task_id: str) -> dict:
     for entry in taskflow["taskflow"]:
         if entry["task"].get("id") == task_id:
@@ -168,7 +187,7 @@ class ModelSelection(unittest.TestCase):
 class DiscardRule(unittest.TestCase):
     """A verdict without a rationale is discarded, not accepted (4.5)."""
 
-    findings = {"AWS-0164:module.vpc:aws_subnet.public_zone_1": "AWS-0164"}
+    findings = FINDING_KEYS
 
     def record(self, result: object, item: int = 0) -> dict:
         return collect_verdicts.branch_to_record(
@@ -176,14 +195,7 @@ class DiscardRule(unittest.TestCase):
         )
 
     def good(self, **overrides: object) -> dict:
-        base = {
-            "key": "AWS-0164:module.vpc:aws_subnet.public_zone_1",
-            "verdict": "real-judgment",
-            "rationale": "Public IPs on these subnets are load-bearing for the NAT-less design.",
-            "evidence": ["modules/vpc/main.tf"],
-        }
-        base.update(overrides)
-        return base
+        return good_verdict(**overrides)
 
     def test_a_complete_verdict_survives(self) -> None:
         record = self.record(self.good())
@@ -271,11 +283,11 @@ class EvidenceDiscrepancy(unittest.TestCase):
     fails the discard rule.
     """
 
-    findings = DiscardRule.findings
+    findings = FINDING_KEYS
     corpus = {"modules/vpc/main.tf", "live/management/main.tf"}
 
     def record(self, evidence: list[str], corpus_paths: set[str] | None) -> dict:
-        result = DiscardRule.good(self, evidence=evidence)
+        result = good_verdict(evidence=evidence)
         return collect_verdicts.branch_to_record(
             {"model": "test", "item": 0, "result": result}, self.findings, corpus_paths
         )
@@ -324,7 +336,7 @@ class CollectFromManifest(unittest.TestCase):
                 ]
             }
         }
-        records = collect_verdicts.collect(manifest, DiscardRule.findings)
+        records = collect_verdicts.collect(manifest, FINDING_KEYS)
         self.assertEqual(len(records), 2)
         self.assertEqual(records[0]["verdict"], "not-applicable")
         self.assertEqual(records[1]["verdict"], "undetermined")
@@ -358,7 +370,7 @@ class CollectFromManifest(unittest.TestCase):
                 ],
             }
         }
-        records = collect_verdicts.collect(manifest, DiscardRule.findings)
+        records = collect_verdicts.collect(manifest, FINDING_KEYS)
         self.assertEqual(records[0]["verdict"], "not-applicable")
         self.assertEqual(records[0]["evidence_discrepancy"], ["live/nonexistent/main.tf"])
 
@@ -374,7 +386,7 @@ class CollectFromManifest(unittest.TestCase):
                     "rationale": "why",
                 },
             },
-            DiscardRule.findings,
+            FINDING_KEYS,
         )
         self.assertLessEqual({"key", "rule_id", "verdict"}, set(record))
 
@@ -442,6 +454,61 @@ class TerraformCorpus(unittest.TestCase):
         collected = terraform_corpus.collect(pathlib.Path("/nonexistent"))
         self.assertEqual(collected["documents"], [])
         self.assertEqual(sorted(collected["missing_dirs"]), sorted(terraform_corpus.CORPUS_DIRS))
+
+
+class AnEmptyCorpusIsAnError(unittest.TestCase):
+    """The prompt promises the agent a complete corpus, so it must be one.
+
+    The template says the corpus is exhaustive and the personality withdraws
+    "I was not shown enough" as a reason on the strength of that. A bad mount or
+    a wrong root would otherwise triage every finding against zero files while
+    still claiming to have shown everything -- a silent failure that produces
+    confident verdicts formed on nothing. `must_complete: true` on the `corpus`
+    task turns a non-zero exit here into a halted run.
+    """
+
+    def run_main_against(self, root: pathlib.Path) -> str:
+        original = terraform_corpus.REPO_ROOT
+        terraform_corpus.REPO_ROOT = root
+        try:
+            with self.assertRaises(SystemExit) as raised:
+                terraform_corpus.main([])
+        finally:
+            terraform_corpus.REPO_ROOT = original
+        return str(raised.exception)
+
+    def test_a_missing_corpus_directory_halts_the_run(self) -> None:
+        message = self.run_main_against(pathlib.Path("/nonexistent"))
+        self.assertIn("no such corpus directory", message)
+
+    def test_a_corpus_of_no_files_halts_the_run(self) -> None:
+        """Both roots present and both empty: nothing is missing, yet there is
+        nothing to show the agent either."""
+        with tempfile.TemporaryDirectory() as tmp:
+            root = pathlib.Path(tmp)
+            for prefix in terraform_corpus.CORPUS_DIRS:
+                (root / prefix).mkdir()
+            message = self.run_main_against(root)
+        self.assertIn("corpus is empty", message)
+
+    def test_a_populated_corpus_exits_zero(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = pathlib.Path(tmp)
+            for prefix in terraform_corpus.CORPUS_DIRS:
+                (root / prefix).mkdir()
+            (root / "modules" / "main.tf").write_text('resource "x" "y" {}\n', encoding="utf-8")
+
+            output = root / "corpus.json"
+            original = terraform_corpus.REPO_ROOT
+            terraform_corpus.REPO_ROOT = root
+            try:
+                self.assertEqual(terraform_corpus.main(["-o", str(output)]), 0)
+            finally:
+                terraform_corpus.REPO_ROOT = original
+
+            written = json.loads(output.read_text(encoding="utf-8"))
+
+        self.assertEqual([d["path"] for d in written["documents"]], ["modules/main.tf"])
 
 
 if __name__ == "__main__":

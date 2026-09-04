@@ -15,6 +15,13 @@ distinction ADR-0008 draws is not the mechanism but what it may hold: this
 module globs only `.tf` and never reads prose. A future reader who widens the
 glob to "just the ADRs" has reversed that decision without touching it.
 
+An empty corpus is an error, not an empty result. The prompt tells the agent
+the corpus is complete and exhaustive, and the personality closes the "I was
+not shown enough" escape on that promise. A missing root or a corpus of no
+files means the promise is false, so this exits non-zero and `must_complete:
+true` on the `corpus` task halts the run -- rather than triaging every finding
+against nothing while claiming to have shown everything.
+
 Usage::
 
     terraform_corpus.py                      # the corpus, as JSON
@@ -25,7 +32,6 @@ from __future__ import annotations
 import argparse
 import json
 import pathlib
-import sys
 
 HERE = pathlib.Path(__file__).resolve().parent
 REPO_ROOT = HERE.parents[2]
@@ -75,12 +81,22 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("-o", "--output", help="write here instead of stdout")
     args = parser.parse_args(argv)
 
-    collected = collect()
+    # The global rather than `collect`'s default, which is bound once at import
+    # and so cannot be pointed at a fabricated tree by a test.
+    collected = collect(REPO_ROOT)
 
     if collected["missing_dirs"]:
-        print(
-            "warning: no such corpus directory: " + ", ".join(collected["missing_dirs"]),
-            file=sys.stderr,
+        raise SystemExit(
+            "error: no such corpus directory: "
+            + ", ".join(collected["missing_dirs"])
+            + f" (looked under {REPO_ROOT})"
+        )
+
+    if not collected["documents"]:
+        raise SystemExit(
+            f"error: the Terraform corpus is empty (looked under {REPO_ROOT}); "
+            "the prompt promises the agent a complete corpus, so an empty one "
+            "is a broken run rather than a run with nothing to say"
         )
 
     rendered = json.dumps(collected, indent=2)
