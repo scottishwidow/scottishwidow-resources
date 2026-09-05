@@ -170,11 +170,11 @@ Five gates, in order, the first failure ending the decision:
 The permitted set is the finding's **code path**, its **owner path**, and a
 *new* file in the code path's directory — not an existing sibling file, which
 would make the module directory too loose to be called "the finding named it".
+A diff that touches no file, and a diff that deletes a file, are both rejected:
+neither is a remediation of the finding.
 
 The gate is invoked directly, not run as a script — the module holds no CLI,
 since reading a diff or a scan report from a file would itself be I/O.
-
-    python3 -m unittest discover -s security/iac_security/tests -k patch_gate
 
 ## Propose-only, permanently
 
