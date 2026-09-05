@@ -20,6 +20,15 @@ def load(path: pathlib.Path) -> dict:
     return yaml.safe_load(path.read_text(encoding="utf-8"))
 
 
+def trivy_step(workflow: dict) -> dict:
+    return next(
+        step
+        for job in workflow["jobs"].values()
+        for step in job["steps"]
+        if "trivy-action" in step.get("uses", "")
+    )
+
+
 def triggers(workflow: dict) -> set[str]:
     on = workflow[ON] if ON in workflow else workflow["on"]
     if isinstance(on, str):
@@ -27,16 +36,40 @@ def triggers(workflow: dict) -> set[str]:
     return set(on)
 
 
-class TriageIsDispatchOnly(unittest.TestCase):
+class TriageFiresOffTheScan(unittest.TestCase):
     def setUp(self) -> None:
         self.workflow = load(TRIAGE)
+        self.triage = self.workflow["jobs"]["triage"]
 
-    def test_workflow_dispatch_is_the_only_trigger(self) -> None:
-        self.assertEqual(triggers(self.workflow), {"workflow_dispatch"})
+    def test_it_triggers_on_the_scan_workflow_completing(self) -> None:
+        self.assertEqual(triggers(self.workflow), {"workflow_run"})
+        on = self.workflow[ON] if ON in self.workflow else self.workflow["on"]
+        self.assertEqual(on["workflow_run"]["workflows"], ["IaC security scan"])
+        self.assertIn("completed", on["workflow_run"]["types"])
 
-    def test_no_event_trigger_can_reach_it(self) -> None:
-        for event in ("push", "pull_request", "pull_request_target", "schedule"):
-            self.assertNotIn(event, triggers(self.workflow))
+    def test_no_pull_request_from_a_fork_can_reach_the_job(self) -> None:
+        # The trigger list cannot carry this boundary: a fork raises no `workflow_run`
+        # itself, but the scan it completes ran against that fork's pull request.
+        condition = self.triage["if"]
+        self.assertIn("github.event.workflow_run.event == 'push'", condition)
+        self.assertIn("github.event.workflow_run.head_branch == 'main'", condition)
+
+    def test_a_failed_scan_does_not_start_a_triage_run(self) -> None:
+        self.assertIn("github.event.workflow_run.conclusion == 'success'", self.triage["if"])
+
+    def test_it_checks_out_main_explicitly_rather_than_the_triggering_commit(self) -> None:
+        checkout = next(
+            step for step in self.triage["steps"]
+            if "actions/checkout" in step.get("uses", "")
+        )
+        self.assertEqual(checkout["with"]["ref"], "main")
+
+    def test_both_workflows_pin_the_same_trivy(self) -> None:
+        pins = {path.name: trivy_step(load(path)) for path in (SCAN, TRIAGE)}
+        self.assertEqual(pins[SCAN.name]["uses"], pins[TRIAGE.name]["uses"])
+        self.assertEqual(
+            pins[SCAN.name]["with"]["version"], pins[TRIAGE.name]["with"]["version"]
+        )
 
     def test_it_cannot_write_alert_state(self) -> None:
         self.assertEqual(self.workflow["permissions"], {"contents": "read"})
@@ -70,6 +103,26 @@ class IssuesAreFiledByAJobThatRunsNoModel(unittest.TestCase):
 
     def test_issue_filing_waits_for_triage(self) -> None:
         self.assertEqual(self.filer["needs"], "triage")
+
+    def test_issue_filing_does_not_run_when_triage_was_skipped(self) -> None:
+        self.assertEqual(self.filer["if"], "needs.triage.result != 'skipped'")
+
+    def test_it_checks_out_main_explicitly_rather_than_the_triggering_commit(self) -> None:
+        checkout = next(
+            step for step in self.filer["steps"]
+            if "actions/checkout" in step.get("uses", "")
+        )
+        self.assertEqual(checkout["with"]["ref"], "main")
+
+    def test_the_verdicts_it_reads_are_the_only_file_the_artifact_holds(self) -> None:
+        upload = next(
+            step for step in self.triage["steps"]
+            if "upload-artifact" in step.get("uses", "")
+            and step["with"]["name"].startswith("triage-verdicts-")
+        )
+        self.assertTrue(upload["with"]["path"].endswith("${{ github.run_id }}.json"))
+        filing = next(step for step in self.filer["steps"] if step.get("name") == "File issues")
+        self.assertIn("/tmp/verdicts/${{ github.run_id }}.json", filing["run"])
 
 
 class TokenIsConfinedToTriage(unittest.TestCase):

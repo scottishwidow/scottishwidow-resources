@@ -28,6 +28,9 @@ FORBIDDEN_LABELS = ("ready-for-agent",)
 
 UNDETERMINED = "undetermined"
 
+# The discard rule reaches a finding whose branch never produced a record at all.
+DISCARDED_NO_RECORD = "the triage run produced no verdict record for it"
+
 
 class ForbiddenLabel(Exception):
     pass
@@ -116,15 +119,30 @@ def declared_at(finding: dict[str, Any]) -> str:
 
 def rationale_section(record: dict[str, Any]) -> str:
     """A discarded verdict still says so, rather than leaving a blank section indistinguishable from unreviewed."""
-    if record.get("discarded_because"):
-        discarded = record.get("discarded_verdict")
-        proposed = f"`{discarded}`" if discarded else "a verdict"
-        return (
-            f"*No usable rationale was produced.* {proposed} was discarded because "
-            f"{record['discarded_because']}, so this finding is recorded as "
-            f"`{UNDETERMINED}` and needs a human judgment.\n"
-        )
-    return (record.get("rationale") or "").strip() + "\n"
+    reason = record.get("discarded_because")
+    if not reason:
+        return (record.get("rationale") or "").strip() + "\n"
+    discarded = record.get("discarded_verdict")
+    opening = (
+        f"`{discarded}` was discarded because {reason}"
+        if discarded
+        else f"No verdict stands, because {reason}"
+    )
+    return (
+        f"*No usable rationale was produced.* {opening}, so this finding is "
+        f"recorded as `{UNDETERMINED}` and needs a human judgment.\n"
+    )
+
+
+def record_without_a_verdict(key: str) -> dict[str, Any]:
+    """The record an eligible finding is filed under when no verdict reached the filing step."""
+    return {
+        "key": key,
+        "verdict": UNDETERMINED,
+        "rationale": "",
+        "evidence": [],
+        "discarded_because": DISCARDED_NO_RECORD,
+    }
 
 
 def evidence_section(record: dict[str, Any]) -> str:
@@ -222,7 +240,10 @@ def plan(
     skipped: list[dict[str, Any]] = []
     rejected: list[dict[str, Any]] = []
 
-    for record in verdicts:
+    triaged = {record.get("key") for record in verdicts}
+    without_a_verdict = sorted(key for key in eligible if key not in triaged)
+
+    for record in [*verdicts, *(record_without_a_verdict(key) for key in without_a_verdict)]:
         key = record.get("key") or ""
         if key not in eligible:
             rejected.append(
@@ -249,12 +270,11 @@ def plan(
             }
         )
 
-    triaged = {record.get("key") for record in verdicts}
     return {
         "create": create,
         "skipped_existing": skipped,
         "ineligible_verdicts": rejected,
-        "untriaged_eligible": sorted(key for key in eligible if key not in triaged),
+        "filed_without_a_verdict": without_a_verdict,
         "not_filed_below_threshold": sorted(
             r["key"] for r in findings.get("below_threshold", [])
         ),
@@ -313,8 +333,11 @@ def main(argv: list[str] | None = None) -> int:
             f"({item['reason']}): {item['key'] or '(unidentified)'}",
             file=sys.stderr,
         )
-    for key in report["untriaged_eligible"]:
-        print(f"warning: eligible finding carries no verdict, no issue filed: {key}", file=sys.stderr)
+    for key in report["filed_without_a_verdict"]:
+        print(
+            f"warning: eligible finding carries no verdict, filed as {UNDETERMINED}: {key}",
+            file=sys.stderr,
+        )
     for item in report["create"]:
         if item["alert"] is None:
             print(
@@ -354,7 +377,7 @@ def main(argv: list[str] | None = None) -> int:
         "filed": filed,
         "skipped_existing": report["skipped_existing"],
         "ineligible_verdicts": report["ineligible_verdicts"],
-        "untriaged_eligible": report["untriaged_eligible"],
+        "filed_without_a_verdict": report["filed_without_a_verdict"],
         "not_filed_below_threshold": report["not_filed_below_threshold"],
         "not_filed_vendored": report["not_filed_vendored"],
     }
