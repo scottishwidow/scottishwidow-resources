@@ -27,16 +27,33 @@ def triggers(workflow: dict) -> set[str]:
     return set(on)
 
 
-class TriageIsDispatchOnly(unittest.TestCase):
+class TriageFiresOffTheScan(unittest.TestCase):
     def setUp(self) -> None:
         self.workflow = load(TRIAGE)
+        self.triage = self.workflow["jobs"]["triage"]
 
-    def test_workflow_dispatch_is_the_only_trigger(self) -> None:
-        self.assertEqual(triggers(self.workflow), {"workflow_dispatch"})
+    def test_it_triggers_on_the_scan_workflow_completing(self) -> None:
+        self.assertEqual(triggers(self.workflow), {"workflow_run"})
+        on = self.workflow[ON] if ON in self.workflow else self.workflow["on"]
+        self.assertEqual(on["workflow_run"]["workflows"], ["IaC security scan"])
+        self.assertIn("completed", on["workflow_run"]["types"])
 
-    def test_no_event_trigger_can_reach_it(self) -> None:
-        for event in ("push", "pull_request", "pull_request_target", "schedule"):
-            self.assertNotIn(event, triggers(self.workflow))
+    def test_no_pull_request_from_a_fork_can_reach_the_job(self) -> None:
+        # A trigger-list check alone cannot see this: `workflow_run` is not one
+        # of the events a fork can raise directly, but its completion fires for
+        # every pull request the scan workflow runs against, forks included.
+        # The boundary is this job condition, so that is what must be asserted
+        # -- a workflow missing it would pass a check that only inspected `on:`.
+        condition = self.triage["if"]
+        self.assertIn("github.event.workflow_run.event == 'push'", condition)
+        self.assertIn("github.event.workflow_run.head_branch == 'main'", condition)
+
+    def test_it_checks_out_main_explicitly_rather_than_the_triggering_commit(self) -> None:
+        checkout = next(
+            step for step in self.triage["steps"]
+            if "actions/checkout" in step.get("uses", "")
+        )
+        self.assertEqual(checkout["with"]["ref"], "main")
 
     def test_it_cannot_write_alert_state(self) -> None:
         self.assertEqual(self.workflow["permissions"], {"contents": "read"})
@@ -70,6 +87,9 @@ class IssuesAreFiledByAJobThatRunsNoModel(unittest.TestCase):
 
     def test_issue_filing_waits_for_triage(self) -> None:
         self.assertEqual(self.filer["needs"], "triage")
+
+    def test_issue_filing_does_not_run_when_triage_was_skipped(self) -> None:
+        self.assertEqual(self.filer["if"], "needs.triage.result != 'skipped'")
 
 
 class TokenIsConfinedToTriage(unittest.TestCase):
