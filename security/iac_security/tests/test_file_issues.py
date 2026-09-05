@@ -55,7 +55,7 @@ class FilesOnePerTriagedFinding(unittest.TestCase):
         )
 
     def test_nothing_is_left_untriaged_by_a_full_run(self) -> None:
-        self.assertEqual(self.plan["untriaged_eligible"], [])
+        self.assertEqual(self.plan["filed_without_a_verdict"], [])
 
     def test_each_body_carries_the_key_the_verdict_and_the_rationale(self) -> None:
         for item in self.plan["create"]:
@@ -191,7 +191,8 @@ class FilesNotApplicableVerdictsToo(unittest.TestCase):
             discarded_because="rationale was empty or whitespace",
         )
         plan = file_issues.plan(self.findings, [record], [], [])
-        parsed = issue_body.parse(plan["create"][0]["body"])
+        item = next(entry for entry in plan["create"] if entry["key"] == key)
+        parsed = issue_body.parse(item["body"])
         self.assertEqual(parsed["verdict"], "undetermined")
         self.assertIn("rationale was empty or whitespace", parsed["rationale"])
         self.assertIn("real-mechanical", parsed["rationale"])
@@ -339,31 +340,66 @@ class FilesNothingForFilteredFindings(unittest.TestCase):
         self.assertEqual(len(self.findings["below_threshold"]), 5)
         self.assertEqual(len(self.findings["vendored"]), 8)
 
+    def filed(self, plan: dict) -> set[str]:
+        return {item["key"] for item in plan["create"]}
+
     def test_a_verdict_for_a_below_threshold_finding_is_rejected_not_filed(self) -> None:
         key = self.findings["below_threshold"][0]["key"]
         plan = file_issues.plan(self.findings, [verdict(key)], [], [])
-        self.assertEqual(plan["create"], [])
+        self.assertNotIn(key, self.filed(plan))
         self.assertEqual(plan["ineligible_verdicts"], [{"key": key, "reason": "below-threshold"}])
 
     def test_a_verdict_for_a_vendored_finding_is_rejected_not_filed(self) -> None:
         key = self.findings["vendored"][0]["key"]
         plan = file_issues.plan(self.findings, [verdict(key)], [], [])
-        self.assertEqual(plan["create"], [])
+        self.assertNotIn(key, self.filed(plan))
         self.assertEqual(plan["ineligible_verdicts"], [{"key": key, "reason": "vendored"}])
 
     def test_a_verdict_for_an_unknown_key_is_rejected_not_filed(self) -> None:
-        plan = file_issues.plan(self.findings, [verdict("AWS-9999:module.x:aws_thing.y")], [], [])
-        self.assertEqual(plan["create"], [])
+        key = "AWS-9999:module.x:aws_thing.y"
+        plan = file_issues.plan(self.findings, [verdict(key)], [], [])
+        self.assertNotIn(key, self.filed(plan))
         self.assertEqual(len(plan["ineligible_verdicts"]), 1)
 
-    def test_a_partial_run_reports_the_eligible_findings_it_left_untriaged(self) -> None:
-        scoped = [record["key"] for record in self.findings["eligible"][:2]]
-        plan = file_issues.plan(self.findings, [verdict(key) for key in scoped], [], [])
-        self.assertEqual(len(plan["create"]), 2)
-        self.assertEqual(
-            plan["untriaged_eligible"],
-            sorted(r["key"] for r in self.findings["eligible"] if r["key"] not in scoped),
+
+class EveryEligibleFindingBecomesATrackerItem(unittest.TestCase):
+    def setUp(self) -> None:
+        self.findings = normalised()
+        self.scoped = [record["key"] for record in self.findings["eligible"][:2]]
+        self.missing = sorted(
+            r["key"] for r in self.findings["eligible"] if r["key"] not in self.scoped
         )
+        self.plan = file_issues.plan(
+            self.findings, [verdict(key) for key in self.scoped], [], []
+        )
+
+    def test_a_partial_run_still_files_every_eligible_finding(self) -> None:
+        self.assertEqual(
+            sorted(item["key"] for item in self.plan["create"]),
+            sorted(record["key"] for record in self.findings["eligible"]),
+        )
+
+    def test_it_reports_which_findings_no_verdict_reached(self) -> None:
+        self.assertEqual(self.plan["filed_without_a_verdict"], self.missing)
+
+    def test_a_finding_no_verdict_reached_is_recorded_undetermined(self) -> None:
+        for item in self.plan["create"]:
+            expected = "real-mechanical" if item["key"] in self.scoped else file_issues.UNDETERMINED
+            self.assertEqual(item["verdict"], expected, item["key"])
+
+    def test_its_body_says_no_verdict_was_produced(self) -> None:
+        item = next(item for item in self.plan["create"] if item["key"] in self.missing)
+        parsed = issue_body.parse(item["body"])
+        self.assertEqual(parsed["verdict"], file_issues.UNDETERMINED)
+        self.assertIn(file_issues.DISCARDED_NO_RECORD, parsed["rationale"])
+
+    def test_a_finding_already_filed_is_not_filed_again_without_a_verdict(self) -> None:
+        item = next(item for item in self.plan["create"] if item["key"] in self.missing)
+        second = file_issues.plan(
+            self.findings, [verdict(key) for key in self.scoped], [issue_for(item, 42)], []
+        )
+        self.assertNotIn(item["key"], {entry["key"] for entry in second["create"]})
+        self.assertIn({"key": item["key"], "issue": 42}, second["skipped_existing"])
 
 
 if __name__ == "__main__":

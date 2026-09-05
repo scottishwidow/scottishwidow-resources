@@ -17,12 +17,11 @@ jobs:
   triage:
     name: Triage eligible findings
     runs-on: ubuntu-latest
-    # A `workflow_run` handler runs from the default branch with full secrets
-    # access, and the scan it watches also runs on `pull_request`, so a fork's
-    # pull request must not be able to reach this job.
+    # This handler holds the secrets, and the scan it watches also runs on fork pull requests.
     if: >-
       github.event.workflow_run.event == 'push' &&
-      github.event.workflow_run.head_branch == 'main'
+      github.event.workflow_run.head_branch == 'main' &&
+      github.event.workflow_run.conclusion == 'success'
     steps:
       - name: Checkout main
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -31,8 +30,7 @@ jobs:
           persist-credentials: false
 
       - name: Prepare the runs directory
-        # Gitignored scratch state (`security/iac_security/.gitignore`), so a
-        # fresh checkout has no `runs/` for Trivy's `output:` to write into.
+        # Gitignored scratch state, so a fresh checkout has no `runs/` for Trivy to write into.
         run: mkdir -p security/iac_security/runs
 
       - name: Run Trivy config scan
@@ -69,7 +67,7 @@ jobs:
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
           name: triage-verdicts-${{ github.run_id }}
-          path: security/iac_security/runs/
+          path: security/iac_security/runs/${{ github.run_id }}.json
           if-no-files-found: warn
 
       - name: Upload findings
@@ -83,9 +81,7 @@ jobs:
   file-issues:
     name: File an issue per triaged finding
     needs: triage
-    # `needs.triage.result` is `skipped` whenever the fork/branch condition
-    # above held the job back; a custom `if:` replaces the implicit
-    # `success()` check, so this still runs on a failed triage attempt.
+    # A failed triage attempt still has verdicts to file; a job the condition above held back has none.
     if: needs.triage.result != 'skipped'
     runs-on: ubuntu-latest
     permissions:
@@ -93,9 +89,10 @@ jobs:
       issues: write
       security-events: read
     steps:
-      - name: Checkout
+      - name: Checkout main
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
+          ref: main
           persist-credentials: false
 
       - name: Download verdicts
@@ -119,8 +116,8 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          verdicts="$(ls /tmp/verdicts/*.json | head -1)"
-          [ -n "$verdicts" ] || { echo 'no verdicts to file'; exit 0; }
+          verdicts=/tmp/verdicts/${{ github.run_id }}.json
+          [ -f "$verdicts" ] || { echo 'no verdicts to file'; exit 0; }
           python3 file_issues.py \
             --findings /tmp/findings/findings.json \
             --verdicts "$verdicts"

@@ -177,7 +177,9 @@ the triage workflow.
 - **A verdict without a rationale is discarded, and discarded is not dropped.**
   The finding survives as `undetermined` carrying `discarded_verdict` and
   `discarded_because`. A finding that vanished from a run would be invisible to
-  both scoring and the tracker.
+  both scoring and the tracker. An eligible finding that no verdict record
+  reached is discarded on the same rule and filed as `undetermined`, since only
+  `file_issues.py` compares the verdicts against the whole eligible set.
 
 ## Consequence to carry forward
 

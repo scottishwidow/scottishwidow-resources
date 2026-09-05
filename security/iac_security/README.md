@@ -111,6 +111,7 @@ hides it from where work is reviewed.
 | | issue filed | label applied | alert |
 |---|---|---|---|
 | any verdict on an eligible finding | yes | `needs-triage` | left open |
+| an eligible finding no verdict reached | yes, as `undetermined` | `needs-triage` | left open |
 | below threshold | no | — | left open, untriaged |
 | vendored | no | — | recorded upstream |
 

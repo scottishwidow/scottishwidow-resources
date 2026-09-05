@@ -73,11 +73,13 @@ The prose accompanying a verdict, required for it to count. A verdict without on
 is discarded, not stored bare.
 
 **Discard rule**:
-What happens to a verdict that arrives malformed or without a rationale: it is
-dropped *as a verdict*, and the finding is recorded `undetermined` carrying
-`discarded_verdict` and `discarded_because`. **Discarded is not dropped** — the
-finding still appears in the run, because one that vanished would be invisible to
-both scoring and the tracker.
+What happens to a verdict that arrives malformed, without a rationale, or not at
+all: it is dropped *as a verdict*, and the finding is recorded `undetermined`
+carrying `discarded_verdict` and `discarded_because`. **Discarded is not
+dropped** — the finding still appears in the run and becomes a tracker item,
+because one that vanished would be invisible to both scoring and the tracker. An
+eligible finding no verdict record ever reached is discarded on the same rule, by
+`file_issues.py`, which is the step that knows the whole eligible set.
 
 **Alert** / **alert state**:
 The finding's durable per-finding state in GitHub code scanning: open or
