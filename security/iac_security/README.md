@@ -150,6 +150,32 @@ In CI this is a separate job from the one that runs the agent: the job holding
 `issues: write` never sees `AI_API_TOKEN`, and the job that runs the model
 cannot open an issue.
 
+## The patch gate
+
+`patch_gate.py` decides whether a remediation patch reaches review. It performs
+no I/O: the remediation workflow applies the diff, runs `terraform validate` and
+`terraform fmt -check`, re-scans, and hands `patch_gate.decide()` the diff, the
+finding record, the pre- and post-change scan reports, and the two tool
+outcomes. It is a filter, not an acceptance — what accepts a patch is the human
+merge.
+
+Five gates, in order, the first failure ending the decision:
+
+1. the diff applies cleanly;
+2. every path it touches is permitted;
+3. `terraform validate` and `terraform fmt -check` both pass;
+4. the target finding key is absent from the post-change scan;
+5. no finding key present after the change was absent before it.
+
+The permitted set is the finding's **code path**, its **owner path**, and a
+*new* file in the code path's directory — not an existing sibling file, which
+would make the module directory too loose to be called "the finding named it".
+A diff that touches no file, and a diff that deletes a file, are both rejected:
+neither is a remediation of the finding.
+
+The gate is invoked directly, not run as a script — the module holds no CLI,
+since reading a diff or a scan report from a file would itself be I/O.
+
 ## Propose-only, permanently
 
 Nothing here can write alert state. The pipeline's safety property is one

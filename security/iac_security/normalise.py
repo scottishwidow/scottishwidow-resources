@@ -101,6 +101,16 @@ def finding_key(rule_id: str, module_address: str, resource_address: str) -> str
     return f"{rule_id}:{module_address}:{resource_address}"
 
 
+def finding_key_of(misconf: dict[str, Any]) -> str:
+    """The one derivation of a finding's identity from a Trivy misconfiguration; every caller uses it."""
+    cause = misconf.get("CauseMetadata") or {}
+    return finding_key(
+        misconf.get("ID", ""),
+        cause.get("Resource") or "",
+        parse_resource_address(cause_lines(misconf)),
+    )
+
+
 def duplicate_keys(records: list[dict[str, Any]]) -> list[str]:
     """First-party keys claimed by more than one finding; those findings would share a verdict."""
     counts = collections.Counter(
@@ -127,7 +137,7 @@ def normalise(report: dict[str, Any], threshold: str | None = None) -> dict[str,
 
         records.append(
             {
-                "key": finding_key(rule_id, module_address, resource_address),
+                "key": finding_key_of(misconf),
                 "rule_id": rule_id,
                 "title": misconf.get("Title", ""),
                 "severity": severity,
