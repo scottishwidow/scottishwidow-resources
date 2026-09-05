@@ -1,14 +1,10 @@
 name: 'IaC security triage'
 
 on:
-  workflow_dispatch:
-    inputs:
-      report:
-        description: >-
-          Trivy report to triage. Empty runs a live scan; the default replays
-          the committed baseline, which is what makes a run reproducible.
-        required: false
-        default: '../fixtures/baseline-scan.json'
+  workflow_run:
+    workflows: ['IaC security scan']
+    types:
+      - completed
 
 permissions:
   contents: read
@@ -21,30 +17,52 @@ jobs:
   triage:
     name: Triage eligible findings
     runs-on: ubuntu-latest
+    # A `workflow_run` handler runs from the default branch with full secrets
+    # access, and the scan it watches also runs on `pull_request`, so a fork's
+    # pull request must not be able to reach this job.
+    if: >-
+      github.event.workflow_run.event == 'push' &&
+      github.event.workflow_run.head_branch == 'main'
     steps:
-      - name: Checkout
+      - name: Checkout main
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
+          ref: main
           persist-credentials: false
+
+      - name: Prepare the runs directory
+        # Gitignored scratch state (`security/iac_security/.gitignore`), so a
+        # fresh checkout has no `runs/` for Trivy's `output:` to write into.
+        run: mkdir -p security/iac_security/runs
+
+      - name: Run Trivy config scan
+        uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # 0.36.0
+        with:
+          scan-type: 'config'
+          scan-ref: '.'
+          format: 'json'
+          output: 'security/iac_security/runs/trivy-report.json'
+          exit-code: '0'
+          version: 'v0.74.0'
 
       - name: Run triage taskflow
         working-directory: security/iac_security/taskflow
         env:
           AI_API_TOKEN: ${{ secrets.AI_API_TOKEN }}
         run: |
-          ./run.sh -g report='${{ inputs.report }}'
+          ./run.sh -g report=../runs/trivy-report.json
 
       - name: Collect verdicts
         if: always()
         continue-on-error: true
         working-directory: security/iac_security/taskflow
+        env:
+          TRIVY_REPORT: ../runs/trivy-report.json
         run: |
           ./scan.sh > /tmp/findings.json
           python3 collect_verdicts.py --latest \
             --findings /tmp/findings.json \
             -o "../runs/${{ github.run_id }}.json"
-        env:
-          TRIVY_REPORT: ${{ inputs.report }}
 
       - name: Upload verdicts
         if: always()
@@ -65,7 +83,10 @@ jobs:
   file-issues:
     name: File an issue per triaged finding
     needs: triage
-    if: always()
+    # `needs.triage.result` is `skipped` whenever the fork/branch condition
+    # above held the job back; a custom `if:` replaces the implicit
+    # `success()` check, so this still runs on a failed triage attempt.
+    if: needs.triage.result != 'skipped'
     runs-on: ubuntu-latest
     permissions:
       contents: read

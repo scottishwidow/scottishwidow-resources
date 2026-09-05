@@ -8,9 +8,9 @@ with a rationale. Propose-only — it changes no alert and files no issue.
 
 ```sh
 export AI_API_TOKEN=<an Anthropic API key>
-./run.sh                        # the reproducible, propose-only run
-./run.sh --lint --strict        # validate offline: no model, no token, no network
-./run.sh -g report=             # live Trivy scan instead of the baseline
+./run.sh                                           # live Trivy scan, propose-only
+./run.sh --lint --strict                           # validate offline: no model, no token, no network
+./run.sh -g report=../fixtures/baseline-scan.json  # replay the committed baseline instead
 
 python3 collect_verdicts.py --latest --findings <(./scan.sh) -o ../runs/local.json
 ```

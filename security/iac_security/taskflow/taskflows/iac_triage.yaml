@@ -28,10 +28,10 @@ seclab-taskflow-agent:
 model_config: security.iac_security.taskflow.model_configs.iac_triage
 
 globals:
-  # Which report to triage. The committed baseline by default, so a run is
-  # reproducible and a score refers to a known corpus. Override for a live scan:
-  #   -g report=""
-  report: "../fixtures/baseline-scan.json"
+  # Which report to triage. A live scan by default, since triage now runs
+  # automatically off a real scan; replay the committed baseline instead with:
+  #   -g report=../fixtures/baseline-scan.json
+  report: ""
 
 taskflow:
   - task:
