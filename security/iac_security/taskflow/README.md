@@ -1,9 +1,13 @@
-# Triage taskflow
+# Triage and remediation taskflows
 
-The agentic half of the pipeline: a `seclab-taskflow-agent` taskflow that reads
-the eligible findings produced by `../normalise.py`, drops the ones the tracker
-already holds, and assigns each of the rest a verdict with a rationale.
-Propose-only — it changes no alert and files no issue.
+The agentic half of the pipeline: two `seclab-taskflow-agent` taskflows, and
+neither of them holds a tool.
+
+**Triage** reads the eligible findings produced by `../normalise.py`, drops the
+ones the tracker already holds, and assigns each of the rest a verdict with a
+rationale. **Remediation** takes one issue a human has labelled
+`ready-for-remediation` and emits a unified diff for the finding it names. Both
+are propose-only — they change no alert, file no issue and write no code.
 
 ## Running it
 
@@ -16,6 +20,17 @@ export AI_API_TOKEN=<an Anthropic API key>
 ./run.sh -g bypass=true                                               # triage every eligible finding again
 
 python3 collect_verdicts.py --latest -o ../runs/local.json
+```
+
+`TASKFLOW` selects which one runs, and defaults to triage:
+
+```sh
+gh issue view <number> --json number,body,comments > ../runs/issue.json
+
+TASKFLOW=security.iac_security.taskflow.taskflows.iac_remediate \
+  ./run.sh -g issue=security/iac_security/runs/issue.json
+
+python3 collect_patch.py --latest -o ../runs/local.patch
 ```
 
 Every run needs a tracker, because the exclusion halts rather than triaging
@@ -66,12 +81,17 @@ Swapping models is a one-line edit to `models:` in the model config. Reverting
 to Copilot is deleting the `model_config:` line from the taskflow and supplying
 a PAT.
 
+`model_configs/iac_remediate.yaml` is a copy of the same two fields under a
+second logical name. A second file rather than a second entry, because the two
+flows are selected independently and a model swap for one must not silently swap
+the other.
+
 `run.sh` mounts the repository root into the published image and stays there,
-passing the taskflow's full dotted name,
-`-t security.iac_security.taskflow.taskflows.iac_triage`. The framework
-resolves that with `importlib.resources.files()`, which requires every
-component of a dotted name to be a legal Python identifier — the reason this
-package is `iac_security` rather than `iac-security-triage`.
+passing the taskflow's full dotted name — `$TASKFLOW`, defaulting to
+`security.iac_security.taskflow.taskflows.iac_triage`. The framework resolves
+that with `importlib.resources.files()`, which requires every component of a
+dotted name to be a legal Python identifier — the reason this package is
+`iac_security` rather than `iac-security-triage`.
 
 ## Shape
 
@@ -80,6 +100,14 @@ findings     run:   scan.sh                       ->  {eligible, below_threshold
 outstanding  run:   scan.sh | outstanding.py      ->  {findings: eligible minus tracked}     deterministic
 corpus       run:   terraform_corpus.py           ->  {documents: every .tf file}            deterministic
 verdicts     over:  outputs.outstanding.findings  ->  one branch per finding                 the only model step
+```
+
+Remediation is the same shape over one finding:
+
+```
+target       run:   scan.sh | remediation_target.py  ->  {finding, issue, permitted_paths}   deterministic
+corpus       run:   terraform_corpus.py              ->  {documents: every .tf file}         deterministic
+patch                                                ->  a unified diff, as response text    the only model step
 ```
 
 The fan-out reads `outstanding`, which reads `eligible`, so the
@@ -131,6 +159,35 @@ An unreadable tracker halts the run (`must_complete: true`) rather than
 excluding nothing: triaging everything is the bill this task exists to remove,
 and it should not be paid by accident.
 
+## Remediation
+
+Invoked by a label a human applies, never by a verdict. `real-mechanical` is
+advice to whoever reads the issue; what starts a remediation run is
+`ready-for-remediation` on that issue, and the pipeline cannot apply it — the
+label is absent from `file_issues.py`'s emittable vocabulary, and a label
+outside that vocabulary raises rather than being filed. An agent able to apply
+it would be authorising its own downstream work.
+
+`remediation_target.py` is what makes a mislabelled issue cost nothing. It reads
+the issue body for a **finding key** and halts the run when there is none,
+before a model is reached — and in CI it runs first in a job that holds no token
+at all, off the body the event payload already carried.
+
+The remediator's inputs are fixed and exhaustive: the finding record, the
+tracker item including any comment a human left on it, the Terraform corpus, and
+the paths a patch may touch. Those paths are named out of
+`patch_gate.path_is_permitted` rather than restated, so what the agent is told
+it may change is what the gate will accept.
+
+A tracker item whose verdict section was never answered reads back as
+`undetermined` rather than as whatever the label implies: the label authorises a
+patch, it does not judge the finding.
+
+The patch is response text. `collect_patch.py` takes it out of the run manifest,
+sees through a fence around the whole reply, and refuses to write a file for a
+reply that is not a diff — `NOPATCH`, which the personality asks for when the
+fix is not derivable, lands there and is read by a person.
+
 ## The bypass
 
 `-g bypass=true` triages the whole eligible set, tracker item or not. In CI it is
@@ -141,8 +198,9 @@ so testing verdicts costs tokens and artifacts but no tracker churn.
 
 ## Why the agent has no tools
 
-The `toolboxes` list is empty, deliberately. Every fact the agent may use
-arrives in its prompt — the finding record and the Terraform corpus — so:
+The `toolboxes` list is empty on both agents, deliberately. Every fact an agent
+may use arrives in its prompt — the finding record and the Terraform corpus, and
+for the remediator the tracker item too — so:
 
 - a run is reproducible from its inputs, and the exact bytes the model saw are
   recoverable from the run manifest;
@@ -153,6 +211,14 @@ arrives in its prompt — the finding record and the Terraform corpus — so:
   tracker, and neither is reachable from a prompt;
 - the agent cannot read alert state, and so cannot read a verdict it is about to
   be scored against. Read-only access would not be enough here.
+
+It matters most on the remediator, where none of the framework's containment
+would do instead. Its `confirm:` list prompts on the terminal through a bare
+`input()`, which in unattended CI raises rather than denies; a task that sets
+`headless: true` auto-allows every call; and per-task `blocked_tools` blocks
+named tools rather than granting none. An agent holding no toolbox needs none of
+that. The remediator produces text, and every write of that text is done by
+deterministic code outside it.
 
 The cost is that the corpus is pushed rather than pulled: every first-party
 `.tf` file goes into every finding's prompt. ADR-0008 sizes that cost at 24
@@ -214,14 +280,19 @@ that vanished from a run would be invisible to both scoring and the tracker.
 
 | | |
 |---|---|
-| `taskflows/iac_triage.yaml` | the pipeline: three shell tasks and one fan-out |
-| `personalities/iac_triage.yaml` | the system prompt: vocabulary, rationale requirement |
+| `taskflows/iac_triage.yaml` | the triage pipeline: three shell tasks and one fan-out |
+| `taskflows/iac_remediate.yaml` | the remediation pipeline: two shell tasks and one patch |
+| `personalities/iac_triage.yaml` | the triager's system prompt: vocabulary, rationale requirement |
+| `personalities/iac_remediate.yaml` | the remediator's system prompt: vocabulary, diff format, permitted paths |
 | `scan.sh` | scan or replay, then normalise. A `run:` field is not templated, so configuration arrives as `TRIVY_REPORT` |
 | `outstanding.py` | the eligible set minus what the tracker already holds, on `TRACKER_ITEMS` and `TRIAGE_BYPASS_TRACKER` |
 | `terraform_corpus.py` | every first-party `.tf` file, as JSON (ADR-0008) |
 | `collect_verdicts.py` | run manifest → verdict records, applying the discard rule |
+| `collect_patch.py` | run manifest → the unified diff, unfenced |
+| `../remediation_target.py` | the labelled issue's finding, its tracker item and the paths a patch may touch, on `ISSUE_ITEM` |
 | `model_configs/iac_triage.yaml` | the model and the API behind it: Anthropic, not the framework's Copilot default |
-| `run.sh` | the Docker invocation, with the mounts the above needs |
+| `model_configs/iac_remediate.yaml` | the same, for the remediator, so a model swap for one flow does not swap the other |
+| `run.sh` | the Docker invocation, with the mounts the above needs; `TASKFLOW` selects which taskflow it runs |
 | `../runs/` | gitignored. The agent's data directory, bound out of the container so the run manifest survives it, alongside the verdicts collected from it |
 
 ## Tests

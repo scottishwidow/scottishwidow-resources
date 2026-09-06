@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 import os
 import pathlib
+import re
 import sys
 import tempfile
 import unittest
@@ -17,8 +18,10 @@ sys.path.insert(0, str(TRIAGE_DIR))
 
 import yaml  # noqa: E402
 
+import collect_patch  # noqa: E402
 import collect_verdicts  # noqa: E402
 import issue_body  # noqa: E402
+import patch_gate  # noqa: E402
 import outstanding  # noqa: E402
 import terraform_corpus  # noqa: E402
 import vocabulary  # noqa: E402
@@ -753,3 +756,222 @@ class BranchesAreAttributedToTheListTheyRanOver(unittest.TestCase):
         )
         record = collect_verdicts.collect(self.manifest, findings)[0]
         self.assertEqual(record["key"], "B:m:r.n")
+
+
+REMEDIATE_WORKFLOW = REPO_ROOT / ".github" / "workflows" / "iac-security-remediate.yml"
+REMEDIATE_WORKFLOW_TEXT = REMEDIATE_WORKFLOW.read_text(encoding="utf-8")
+
+REMEDIATE_TASKFLOW_PATH = TASKFLOW_DIR / "taskflows" / "iac_remediate.yaml"
+REMEDIATE_PERSONALITY_PATH = TASKFLOW_DIR / "personalities" / "iac_remediate.yaml"
+REMEDIATE_MODEL_CONFIG_PATH = TASKFLOW_DIR / "model_configs" / "iac_remediate.yaml"
+
+
+class RemediationTaskflowShape(unittest.TestCase):
+    """Three tasks, and only the last one involves a model."""
+
+    def setUp(self) -> None:
+        self.taskflow = load(REMEDIATE_TASKFLOW_PATH)
+
+    def test_declares_the_expected_three_tasks(self) -> None:
+        ids = [entry["task"].get("id") for entry in self.taskflow["taskflow"]]
+        self.assertEqual(ids, ["target", "corpus", "patch"])
+
+    def test_only_the_patch_task_uses_a_model(self) -> None:
+        for task_id in ("target", "corpus"):
+            task = task_by_id(self.taskflow, task_id)
+            self.assertIn("run", task, f"{task_id} should be a shell task")
+            self.assertNotIn("agents", task)
+
+    def test_the_deterministic_task_runs_before_the_one_that_costs_money(self) -> None:
+        """A mislabelled issue is answered by `target`, which halts the run before the model."""
+        ids = [entry["task"].get("id") for entry in self.taskflow["taskflow"]]
+        self.assertLess(ids.index("target"), ids.index("patch"))
+
+    def test_a_target_that_names_no_finding_halts_the_run(self) -> None:
+        self.assertTrue(task_by_id(self.taskflow, "target")["must_complete"])
+
+    def test_the_remediator_declares_no_toolbox(self) -> None:
+        """Not "no write tool" -- none. Every write of the patch happens outside the agent."""
+        patch = task_by_id(self.taskflow, "patch")
+        self.assertNotIn("toolboxes", patch)
+        self.assertNotIn("toolboxes", load(REMEDIATE_PERSONALITY_PATH))
+
+    def test_the_remediator_is_given_no_containment_it_does_not_need(self) -> None:
+        """`headless` auto-allows every call and `blocked_tools` blocks named ones;
+        an agent holding no toolbox needs neither, and carrying one would suggest it does."""
+        patch = task_by_id(self.taskflow, "patch")
+        self.assertNotIn("headless", patch)
+        self.assertNotIn("blocked_tools", patch)
+
+    def test_the_patch_is_captured_as_response_text(self) -> None:
+        self.assertEqual(task_by_id(self.taskflow, "patch")["capture"], "response")
+
+    def test_the_branch_schema_checks_liveness_and_not_shape(self) -> None:
+        """A schema on a prose channel destroys the reply it rejects; the diff is
+        read in `collect_patch.py` and judged by the patch gate."""
+        schema = task_by_id(self.taskflow, "patch")["outputs"]
+        self.assertEqual(schema["type"], "string")
+        self.assertEqual(schema["minLength"], 1)
+
+    def test_the_issue_has_no_default(self) -> None:
+        """Remediation is about one issue; a run without one has nothing to patch."""
+        self.assertEqual(self.taskflow["globals"]["issue"], "")
+
+    def test_every_run_field_names_a_path_that_exists_from_the_repository_root(self) -> None:
+        for entry in self.taskflow["taskflow"]:
+            task = entry["task"]
+            if "run" not in task:
+                continue
+            named = script_paths(task["run"])
+            self.assertTrue(named, f"{task['name']} names no .sh or .py path to run")
+            for path in named:
+                self.assertTrue((REPO_ROOT / path).is_file(), f"{task['name']}: {path}")
+
+
+class RemediationModelSelection(unittest.TestCase):
+    def setUp(self) -> None:
+        self.taskflow = load(REMEDIATE_TASKFLOW_PATH)
+        self.config = load(REMEDIATE_MODEL_CONFIG_PATH)
+
+    def test_the_taskflow_references_its_own_model_config(self) -> None:
+        """A second file rather than a second entry, so a model swap for one flow does not swap the other."""
+        self.assertEqual(
+            self.taskflow["model_config"],
+            "security.iac_security.taskflow.model_configs.iac_remediate",
+        )
+
+    def test_the_patch_task_names_a_configured_model(self) -> None:
+        self.assertIn(task_by_id(self.taskflow, "patch").get("model"), self.config["models"])
+
+    def test_the_backend_is_the_anthropic_messages_api(self) -> None:
+        self.assertEqual(self.config["backend"], "anthropic_sdk")
+
+    def test_every_model_is_sent_to_an_unregistered_endpoint(self) -> None:
+        for name in self.config["models"]:
+            self.assertEqual(
+                self.config["model_settings"][name]["endpoint"], "https://api.anthropic.com"
+            )
+
+    def test_settings_name_only_configured_models(self) -> None:
+        self.assertLessEqual(
+            set(self.config.get("model_settings", {})), set(self.config["models"])
+        )
+
+
+class TheRemediatorsInputsAreExhaustive(unittest.TestCase):
+    """The finding, the tracker item, the corpus and the permitted paths -- and nothing else.
+
+    An input the prompt does not name is one the agent cannot have used, so the
+    set of tasks the template reads is the whole of what it was shown.
+    """
+
+    def setUp(self) -> None:
+        self.prompt = task_by_id(load(REMEDIATE_TASKFLOW_PATH), "patch")["user_prompt"]
+
+    def tasks_read(self) -> set[str]:
+        return set(re.findall(r"outputs\.(\w+)", self.prompt))
+
+    def test_it_reads_the_target_and_the_corpus_and_no_other_task(self) -> None:
+        self.assertEqual(self.tasks_read(), {"target", "corpus"})
+
+    def test_it_names_the_finding(self) -> None:
+        for field in ("key", "rule_id", "code_path", "code"):
+            self.assertIn(f"outputs.target.finding.{field}", self.prompt, field)
+
+    def test_it_names_the_tracker_item_and_its_comments(self) -> None:
+        """The human's comment is an input: it is what the label was applied about."""
+        self.assertIn("outputs.target.issue.body", self.prompt)
+        self.assertIn("outputs.target.issue.comments", self.prompt)
+        self.assertIn("outputs.target.issue.verdict", self.prompt)
+
+    def test_it_names_the_paths_the_patch_may_touch(self) -> None:
+        self.assertIn("outputs.target.permitted_paths.editable", self.prompt)
+        self.assertIn("outputs.target.permitted_paths.new_files_under", self.prompt)
+
+    def test_the_corpus_precedes_every_per_finding_field(self) -> None:
+        corpus = self.prompt.index("outputs.corpus.documents")
+        self.assertLess(corpus, self.prompt.index("outputs.target."))
+
+    def test_prompt_caching_is_on(self) -> None:
+        settings = load(REMEDIATE_MODEL_CONFIG_PATH)["model_settings"]["remediate"]
+        self.assertIs(settings["prompt_caching"], True)
+
+
+class TheVerdictVocabularyIsSharedByBothPersonalities(unittest.TestCase):
+    """The remediator is shown the verdict its issue records, so it is told what the four classes mean."""
+
+    def test_the_remediation_personality_names_every_verdict(self) -> None:
+        text = REMEDIATE_PERSONALITY_PATH.read_text(encoding="utf-8")
+        for verdict in vocabulary.VERDICTS:
+            self.assertIn(verdict, text, f"{verdict} is not described to the remediator")
+
+    def test_the_remediation_personality_says_the_label_authorises_and_not_the_verdict(self) -> None:
+        """What sends a finding to remediation is the label, never the verdict."""
+        personality = load(REMEDIATE_PERSONALITY_PATH)
+        self.assertIn("label authorises this run", personality["personality"])
+        self.assertIn("None of them routed this finding to you", personality["task"])
+
+
+class PatchIsTakenOutOfTheManifest(unittest.TestCase):
+    DIFF = (
+        "diff --git a/modules/vpc/main.tf b/modules/vpc/main.tf\n"
+        "--- a/modules/vpc/main.tf\n"
+        "+++ b/modules/vpc/main.tf\n"
+        "@@ -1,3 +1,3 @@\n"
+        ' resource "aws_subnet" "public_zone_1" {\n'
+        "-  map_public_ip_on_launch = true\n"
+        "+  map_public_ip_on_launch = false\n"
+    )
+
+    def manifest(self, produced: object) -> dict:
+        return {"outputs": {"patch": produced}}
+
+    def test_a_diff_is_returned_as_it_stands(self) -> None:
+        self.assertEqual(collect_patch.patch_of(self.manifest(self.DIFF)), self.DIFF)
+
+    def test_a_fenced_diff_is_unfenced(self) -> None:
+        """The reply Sonnet actually sends, however it is asked."""
+        fenced = "```diff\n" + self.DIFF + "```"
+        self.assertEqual(collect_patch.patch_of(self.manifest(fenced)), self.DIFF)
+
+    def test_a_manifest_carrying_no_patch_output_fails_loudly(self) -> None:
+        with self.assertRaises(SystemExit):
+            collect_patch.patch_of({"outputs": {"target": {}, "corpus": {}}})
+
+    def test_a_reply_of_nothing_fails_loudly(self) -> None:
+        with self.assertRaises(SystemExit):
+            collect_patch.patch_of(self.manifest("   \n"))
+
+    def test_a_reply_that_is_not_a_diff_is_reported_rather_than_written(self) -> None:
+        """`NOPATCH` is a useful answer, and it is read by a person -- not applied."""
+        with self.assertRaises(SystemExit) as raised:
+            collect_patch.patch_of(self.manifest("NOPATCH the fix needs a decision about the estate."))
+        self.assertIn("NOPATCH", str(raised.exception))
+
+    def test_what_it_writes_is_what_the_gate_parses(self) -> None:
+        diff = collect_patch.patch_of(self.manifest(self.DIFF))
+        touched = patch_gate.touched_files(diff)
+        self.assertEqual([file.path for file in touched], ["modules/vpc/main.tf"])
+
+
+class RunShSelectsATaskflow(unittest.TestCase):
+    """`TASKFLOW` is what the remediation workflow sets; the default is triage."""
+
+    def setUp(self) -> None:
+        self.script = (TASKFLOW_DIR / "run.sh").read_text(encoding="utf-8")
+
+    def test_the_dotted_name_is_read_from_the_environment(self) -> None:
+        self.assertIn('taskflow="${TASKFLOW:-', self.script)
+        self.assertIn('-t "$taskflow"', self.script)
+
+    def test_the_default_is_the_triage_taskflow(self) -> None:
+        self.assertIn(
+            'taskflow="${TASKFLOW:-security.iac_security.taskflow.taskflows.iac_triage}"',
+            self.script,
+        )
+
+    def test_every_dotted_name_it_can_run_resolves_to_a_file(self) -> None:
+        """The framework resolves the name with `importlib.resources.files()`, at run time."""
+        for path in (TASKFLOW_PATH, REMEDIATE_TASKFLOW_PATH):
+            dotted = "security." + str(path.relative_to(REPO_ROOT / "security")).replace("/", ".")
+            self.assertIn(dotted.removesuffix(".yaml"), self.script + REMEDIATE_WORKFLOW_TEXT, path.name)
