@@ -97,6 +97,16 @@ judgment (`Decision 2`): anything under `.terraform/modules/` is vendored, and
 first-party — so nothing escapes triage by being somewhere unexpected — and
 reported on stderr and in `unrecognised_locations`.
 
+The marker is not there by default. The triage workflow runs `terraform init
+-backend=false` in `live/management` — the only directory that instantiates
+upstream modules — before it scans, because `init` is what puts those modules
+under `.terraform/modules/`. Without it Trivy reports each one at its source
+path and the finding reads as first-party. `-backend=false` keeps this step
+free of cloud credentials. The scan workflow does not init, because that would
+publish a code scanning alert for every vendored finding. An unreachable
+registry leaves the run to degrade to the uninitialised behaviour, and the step
+says so.
+
 ## Routing to the tracker
 
 Code scanning holds per-finding state; Issues hold the work (`design.md -

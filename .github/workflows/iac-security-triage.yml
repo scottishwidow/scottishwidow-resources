@@ -33,13 +33,16 @@ jobs:
         # Gitignored scratch state, so a fresh checkout has no `runs/` for Trivy to write into.
         run: mkdir -p security/iac_security/runs
 
-      - name: Resolve registry modules
-        # Until `init` vendors them under `.terraform/modules/`, the marker `normalise.py`
-        # reads ownership from, Trivy reports registry modules as first-party code.
-        # An unreachable registry degrades to that, which is why this does not fail the run.
+      - name: Vendor the upstream modules
+        # Until `init` puts them under `.terraform/modules/`, Trivy reports upstream
+        # modules at their source path and `normalise.py` reads them as first-party.
+        # A red step, or the warning below, is how a degraded run announces itself.
         continue-on-error: true
         working-directory: live/management
-        run: terraform init -backend=false -input=false -no-color
+        run: |
+          terraform init -backend=false -input=false -no-color
+          test -d .terraform/modules ||
+            echo '::warning::Upstream modules are not vendored; their findings triage as first-party.'
 
       - name: Run Trivy config scan
         uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # 0.36.0

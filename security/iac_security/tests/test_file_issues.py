@@ -403,11 +403,10 @@ class EveryEligibleFindingBecomesATrackerItem(unittest.TestCase):
 
 
 class TwoVerdictsForOneKeyInOneRun(unittest.TestCase):
-    """Filing is idempotent across runs but was not idempotent within one.
+    """Filing is idempotent within one run as well as across runs.
 
-    `plan()` checks each key against the issues previous runs filed. Two verdict
-    records carrying one key both passed that check, so one run filed the key
-    twice.
+    One finding key can reach the verdict list more than once, because two
+    eligible findings can carry it. Only the first record for a key is filed.
     """
 
     def setUp(self) -> None:

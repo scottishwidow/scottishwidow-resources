@@ -280,11 +280,11 @@ class ForkPullRequestDegradesSafely(unittest.TestCase):
             self.assertNotIn("sarifs", yaml.safe_dump(step))
 
 
-class TriageResolvesModulesBeforeItScans(unittest.TestCase):
-    """`terraform init` is what makes a registry module recognisable as vendored.
+class TriageVendorsModulesBeforeItScans(unittest.TestCase):
+    """`terraform init` is what makes an upstream module recognisable as vendored.
 
     `normalise.py` reads ownership off the marker `.terraform/modules/`. Without
-    an init, Trivy reports a registry module at its source path, the finding is
+    an init, Trivy reports an upstream module at its source path, the finding is
     classified first-party, and the pipeline triages and files code this
     repository does not own.
     """
@@ -303,7 +303,7 @@ class TriageResolvesModulesBeforeItScans(unittest.TestCase):
     def test_the_triage_job_initialises_terraform(self) -> None:
         self.assertIn("terraform init", self.init_step()["run"])
 
-    def test_it_initialises_the_directory_that_instantiates_registry_modules(self) -> None:
+    def test_it_initialises_the_directory_that_instantiates_vendored_modules(self) -> None:
         step = self.init_step()
         self.assertEqual(step.get("working-directory"), "live/management")
 
@@ -315,8 +315,14 @@ class TriageResolvesModulesBeforeItScans(unittest.TestCase):
         self.assertLess(self.index_of(self.init_step()), self.index_of(trivy_step(self.workflow)))
 
     def test_an_unreachable_registry_does_not_fail_the_run(self) -> None:
-        """Degrading to an uninitialised scan is the old behaviour, not a new failure."""
+        """An uninitialised scan is a degraded run, not a failed one."""
         self.assertTrue(self.init_step().get("continue-on-error"))
+
+    def test_a_run_that_vendored_nothing_says_so(self) -> None:
+        """`continue-on-error` alone would hide the degradation it permits."""
+        run = self.init_step()["run"]
+        self.assertIn("test -d .terraform/modules", run)
+        self.assertIn("::warning::", run)
 
     def test_the_scan_workflow_does_not_initialise_terraform(self) -> None:
         """An init there would publish a code scanning alert for every vendored finding."""

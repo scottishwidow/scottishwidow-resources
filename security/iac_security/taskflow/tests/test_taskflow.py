@@ -490,8 +490,8 @@ class FallbackKeyUnderDuplicateKeys(unittest.TestCase):
     """A branch that names no key is attributed by its position in the eligible list.
 
     Two eligible findings can carry one finding key, so the key map holds fewer
-    entries than the fan-out has branches. Indexing the map attributes a
-    discarded verdict to whatever finding happens to sit at that position in it.
+    entries than the fan-out has branches. Only the eligible list in scan order
+    can say which finding a branch belongs to.
     """
 
     eligible = [
