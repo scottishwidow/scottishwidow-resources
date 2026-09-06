@@ -44,6 +44,11 @@ def good_verdict(**overrides: object) -> dict:
     return base
 
 
+def script_paths(run: str) -> list[str]:
+    """The paths a `run:` field names, recognised by extension and not by interpreter."""
+    return [token for token in run.split() if token.endswith((".sh", ".py"))]
+
+
 def task_by_id(taskflow: dict, task_id: str) -> dict:
     for entry in taskflow["taskflow"]:
         if entry["task"].get("id") == task_id:
@@ -78,6 +83,25 @@ class TaskflowShape(unittest.TestCase):
         self.assertIn("outputs.findings.eligible", over)
         self.assertNotIn("below_threshold", over)
         self.assertNotIn("vendored", over)
+
+
+class RunFieldsResolveFromTheContainerWorkingDirectory(unittest.TestCase):
+    """`run.sh` mounts the repository root at `/app` and works there, so a
+    `run:` field naming a path relative to this directory resolves to nothing.
+
+    `--lint` cannot catch that: it validates offline and executes no `run:`
+    field, so a wrong path here surfaces only in a live run.
+    """
+
+    def test_every_run_field_names_a_path_that_exists_from_the_repository_root(self) -> None:
+        for entry in load(TASKFLOW_PATH)["taskflow"]:
+            task = entry["task"]
+            if "run" not in task:
+                continue
+            named = script_paths(task["run"])
+            self.assertTrue(named, f"{task['name']} names no .sh or .py path to run")
+            for path in named:
+                self.assertTrue((REPO_ROOT / path).is_file(), f"{task['name']}: {path}")
 
 
 class VerdictVocabularyIsShared(unittest.TestCase):

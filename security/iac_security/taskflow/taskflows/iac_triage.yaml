@@ -30,7 +30,7 @@ model_config: security.iac_security.taskflow.model_configs.iac_triage
 globals:
   # Which report to triage. A live scan by default, since triage now runs
   # automatically off a real scan; replay the committed baseline instead with:
-  #   -g report=../fixtures/baseline-scan.json
+  #   -g report=security/iac_security/fixtures/baseline-scan.json
   report: ""
 
 taskflow:
@@ -41,7 +41,7 @@ taskflow:
       env:
         TRIVY_REPORT: "{{ globals.report }}"
       run: |
-        ./scan.sh
+        security/iac_security/taskflow/scan.sh
       # The partition's shape is a contract, not a convention: a normaliser that
       # stopped emitting `eligible` would otherwise fan out over nothing and
       # report a clean run.
@@ -92,7 +92,7 @@ taskflow:
       id: corpus
       must_complete: true
       run: |
-        python3 terraform_corpus.py
+        python3 security/iac_security/taskflow/terraform_corpus.py
       outputs:
         type: object
         properties:

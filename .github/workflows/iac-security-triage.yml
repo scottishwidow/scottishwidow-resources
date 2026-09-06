@@ -48,7 +48,7 @@ jobs:
         env:
           AI_API_TOKEN: ${{ secrets.AI_API_TOKEN }}
         run: |
-          ./run.sh -g report=../runs/trivy-report.json
+          ./run.sh -g report=security/iac_security/runs/trivy-report.json
 
       - name: Collect verdicts
         if: always()
@@ -82,7 +82,8 @@ jobs:
     name: File an issue per triaged finding
     needs: triage
     # A failed triage attempt still has verdicts to file; a job the condition above held back has none.
-    if: needs.triage.result != 'skipped'
+    # `!cancelled()` is what displaces the implicit `success()` a job condition carries without one.
+    if: ${{ !cancelled() && needs.triage.result != 'skipped' }}
     runs-on: ubuntu-latest
     permissions:
       contents: read

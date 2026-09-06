@@ -8,9 +8,9 @@ with a rationale. Propose-only — it changes no alert and files no issue.
 
 ```sh
 export AI_API_TOKEN=<an Anthropic API key>
-./run.sh                                           # live Trivy scan, propose-only
-./run.sh --lint --strict                           # validate offline: no model, no token, no network
-./run.sh -g report=../fixtures/baseline-scan.json  # replay the committed baseline instead
+./run.sh                                                              # live Trivy scan, propose-only
+./run.sh --lint --strict                                              # validate offline: no model, no token, no network
+./run.sh -g report=security/iac_security/fixtures/baseline-scan.json  # replay the committed baseline instead
 
 python3 collect_verdicts.py --latest --findings <(./scan.sh) -o ../runs/local.json
 ```
@@ -60,9 +60,9 @@ package is `iac_security` rather than `iac-security-triage`.
 ## Shape
 
 ```
-findings   run:   ./scan.sh  ->  {eligible, below_threshold, vendored}       deterministic
-corpus     run:   ./terraform_corpus.py  ->  {documents: [every .tf file]}  deterministic
-verdicts   over:  outputs.findings.eligible   one branch per finding         the only model step
+findings   run:   security/iac_security/taskflow/scan.sh              ->  {eligible, below_threshold, vendored}  deterministic
+corpus     run:   security/iac_security/taskflow/terraform_corpus.py  ->  {documents: [every .tf file]}         deterministic
+verdicts   over:  outputs.findings.eligible                           ->  one branch per finding                the only model step
 ```
 
 Only `eligible` is fanned out over, so the ownership-then-severity order of
