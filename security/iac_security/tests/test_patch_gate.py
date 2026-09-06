@@ -274,7 +274,7 @@ class UnreadablePaths(unittest.TestCase):
     """A header the gate cannot read a path from must fail, not be skipped.
 
     Skipping it let the path past the permitted-paths check entirely, and the
-    apply gate does not catch it either -- such a diff applies cleanly.
+    apply gate does not catch it either — such a diff applies cleanly.
     """
 
     def test_a_quoted_path_is_rejected(self) -> None:
@@ -318,7 +318,7 @@ class Renames(unittest.TestCase):
         self.assertEqual(decision.gate, patch_gate.PERMITTED_PATHS)
         self.assertEqual(
             decision.reason,
-            f"`{FINDING['owner_path']}` is renamed, which no remediation permits",
+            f"`{FINDING['code_path']}` is renamed away, which no remediation permits",
         )
 
 

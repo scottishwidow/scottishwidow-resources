@@ -23,20 +23,21 @@ TARGET_REMOVAL = "target_removal"
 NEW_FINDINGS = "new_findings"
 PASSED = "passed"
 
-FILE_HEADER = re.compile(r"^diff --git a/(?P<a>.+) b/(?P<b>.+)$", re.MULTILINE)
+FILE_HEADER_PREFIX = "diff --git "
+FILE_HEADER = re.compile(
+    rf"^{FILE_HEADER_PREFIX}a/(?P<a>.+) b/(?P<b>.+)$", re.MULTILINE
+)
 NEW_FILE_MARKER = re.compile(r"^(?:new file mode\b|--- /dev/null$)")
 DELETED_FILE_MARKER = re.compile(r"^(?:deleted file mode\b|\+\+\+ /dev/null$)")
 RENAME_MARKER = re.compile(r"^rename (?:from|to) ")
-
-FILE_SECTION = "diff --git "
 
 
 class UnreadableHeader(Exception):
     """A file section whose header names no path this gate can read.
 
-    Git quotes a path holding a non-ASCII byte, and that form is deliberately
-    not decoded here: a remediation touches an existing `.tf` path or a new
-    sibling of one, so a path the gate cannot read is a patch that should not
+    Git quotes a path holding a non-ASCII byte, and the quoted form is left
+    undecoded on purpose: remediation touches an existing `.tf` path or a new
+    sibling of one, so a path this gate cannot read is a patch that should not
     reach review.
     """
 
@@ -64,6 +65,7 @@ class Evidence:
 @dataclass(frozen=True)
 class TouchedFile:
     path: str
+    source_path: str
     is_new: bool
     is_deleted: bool
     is_renamed: bool
@@ -77,8 +79,8 @@ def touched_files(diff: str) -> list[TouchedFile]:
     unexamined.
     """
     files = []
-    for block in re.split(rf"(?m)^(?={FILE_SECTION})", diff):
-        if not block.startswith(FILE_SECTION):
+    for block in re.split(rf"(?m)^(?={FILE_HEADER_PREFIX})", diff):
+        if not block.startswith(FILE_HEADER_PREFIX):
             continue
         header = FILE_HEADER.match(block)
         if not header:
@@ -87,6 +89,7 @@ def touched_files(diff: str) -> list[TouchedFile]:
         files.append(
             TouchedFile(
                 path=header.group("b"),
+                source_path=header.group("a"),
                 is_new=any(NEW_FILE_MARKER.match(line) for line in lines),
                 is_deleted=any(DELETED_FILE_MARKER.match(line) for line in lines),
                 is_renamed=any(RENAME_MARKER.match(line) for line in lines),
@@ -141,12 +144,12 @@ def decide(
                 PERMITTED_PATHS,
                 f"`{touched_file.path}` is deleted, which no remediation permits",
             )
-        # A rename carries neither marker above, so the old path's removal is otherwise invisible.
+        # A rename carries neither marker above, so the source path's removal is otherwise invisible.
         if touched_file.is_renamed:
             return Decision(
                 False,
                 PERMITTED_PATHS,
-                f"`{touched_file.path}` is renamed, which no remediation permits",
+                f"`{touched_file.source_path}` is renamed away, which no remediation permits",
             )
         if not path_is_permitted(touched_file, finding):
             return Decision(

@@ -45,7 +45,7 @@ def good_verdict(**overrides: object) -> dict:
 
 
 def script_paths(run: str) -> list[str]:
-    """Every script or module a `run:` field names, however it is invoked."""
+    """The paths a `run:` field names, recognised by extension and not by interpreter."""
     return [token for token in run.split() if token.endswith((".sh", ".py"))]
 
 
@@ -99,7 +99,7 @@ class RunFieldsResolveFromTheContainerWorkingDirectory(unittest.TestCase):
             if "run" not in task:
                 continue
             named = script_paths(task["run"])
-            self.assertTrue(named, f"{task['name']} names no script to run")
+            self.assertTrue(named, f"{task['name']} names no .sh or .py path to run")
             for path in named:
                 self.assertTrue((REPO_ROOT / path).is_file(), f"{task['name']}: {path}")
 
