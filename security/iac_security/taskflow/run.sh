@@ -1,17 +1,20 @@
 #!/usr/bin/env bash
-# Run the IaC triage taskflow in the published seclab-taskflow-agent image.
+# Run an IaC taskflow in the published seclab-taskflow-agent image.
 #
 # Usage:
 #   export AI_API_TOKEN=...                                               # an Anthropic API key; no token, no run
 #   ./run.sh                                                              # live Trivy scan, propose-only
 #   ./run.sh -g report=security/iac_security/fixtures/baseline-scan.json  # replay the committed baseline
 #   ./run.sh --lint                                                       # validate offline, no model, no token
+#   TASKFLOW=security.iac_security.taskflow.taskflows.iac_remediate \
+#     ./run.sh -g issue=security/iac_security/runs/issue.json             # remediate one labelled issue
 
 set -euo pipefail
 
 here="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 repo_root="$(cd "$here/../../.." && pwd)"
 image="${SECLAB_IMAGE:-ghcr.io/githubsecuritylab/seclab-taskflow-agent}"
+taskflow="${TASKFLOW:-security.iac_security.taskflow.taskflows.iac_triage}"
 runs="$here/../runs"
 
 mkdir -p "$runs/logs"
@@ -35,4 +38,4 @@ exec docker run -i --rm \
     -e LOG_DIR=/data/seclab-taskflow-agent/logs \
     "${token_args[@]}" \
     "$image" \
-    -t security.iac_security.taskflow.taskflows.iac_triage "$@"
+    -t "$taskflow" "$@"

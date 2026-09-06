@@ -22,10 +22,15 @@ HERE = pathlib.Path(__file__).resolve().parent
 # The one label this system may apply, from `docs/agents/triage-labels.md`.
 NEEDS_TRIAGE = "needs-triage"
 
-# `ready-for-agent` is absent by construction: it authorises unattended remediation.
+# The label a human applies to ask for a patch, and the trigger of the remediation
+# workflow. Named here because this is the module that decides what may be applied.
+READY_FOR_REMEDIATION = "ready-for-remediation"
+
+# Both authorising labels are absent by construction: an agent that could apply one
+# would be authorising its own downstream work.
 EMITTABLE_LABELS = (NEEDS_TRIAGE,)
 
-FORBIDDEN_LABELS = ("ready-for-agent",)
+FORBIDDEN_LABELS = ("ready-for-agent", READY_FOR_REMEDIATION)
 
 UNDETERMINED = vocabulary.UNDETERMINED
 
@@ -207,12 +212,12 @@ def body(finding: dict[str, Any], record: dict[str, Any], alert: dict[str, Any] 
         f"## Evidence\n\n{evidence_section(record)}\n"
         "---\n\n"
         f"*Filed by the IaC triage pipeline under `{NEEDS_TRIAGE}`. The verdict above is a\n"
-        "proposal, not a disposition: apply `ready-for-agent`, `ready-for-human` or\n"
-        "`wontfix` from `docs/agents/triage-labels.md` to say what happens next. The\n"
-        "pipeline never applies `ready-for-agent` itself\n"
-        "(`docs/design/iac-security-triage.md` — Decisions that are load-bearing in the\n"
-        "code), and it leaves this finding's code scanning alert open whatever the\n"
-        "verdict says.*\n"
+        "proposal, not a disposition: apply `ready-for-human` or `wontfix` from\n"
+        f"`docs/agents/triage-labels.md`, or `{READY_FOR_REMEDIATION}` to ask the\n"
+        "pipeline for a patch, to say what happens next. The pipeline applies none of\n"
+        "them itself (`docs/design/iac-security-triage.md` — Decisions that are\n"
+        "load-bearing in the code), and it leaves this finding's code scanning alert\n"
+        "open whatever the verdict says.*\n"
     )
 
 

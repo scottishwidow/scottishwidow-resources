@@ -1,0 +1,125 @@
+name: 'IaC security remediation'
+
+on:
+  # A dedicated label, filtered in the job condition below. `ready-for-agent` is
+  # the repository's general AFK-ready label under `docs/agents/triage-labels.md`
+  # and is carried by issues that hold no finding, so triggering on it would
+  # start a run for every issue marked ready for an agent.
+  issues:
+    types:
+      - labeled
+
+permissions:
+  contents: read
+
+# Per issue, so two issues labelled at once are remediated independently and
+# neither cancels the other.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.issue.number }}
+  cancel-in-progress: false
+
+jobs:
+  target:
+    name: Read the finding key off the labelled issue
+    if: github.event.label.name == 'ready-for-remediation'
+    runs-on: ubuntu-latest
+    # Deterministic, and holds no token of either kind: the issue body arrives in
+    # the event payload, so a mislabelled issue is answered without reading or
+    # running anything. This is what makes a mislabelled issue cost nothing.
+    permissions:
+      contents: read
+    outputs:
+      key: ${{ steps.finding.outputs.key }}
+    steps:
+      - name: Checkout main
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: main
+          persist-credentials: false
+
+      - name: Read the finding key
+        id: finding
+        working-directory: security/iac_security
+        # Through the environment, never interpolated into the script: an issue
+        # body is written by whoever opened the issue.
+        env:
+          ISSUE_BODY: ${{ github.event.issue.body }}
+        run: |
+          key="$(python3 remediation_target.py --key-only)"
+          if [ -z "$key" ]; then
+            echo '::notice::this issue carries no finding key; there is nothing to remediate'
+          fi
+          echo "key=$key" >> "$GITHUB_OUTPUT"
+
+  remediate:
+    name: Derive a patch for the finding
+    needs: target
+    if: needs.target.outputs.key != ''
+    runs-on: ubuntu-latest
+    # This job holds the model token, so it holds no write permission of any
+    # kind. The patch it produces is text; every write of it happens elsewhere.
+    permissions:
+      contents: read
+      issues: read
+    steps:
+      - name: Checkout main
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: main
+          persist-credentials: false
+
+      - name: Prepare the runs directory
+        # Gitignored scratch state, so a fresh checkout has no `runs/` for Trivy to write into.
+        run: mkdir -p security/iac_security/runs
+
+      - name: Vendor the upstream modules
+        # Until `init` puts them under `.terraform/modules/`, Trivy reports upstream
+        # modules at their source path and `normalise.py` reads them as first-party.
+        continue-on-error: true
+        working-directory: live/management
+        run: |
+          terraform init -backend=false -input=false -no-color
+          test -d .terraform/modules ||
+            echo '::warning::Upstream modules are not vendored; their findings triage as first-party.'
+
+      - name: Run Trivy config scan
+        uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # 0.36.0
+        with:
+          scan-type: 'config'
+          scan-ref: '.'
+          format: 'json'
+          output: 'security/iac_security/runs/trivy-report.json'
+          exit-code: '0'
+          version: 'v0.74.0'
+
+      - name: Read the tracker item
+        # Read on the host, where `gh` and a token are: the published image carries
+        # neither, and the taskflow reaches no network of its own.
+        env:
+          GH_TOKEN: ${{ github.token }}
+          ISSUE: ${{ github.event.issue.number }}
+        run: |
+          gh issue view "$ISSUE" --json number,body,comments \
+            > security/iac_security/runs/issue.json
+
+      - name: Run remediation taskflow
+        working-directory: security/iac_security/taskflow
+        env:
+          AI_API_TOKEN: ${{ secrets.AI_API_TOKEN }}
+          TASKFLOW: security.iac_security.taskflow.taskflows.iac_remediate
+        run: |
+          ./run.sh -g report=security/iac_security/runs/trivy-report.json \
+            -g issue=security/iac_security/runs/issue.json
+
+      - name: Collect the patch
+        working-directory: security/iac_security/taskflow
+        run: |
+          python3 collect_patch.py --latest -o "../runs/${{ github.run_id }}.patch"
+
+      - name: Upload the patch
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: remediation-patch-${{ github.run_id }}
+          path: security/iac_security/runs/${{ github.run_id }}.patch
+          if-no-files-found: warn

@@ -25,7 +25,18 @@ taskflow/   the outstanding findings -- eligible, minus the ones the tracker
         |   -- see taskflow/README.md
         v
 file_issues.py   one GitHub issue per triaged finding, under needs-triage,
-                 idempotent on the finding key
+        |        idempotent on the finding key
+        v
+   a human reads it, and labels it ready-for-remediation to ask for a patch
+        |
+        v
+remediation_target.py   the finding that issue names, its tracker item and the
+        |               paths a patch may touch -- or nothing, and no run
+        v
+taskflow/   one unified diff, as text -- see taskflow/README.md
+        |
+        v
+patch_gate.py   whether that diff reaches review
 ```
 
 The pipeline routes and reasons; it does not claim to be measurably right.
@@ -130,10 +141,12 @@ hides it from where work is reviewed.
 
 Three properties, each a boundary rather than a convenience:
 
-- **`ready-for-agent` is never applied.** That label authorises unattended
-  remediation, so an agent that could apply it would be authorising its own
-  downstream work. It is absent from the emittable vocabulary and a label
-  outside that vocabulary raises rather than being filed.
+- **No authorising label is ever applied.** `ready-for-remediation` starts a
+  remediation run and `ready-for-agent` is the repository's general AFK-ready
+  label, so an agent that could apply either would be authorising its own
+  downstream work. Both are absent from the emittable vocabulary, and a label
+  outside that vocabulary raises rather than being filed. The issue body names
+  `ready-for-remediation` so that a human knows the label exists.
 - **Alert state is read and never written.** The module speaks to the code
   scanning API for one reason: to resolve, per finding, the number of the alert
   it was filed for, which it writes as the issue's **Alert** row beside the
@@ -174,6 +187,32 @@ time.
 In CI this is a separate job from the one that runs the agent: the job holding
 `issues: write` never sees `AI_API_TOKEN`, and the job that runs the model
 cannot open an issue.
+
+## Remediation
+
+Invoked by the label, never by the verdict. `real-mechanical` is advice to
+whoever reads the issue and gates nothing; what starts a run is
+`ready-for-remediation` on that issue.
+
+`remediation_target.py` is the deterministic half. It reads the issue body for a
+**finding key**, matches it against the eligible findings of a fresh scan, and
+assembles the whole of what the remediator is shown: the finding record, the
+tracker item including any comment a human left on it, and the paths a patch may
+touch. A body carrying no key halts the run, so a mislabelled issue costs
+nothing — and in CI that check runs first, in a job holding no token at all, off
+the body the event payload already carried.
+
+    ISSUE_ITEM=runs/issue.json python3 security/iac_security/remediation_target.py \
+      --key-only
+
+The permitted paths are named out of `patch_gate.path_is_permitted` rather than
+restated beside it, so what the agent is told it may change is what the gate will
+accept. A tracker item whose verdict section was never answered reads back as
+`undetermined` rather than as whatever the label implies.
+
+The remediator itself holds no tools — not "no write tool", none — and emits the
+patch as text. Every write of that text happens outside it, and the job that runs
+it holds no write permission of any kind.
 
 ## The patch gate
 
