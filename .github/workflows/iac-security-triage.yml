@@ -33,6 +33,14 @@ jobs:
         # Gitignored scratch state, so a fresh checkout has no `runs/` for Trivy to write into.
         run: mkdir -p security/iac_security/runs
 
+      - name: Resolve registry modules
+        # Until `init` vendors them under `.terraform/modules/`, the marker `normalise.py`
+        # reads ownership from, Trivy reports registry modules as first-party code.
+        # An unreachable registry degrades to that, which is why this does not fail the run.
+        continue-on-error: true
+        working-directory: live/management
+        run: terraform init -backend=false -input=false -no-color
+
       - name: Run Trivy config scan
         uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # 0.36.0
         with:

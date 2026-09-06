@@ -280,5 +280,50 @@ class ForkPullRequestDegradesSafely(unittest.TestCase):
             self.assertNotIn("sarifs", yaml.safe_dump(step))
 
 
+class TriageResolvesModulesBeforeItScans(unittest.TestCase):
+    """`terraform init` is what makes a registry module recognisable as vendored.
+
+    `normalise.py` reads ownership off the marker `.terraform/modules/`. Without
+    an init, Trivy reports a registry module at its source path, the finding is
+    classified first-party, and the pipeline triages and files code this
+    repository does not own.
+    """
+
+    def setUp(self) -> None:
+        self.workflow = load(TRIAGE)
+        self.triage = self.workflow["jobs"]["triage"]
+        self.steps = self.triage["steps"]
+
+    def init_step(self) -> dict:
+        return next(step for step in self.steps if "terraform init" in step.get("run", ""))
+
+    def index_of(self, step: dict) -> int:
+        return self.steps.index(step)
+
+    def test_the_triage_job_initialises_terraform(self) -> None:
+        self.assertIn("terraform init", self.init_step()["run"])
+
+    def test_it_initialises_the_directory_that_instantiates_registry_modules(self) -> None:
+        step = self.init_step()
+        self.assertEqual(step.get("working-directory"), "live/management")
+
+    def test_it_initialises_without_a_backend(self) -> None:
+        """A backend is the only part of init that would want a cloud credential."""
+        self.assertIn("-backend=false", self.init_step()["run"])
+
+    def test_it_runs_before_the_scan_it_exists_to_inform(self) -> None:
+        self.assertLess(self.index_of(self.init_step()), self.index_of(trivy_step(self.workflow)))
+
+    def test_an_unreachable_registry_does_not_fail_the_run(self) -> None:
+        """Degrading to an uninitialised scan is the old behaviour, not a new failure."""
+        self.assertTrue(self.init_step().get("continue-on-error"))
+
+    def test_the_scan_workflow_does_not_initialise_terraform(self) -> None:
+        """An init there would publish a code scanning alert for every vendored finding."""
+        for job in load(SCAN)["jobs"].values():
+            for step in job["steps"]:
+                self.assertNotIn("terraform init", step.get("run", ""))
+
+
 if __name__ == "__main__":
     unittest.main()

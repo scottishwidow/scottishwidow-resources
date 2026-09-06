@@ -65,6 +65,27 @@ def discard(record: dict[str, Any], reason: str) -> dict[str, Any]:
     return record
 
 
+class EligibleFindings:
+    """The eligible list in scan order, plus the rule ID of each finding key.
+
+    Two eligible findings can carry one finding key, so the order matters
+    separately from the map: a branch is attributed by its position in the list,
+    which the map cannot express once it has collapsed a duplicate.
+    """
+
+    def __init__(self, records: list[dict[str, Any]] | None = None) -> None:
+        records = records or []
+        self._keys = [record["key"] for record in records]
+        self._rule_ids = {record["key"]: record["rule_id"] for record in records}
+
+    def key_at(self, item: int) -> str:
+        """The finding key of the branch at this position, or empty if there is none."""
+        return self._keys[item] if 0 <= item < len(self._keys) else ""
+
+    def rule_id(self, key: str) -> str:
+        return self._rule_ids.get(key, "")
+
+
 def corpus_paths_from_manifest(manifest: dict[str, Any]) -> set[str] | None:
     corpus = (manifest.get("outputs") or {}).get("corpus")
     if not isinstance(corpus, dict):
@@ -74,25 +95,23 @@ def corpus_paths_from_manifest(manifest: dict[str, Any]) -> set[str] | None:
 
 def branch_to_record(
     branch: dict[str, Any],
-    finding_keys: dict[str, str],
+    findings: EligibleFindings,
     corpus_paths: set[str] | None = None,
 ) -> dict[str, Any]:
     """One fan-out branch to one verdict record, applying the discard rule."""
     result = decode(branch.get("result"))
     item = branch.get("item")
-    fallback_key = ""
-    if isinstance(item, int):
-        fallback_key = list(finding_keys)[item] if item < len(finding_keys) else ""
+    fallback_key = findings.key_at(item) if isinstance(item, int) else ""
 
     if result is None:
         record = {"key": fallback_key, "verdict": None, "rationale": "", "evidence": []}
-        record["rule_id"] = finding_keys.get(fallback_key, "")
+        record["rule_id"] = findings.rule_id(fallback_key)
         return discard(record, DISCARD_NO_RESULT if branch.get("result") is None else DISCARD_UNPARSEABLE)
 
     key = str(result.get("key") or fallback_key)
     record: dict[str, Any] = {
         "key": key,
-        "rule_id": finding_keys.get(key, ""),
+        "rule_id": findings.rule_id(key),
         "verdict": result.get("verdict"),
         "rationale": result.get("rationale") or "",
         "evidence": result.get("evidence") or [],
@@ -120,7 +139,7 @@ def branch_to_record(
 
 def collect(
     manifest: dict[str, Any],
-    findings: dict[str, str],
+    findings: EligibleFindings,
     output_id: str = "verdicts",
 ) -> list[dict[str, Any]]:
     outputs = manifest.get("outputs") or {}
@@ -137,11 +156,11 @@ def collect(
     return [branch_to_record(branch, findings, paths) for branch in branches]
 
 
-def finding_rule_ids(path: pathlib.Path | None) -> dict[str, str]:
+def eligible_findings(path: pathlib.Path | None) -> EligibleFindings:
     if path is None or not path.exists():
-        return {}
+        return EligibleFindings()
     data = json.loads(path.read_text(encoding="utf-8"))
-    return {f["key"]: f["rule_id"] for f in data.get("eligible", [])}
+    return EligibleFindings(data.get("eligible", []))
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -155,7 +174,7 @@ def main(argv: list[str] | None = None) -> int:
     )
     parser.add_argument(
         "--findings",
-        help="normalised findings JSON, to attach a rule ID to each verdict",
+        help="normalised findings JSON, to attach a finding key and rule ID to each verdict",
     )
     parser.add_argument("--output-id", default="verdicts", help="the taskflow task id to read")
     parser.add_argument("-o", "--output", help="write here instead of stdout")
@@ -163,7 +182,7 @@ def main(argv: list[str] | None = None) -> int:
 
     path = latest_manifest() if args.latest else pathlib.Path(args.manifest)
     manifest = json.loads(path.read_text(encoding="utf-8"))
-    findings = finding_rule_ids(pathlib.Path(args.findings) if args.findings else None)
+    findings = eligible_findings(pathlib.Path(args.findings) if args.findings else None)
 
     records = collect(manifest, findings, args.output_id)
 

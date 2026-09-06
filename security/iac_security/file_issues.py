@@ -238,7 +238,9 @@ def plan(
 
     create: list[dict[str, Any]] = []
     skipped: list[dict[str, Any]] = []
+    duplicated: list[dict[str, Any]] = []
     rejected: list[dict[str, Any]] = []
+    filed_this_run: set[str] = set()
 
     triaged = {record.get("key") for record in verdicts}
     without_a_verdict = sorted(key for key in eligible if key not in triaged)
@@ -256,6 +258,10 @@ def plan(
         if key in already:
             skipped.append({"key": key, "issue": already[key]})
             continue
+        if key in filed_this_run:
+            duplicated.append({"key": key, "verdict": record["verdict"]})
+            continue
+        filed_this_run.add(key)
         finding = eligible[key]
         alert = find_alert(finding, alerts)
         create.append(
@@ -273,6 +279,7 @@ def plan(
     return {
         "create": create,
         "skipped_existing": skipped,
+        "skipped_duplicate_in_run": duplicated,
         "ineligible_verdicts": rejected,
         "filed_without_a_verdict": without_a_verdict,
         "not_filed_below_threshold": sorted(
@@ -336,6 +343,12 @@ def main(argv: list[str] | None = None) -> int:
     for key in report["filed_without_a_verdict"]:
         print(
             f"warning: eligible finding carries no verdict, filed as {UNDETERMINED}: {key}",
+            file=sys.stderr,
+        )
+    for item in report["skipped_duplicate_in_run"]:
+        print(
+            f"warning: a second verdict in this run carries a finding key already filed, "
+            f"not filed again ({item['verdict']}): {item['key']}",
             file=sys.stderr,
         )
     for item in report["create"]:

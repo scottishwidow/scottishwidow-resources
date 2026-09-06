@@ -29,7 +29,9 @@ def load(path: pathlib.Path) -> dict:
     return yaml.safe_load(path.read_text(encoding="utf-8"))
 
 
-FINDING_KEYS = {"AWS-0164:module.vpc:aws_subnet.public_zone_1": "AWS-0164"}
+FINDING_KEYS = collect_verdicts.EligibleFindings(
+    [{"key": "AWS-0164:module.vpc:aws_subnet.public_zone_1", "rule_id": "AWS-0164"}]
+)
 
 
 def good_verdict(**overrides: object) -> dict:
@@ -321,7 +323,9 @@ class CollectFromManifest(unittest.TestCase):
         collected as zero verdicts.
         """
         with self.assertRaises(SystemExit):
-            collect_verdicts.collect({"outputs": {"findings": {}, "corpus": {}}}, {})
+            collect_verdicts.collect(
+                {"outputs": {"findings": {}, "corpus": {}}}, collect_verdicts.EligibleFindings()
+            )
 
     def test_flags_evidence_the_corpus_task_never_carried(self) -> None:
         manifest = {
@@ -480,6 +484,52 @@ class AnEmptyCorpusIsAnError(unittest.TestCase):
             written = json.loads(output.read_text(encoding="utf-8"))
 
         self.assertEqual([d["path"] for d in written["documents"]], ["modules/main.tf"])
+
+
+class FallbackKeyUnderDuplicateKeys(unittest.TestCase):
+    """A branch that names no key is attributed by its position in the eligible list.
+
+    Two eligible findings can carry one finding key, so the key map holds fewer
+    entries than the fan-out has branches. Indexing the map attributes a
+    discarded verdict to whatever finding happens to sit at that position in it.
+    """
+
+    eligible = [
+        {"key": "AWS-0104:module.a:aws_vpc_security_group_egress_rule.this", "rule_id": "AWS-0104"},
+        {"key": "AWS-0104:module.b:aws_vpc_security_group_egress_rule.this", "rule_id": "AWS-0104"},
+        {"key": "AWS-0104:module.b:aws_vpc_security_group_egress_rule.this", "rule_id": "AWS-0104"},
+        {"key": "AWS-0090:module.c:aws_s3_bucket.this", "rule_id": "AWS-0090"},
+    ]
+
+    def setUp(self) -> None:
+        self.findings = collect_verdicts.EligibleFindings(self.eligible)
+
+    def discarded_at(self, item: int) -> dict:
+        return collect_verdicts.branch_to_record(
+            {"model": "test", "item": item, "result": None}, self.findings
+        )
+
+    def test_a_branch_after_a_duplicate_names_its_own_finding(self) -> None:
+        record = self.discarded_at(3)
+        self.assertEqual(record["key"], "AWS-0090:module.c:aws_s3_bucket.this")
+        self.assertEqual(record["rule_id"], "AWS-0090")
+
+    def test_each_branch_of_a_duplicated_key_names_that_key(self) -> None:
+        for item in (1, 2):
+            with self.subTest(item=item):
+                self.assertEqual(
+                    self.discarded_at(item)["key"],
+                    "AWS-0104:module.b:aws_vpc_security_group_egress_rule.this",
+                )
+
+    def test_a_branch_index_past_the_eligible_list_names_no_finding(self) -> None:
+        self.assertEqual(self.discarded_at(len(self.eligible))["key"], "")
+
+    def test_the_eligible_list_is_read_in_scan_order(self) -> None:
+        self.assertEqual(
+            [self.discarded_at(item)["key"] for item in range(len(self.eligible))],
+            [record["key"] for record in self.eligible],
+        )
 
 
 if __name__ == "__main__":

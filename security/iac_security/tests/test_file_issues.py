@@ -402,5 +402,55 @@ class EveryEligibleFindingBecomesATrackerItem(unittest.TestCase):
         self.assertIn({"key": item["key"], "issue": 42}, second["skipped_existing"])
 
 
+class TwoVerdictsForOneKeyInOneRun(unittest.TestCase):
+    """Filing is idempotent across runs but was not idempotent within one.
+
+    `plan()` checks each key against the issues previous runs filed. Two verdict
+    records carrying one key both passed that check, so one run filed the key
+    twice.
+    """
+
+    def setUp(self) -> None:
+        self.findings = normalised()
+        self.key = self.findings["eligible"][0]["key"]
+
+    def plan_for(self, records: list[dict]) -> dict:
+        return file_issues.plan(self.findings, records, [], [])
+
+    def filed_for_the_key(self, plan: dict) -> list[dict]:
+        return [item for item in plan["create"] if item["key"] == self.key]
+
+    def test_the_second_record_for_a_key_is_not_filed(self) -> None:
+        plan = self.plan_for([verdict(self.key), verdict(self.key, "not-applicable")])
+        self.assertEqual(len(self.filed_for_the_key(plan)), 1)
+
+    def test_the_first_record_for_a_key_is_the_one_filed(self) -> None:
+        plan = self.plan_for([verdict(self.key), verdict(self.key, "not-applicable")])
+        self.assertEqual(self.filed_for_the_key(plan)[0]["verdict"], "real-mechanical")
+
+    def test_the_second_record_is_reported_rather_than_dropped(self) -> None:
+        plan = self.plan_for([verdict(self.key), verdict(self.key, "not-applicable")])
+        self.assertEqual([item["key"] for item in plan["skipped_duplicate_in_run"]], [self.key])
+
+    def test_a_run_with_no_duplicate_reports_none(self) -> None:
+        plan = self.plan_for(full_run(self.findings))
+        self.assertEqual(plan["skipped_duplicate_in_run"], [])
+        self.assertEqual(len(plan["create"]), 7)
+
+    def test_a_key_a_previous_run_filed_is_still_skipped_as_existing(self) -> None:
+        """The across-run guard is reached first, so both records skip as existing."""
+        first = self.plan_for([verdict(self.key)])
+        existing = [issue_for(self.filed_for_the_key(first)[0], number=100)]
+        second = file_issues.plan(self.findings, [verdict(self.key), verdict(self.key)], existing, [])
+        self.assertEqual(self.filed_for_the_key(second), [])
+        self.assertEqual({item["key"] for item in second["skipped_existing"]}, {self.key})
+        self.assertEqual(second["skipped_duplicate_in_run"], [])
+
+    def test_an_eligible_finding_without_a_verdict_is_still_filed_once(self) -> None:
+        """A duplicated verdict must not make its key look untriaged as well."""
+        plan = self.plan_for([verdict(self.key), verdict(self.key)])
+        self.assertNotIn(self.key, plan["filed_without_a_verdict"])
+
+
 if __name__ == "__main__":
     unittest.main()
