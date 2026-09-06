@@ -1,0 +1,26 @@
+# SPDX-License-Identifier: MIT
+#
+# The model behind the `patch` task.
+#
+# A copy of `iac_triage.yaml` under a second logical name rather than a second
+# entry in it: the two flows are selected independently, and a model swap for
+# one must not silently swap the other. Everything the triage file records about
+# `backend`, `endpoint` and `AI_API_TOKEN` holds here for the same reasons; read
+# it for the argument.
+
+seclab-taskflow-agent:
+  version: "1.0"
+  filetype: model_config
+
+backend: anthropic_sdk
+
+models:
+  remediate: claude-sonnet-4-5
+
+model_settings:
+  remediate:
+    endpoint: https://api.anthropic.com
+    # One finding per run, so there is no fan-out to share a prefix -- but a
+    # finding labelled, patched, rejected and labelled again reads the same
+    # corpus each time, and the corpus is the bulk of the prompt.
+    prompt_caching: true

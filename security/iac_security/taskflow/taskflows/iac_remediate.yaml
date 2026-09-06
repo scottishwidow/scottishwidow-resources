@@ -1,0 +1,171 @@
+# SPDX-License-Identifier: MIT
+#
+# IaC remediation, propose-only.
+#
+# Three tasks, and only the last one involves a model:
+#
+#   target  run:  the finding the labelled issue names, and the paths a patch
+#                 may touch                                     (deterministic)
+#   corpus  run:  every first-party .tf file (ADR-0008)         (deterministic)
+#   patch   the unified diff, as response text
+#
+# Remediation is invoked by a label a human applies, never by a verdict, and the
+# pipeline cannot apply that label itself. `target` is what makes a mislabelled
+# issue cost nothing: it reads the issue body for a finding key and halts the
+# run when there is none, before a model is reached.
+#
+# The agent has no toolboxes, so there is no path from a run to a commit, a
+# pull request or an alert state whatever a prompt says. The patch is text.
+# `collect_patch.py` takes it out of the manifest and the workflow carries it to
+# the patch gate, which is deterministic code outside the agent.
+
+seclab-taskflow-agent:
+  version: "1.0"
+  filetype: taskflow
+
+model_config: security.iac_security.taskflow.model_configs.iac_remediate
+
+globals:
+  # Which report the finding is read from. A live scan by default; replay the
+  # committed baseline with:
+  #   -g report=security/iac_security/fixtures/baseline-scan.json
+  report: ""
+
+  # The tracker item to remediate, as `gh issue view --json number,body,comments`
+  # renders it, read on the host where `gh` and a token are. There is no default:
+  # remediation is about one issue, and a run without one has nothing to patch.
+  issue: ""
+
+taskflow:
+  - task:
+      name: target
+      id: target
+      must_complete: true
+      env:
+        TRIVY_REPORT: "{{ globals.report }}"
+        ISSUE_ITEM: "{{ globals.issue }}"
+      run: |
+        security/iac_security/taskflow/scan.sh |
+          python3 security/iac_security/remediation_target.py
+      # The shape is a contract: a target missing its permitted paths would put
+      # a patch in front of the gate with nothing confining where it may write.
+      outputs:
+        type: object
+        properties:
+          finding:
+            type: object
+            properties:
+              key: {type: string, minLength: 1}
+              rule_id: {type: string, minLength: 1}
+              code_path: {type: string, minLength: 1}
+              owner_path: {type: string, minLength: 1}
+              triage_status: {const: eligible}
+            required: [key, rule_id, code_path, owner_path, triage_status]
+          issue:
+            type: object
+            properties:
+              number: {type: ["integer", "null"]}
+              key: {type: string, minLength: 1}
+              verdict: {type: string, minLength: 1}
+              verdict_recorded: {type: boolean}
+              body: {type: string, minLength: 1}
+              comments: {type: array, items: {type: string}}
+            required: [key, verdict, body, comments]
+          permitted_paths:
+            type: object
+            properties:
+              editable: {type: array, items: {type: string}}
+              new_files_under: {type: string}
+            required: [editable, new_files_under]
+        required: [finding, issue, permitted_paths]
+
+  - task:
+      name: corpus
+      id: corpus
+      must_complete: true
+      run: |
+        python3 security/iac_security/taskflow/terraform_corpus.py
+      outputs:
+        type: object
+        properties:
+          documents:
+            type: array
+            items:
+              type: object
+              properties:
+                path: {type: string, minLength: 1}
+                text: {type: string}
+              required: [path, text]
+          missing_dirs: {type: array}
+        required: [documents]
+
+  - task:
+      name: patch
+      id: patch
+      # The logical name from `model_configs/iac_remediate.yaml`, not a provider
+      # model ID. A task with no `model:` falls back to the framework's
+      # DEFAULT_MODEL, which that file does not define.
+      model: remediate
+      agents:
+        - security.iac_security.taskflow.personalities.iac_remediate
+      # The patch is the agent's answer, not a tool result -- it calls no tools --
+      # so what gets captured is the response text.
+      capture: response
+      # A liveness check, deliberately, and not a shape check: a schema on a
+      # prose channel cannot tell a formatting slip from a refusal, and a reply
+      # rejected by one is destroyed rather than reported. Whether the text is a
+      # diff is decided in `collect_patch.py`, where it survives to be read, and
+      # whether that diff is acceptable is decided by the patch gate.
+      outputs:
+        type: string
+        minLength: 1
+      # The corpus comes first and the finding last, for the same two reasons as
+      # in `iac_triage.yaml`: the corpus is the cacheable prefix, and the model
+      # answers about the last thing it read.
+      user_prompt: |
+        The repository's Terraform corpus follows: every first-party `.tf` file,
+        complete and exhaustive.
+        {% for doc in outputs.corpus.documents %}
+        ===== {{ doc.path }} =====
+        {{ doc.text }}
+        {% endfor %}
+
+        Patch this finding.
+
+        Finding key: {{ outputs.target.finding.key }}
+        Rule: {{ outputs.target.finding.rule_id }} — {{ outputs.target.finding.title }}
+        Severity: {{ outputs.target.finding.severity }}
+        What the scanner reports: {{ outputs.target.finding.message }}
+        The scanner's suggested resolution: {{ outputs.target.finding.resolution }}
+        Rule documentation: {{ outputs.target.finding.primary_url }}
+
+        Where it is:
+          file: {{ outputs.target.finding.code_path }} (line {{ outputs.target.finding.start_line }})
+          module: {{ outputs.target.finding.module_address }}
+          resource: {{ outputs.target.finding.resource_address }}
+
+        The code it fired on:
+        {% for line in outputs.target.finding.code %}
+        {{ line.number }}: {{ line.content }}
+        {%- endfor %}
+
+        You may change only these files:
+        {% for path in outputs.target.permitted_paths.editable %}
+          {{ path }}
+        {%- endfor %}
+        and you may add a new file under `{{ outputs.target.permitted_paths.new_files_under }}`.
+        A diff touching anything else is rejected unread.
+
+        The tracker item this finding was filed as, verbatim, including anything
+        a human has added to it. Its verdict is
+        `{{ outputs.target.issue.verdict }}`{% if not outputs.target.issue.verdict_recorded %},
+        which is what an item records when no verdict was answered on it{% endif %}.
+
+        ===== issue #{{ outputs.target.issue.number }} =====
+        {{ outputs.target.issue.body }}
+        {% for comment in outputs.target.issue.comments %}
+        ----- comment -----
+        {{ comment }}
+        {% endfor %}
+
+        Reply with the unified diff described in your task, and nothing else.

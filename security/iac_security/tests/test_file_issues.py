@@ -298,18 +298,42 @@ class TheDeadSpecPathIsGone(unittest.TestCase):
         self.assertEqual(named, [])
 
 
-class NeverAppliesReadyForAgent(unittest.TestCase):
-    def test_the_label_is_absent_from_the_emittable_vocabulary(self) -> None:
-        self.assertNotIn("ready-for-agent", file_issues.EMITTABLE_LABELS)
-        self.assertEqual(file_issues.EMITTABLE_LABELS, (file_issues.NEEDS_TRIAGE,))
+class NeverAppliesAnAuthorisingLabel(unittest.TestCase):
+    """Neither `ready-for-agent` nor `ready-for-remediation`.
 
-    def test_emitting_it_raises_rather_than_filing(self) -> None:
+    An agent able to apply one would be authorising its own downstream work:
+    `ready-for-remediation` is what triggers the remediation workflow, and
+    `ready-for-agent` is the repository's general AFK-ready label.
+    """
+
+    authorising = ("ready-for-agent", file_issues.READY_FOR_REMEDIATION)
+
+    def test_neither_label_is_in_the_emittable_vocabulary(self) -> None:
+        self.assertEqual(file_issues.EMITTABLE_LABELS, (file_issues.NEEDS_TRIAGE,))
+        for label in self.authorising:
+            self.assertNotIn(label, file_issues.EMITTABLE_LABELS, label)
+            self.assertIn(label, file_issues.FORBIDDEN_LABELS, label)
+
+    def test_emitting_either_raises_rather_than_filing(self) -> None:
+        for label in self.authorising:
+            with self.subTest(label=label):
+                with self.assertRaises(file_issues.ForbiddenLabel):
+                    file_issues.check_labels((label,))
+                with self.assertRaises(file_issues.ForbiddenLabel):
+                    file_issues.create_issue(
+                        {"title": "t", "body": "b", "labels": ["needs-triage", label]}
+                    )
+
+    def test_the_issue_says_which_label_asks_the_pipeline_for_a_patch(self) -> None:
+        """A label nobody knows about authorises nothing, so the item names it."""
+        findings = normalised()
+        item = file_issues.plan(findings, full_run(findings), [], [])["create"][0]
+        self.assertIn(file_issues.READY_FOR_REMEDIATION, item["body"])
+
+    def test_a_label_outside_the_vocabulary_raises_whether_or_not_it_is_named(self) -> None:
+        """The forbidden list is a statement of intent; the vocabulary is the check."""
         with self.assertRaises(file_issues.ForbiddenLabel):
-            file_issues.check_labels(("ready-for-agent",))
-        with self.assertRaises(file_issues.ForbiddenLabel):
-            file_issues.create_issue(
-                {"title": "t", "body": "b", "labels": ["needs-triage", "ready-for-agent"]}
-            )
+            file_issues.check_labels(("some-label-nobody-listed",))
 
     def test_a_run_of_all_mechanical_fixes_still_files_under_needs_triage(self) -> None:
         findings = normalised()

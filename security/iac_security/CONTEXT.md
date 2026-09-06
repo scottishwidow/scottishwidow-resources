@@ -124,8 +124,11 @@ Vendored Terraform under `.terraform/modules/` is not in it.
 _Avoid_: context, documents, knowledge base — it is the code and nothing else.
 
 **Remediation**:
-Deriving a **patch** for a finding a human has labelled for it. Invoked by that
-label, never by a verdict: the agent recommends, the human authorises.
+Deriving a **patch** for a finding a human has labelled `ready-for-remediation`.
+Invoked by that label, never by a verdict: the agent recommends, the human
+authorises. The label is dedicated rather than the repository-wide
+`ready-for-agent`, which is carried by issues that hold no finding, and the
+pipeline cannot apply either one.
 _Avoid_: fix (a fix is what a merge produces), auto-fix (nothing is automatic
 past the label).
 
