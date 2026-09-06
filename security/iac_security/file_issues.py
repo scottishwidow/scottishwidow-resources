@@ -15,6 +15,7 @@ import tempfile
 from typing import Any
 
 import issue_body
+import vocabulary
 
 HERE = pathlib.Path(__file__).resolve().parent
 
@@ -26,7 +27,7 @@ EMITTABLE_LABELS = (NEEDS_TRIAGE,)
 
 FORBIDDEN_LABELS = ("ready-for-agent",)
 
-UNDETERMINED = "undetermined"
+UNDETERMINED = vocabulary.UNDETERMINED
 
 # The discard rule reaches a finding whose branch never produced a record at all.
 DISCARDED_NO_RECORD = "the triage run produced no verdict record for it"
@@ -54,9 +55,16 @@ def gh_json(args: list[str]) -> Any:
 
 
 def fetch_issues() -> list[dict[str, Any]]:
-    """A closed issue still claims its key, so this reads all states."""
+    """A closed issue still claims its key, so this reads all states.
+
+    Comments are fetched because a second verdict on an item arrives as one, so
+    the body alone cannot say whether an item is still awaiting a verdict.
+    """
     return gh_json(
-        ["gh", "issue", "list", "--state", "all", "--limit", "500", "--json", "number,body"]
+        [
+            "gh", "issue", "list", "--state", "all", "--limit", "500",
+            "--json", "number,state,body,comments",
+        ]
     )
 
 
@@ -83,16 +91,6 @@ def find_alert(finding: dict[str, Any], alerts: list[dict[str, Any]]) -> dict[st
             continue
         matched.append(alert)
     return matched[0] if len(matched) == 1 else None
-
-
-def existing_keys(issues: list[dict[str, Any]]) -> dict[str, int]:
-    """Finding key -> issue number, for issues that carry a key."""
-    found: dict[str, int] = {}
-    for issue in issues:
-        parsed = issue_body.parse(issue.get("body") or "")
-        if parsed and parsed["key"] not in found:
-            found[parsed["key"]] = issue.get("number")
-    return found
 
 
 def title(finding: dict[str, Any]) -> str:
@@ -218,6 +216,20 @@ def body(finding: dict[str, Any], record: dict[str, Any], alert: dict[str, Any] 
     )
 
 
+def comment(record: dict[str, Any]) -> str:
+    """A second verdict on an item that already exists, in the shape `issue_body.py` reads back."""
+    return (
+        f"## {issue_body.NEW_VERDICT}\n\n`{record['verdict']}`\n\n"
+        f"## Rationale\n\n{rationale_section(record)}\n"
+        f"## Evidence\n\n{evidence_section(record)}\n"
+        "---\n\n"
+        "*A later triage run judged this finding again, because this item recorded\n"
+        f"`{UNDETERMINED}` — a failure to judge rather than a judgment. The verdict above\n"
+        "supersedes the one in the issue body; the finding, its alert row and this item's\n"
+        "labels are unchanged.*\n"
+    )
+
+
 def plan(
     findings: dict[str, Any],
     verdicts: list[dict[str, Any]],
@@ -234,16 +246,21 @@ def plan(
         )
         for record in group
     }
-    already = existing_keys(issues)
+    already = issue_body.tracker_items(issues)
 
     create: list[dict[str, Any]] = []
+    commented: list[dict[str, Any]] = []
     skipped: list[dict[str, Any]] = []
     duplicated: list[dict[str, Any]] = []
     rejected: list[dict[str, Any]] = []
     filed_this_run: set[str] = set()
 
     triaged = {record.get("key") for record in verdicts}
-    without_a_verdict = sorted(key for key in eligible if key not in triaged)
+    # An eligible finding that already has a tracker item is not filed a second time,
+    # so it is not one this run left untriaged either.
+    without_a_verdict = sorted(
+        key for key in eligible if key not in triaged and key not in already
+    )
 
     for record in [*verdicts, *(record_without_a_verdict(key) for key in without_a_verdict)]:
         key = record.get("key") or ""
@@ -256,7 +273,25 @@ def plan(
             )
             continue
         if key in already:
-            skipped.append({"key": key, "issue": already[key]})
+            item = already[key]
+            # A repeat `undetermined` is not commented: the item already says so, and a
+            # comment per push would bury the finding under restatements of itself.
+            if (
+                issue_body.awaits_a_verdict(item)
+                and record["verdict"] != UNDETERMINED
+                and key not in filed_this_run
+            ):
+                filed_this_run.add(key)
+                commented.append(
+                    {
+                        "key": key,
+                        "issue": item["issue"],
+                        "verdict": record["verdict"],
+                        "body": comment(record),
+                    }
+                )
+            else:
+                skipped.append({"key": key, "issue": item["issue"]})
             continue
         if key in filed_this_run:
             duplicated.append({"key": key, "verdict": record["verdict"]})
@@ -276,8 +311,14 @@ def plan(
             }
         )
 
+    skipped += [
+        {"key": key, "issue": already[key]["issue"]}
+        for key in sorted(key for key in eligible if key not in triaged and key in already)
+    ]
+
     return {
         "create": create,
+        "comment": commented,
         "skipped_existing": skipped,
         "skipped_duplicate_in_run": duplicated,
         "ineligible_verdicts": rejected,
@@ -289,23 +330,33 @@ def plan(
     }
 
 
+def gh_body_file(args: list[str], text: str) -> str:
+    """Run a `gh` command whose body is a file, so a body of any length and shape survives the shell."""
+    with tempfile.NamedTemporaryFile("w", suffix=".md", encoding="utf-8", delete=False) as handle:
+        handle.write(text)
+        body_file = handle.name
+    try:
+        result = subprocess.run(args + ["--body-file", body_file], capture_output=True, text=True)
+        if result.returncode != 0:
+            raise SystemExit(f"{' '.join(args)} failed: {result.stderr.strip()}")
+        return result.stdout.strip()
+    finally:
+        pathlib.Path(body_file).unlink(missing_ok=True)
+
+
 def create_issue(item: dict[str, Any]) -> int:
     """File one issue and return its number."""
     check_labels(tuple(item["labels"]))
-    with tempfile.NamedTemporaryFile("w", suffix=".md", encoding="utf-8", delete=False) as handle:
-        handle.write(item["body"])
-        body_file = handle.name
-    try:
-        args = ["gh", "issue", "create", "--title", item["title"], "--body-file", body_file]
-        for label in item["labels"]:
-            args += ["--label", label]
-        result = subprocess.run(args, capture_output=True, text=True)
-        if result.returncode != 0:
-            raise SystemExit(f"gh issue create failed: {result.stderr.strip()}")
-        url = result.stdout.strip().splitlines()[-1]
-    finally:
-        pathlib.Path(body_file).unlink(missing_ok=True)
+    args = ["gh", "issue", "create", "--title", item["title"]]
+    for label in item["labels"]:
+        args += ["--label", label]
+    url = gh_body_file(args, item["body"]).splitlines()[-1]
     return int(url.rstrip("/").rsplit("/", 1)[-1])
+
+
+def comment_on_issue(item: dict[str, Any]) -> None:
+    """Record a second verdict on the item that already holds this finding."""
+    gh_body_file(["gh", "issue", "comment", str(item["issue"])], item["body"])
 
 
 def load(path: str) -> Any:
@@ -382,12 +433,30 @@ def main(argv: list[str] | None = None) -> int:
             }
         )
 
+    commented = []
+    for item in report["comment"]:
+        if args.dry_run:
+            print(
+                f"would comment a new verdict on #{item['issue']} for {item['key']} "
+                f"({item['verdict']})",
+                file=sys.stderr,
+            )
+        else:
+            comment_on_issue(item)
+            print(
+                f"commented a new verdict on #{item['issue']} for {item['key']} "
+                f"({item['verdict']})",
+                file=sys.stderr,
+            )
+        commented.append({"key": item["key"], "issue": item["issue"], "verdict": item["verdict"]})
+
     for item in report["skipped_existing"]:
         print(f"already filed as #{item['issue']}: {item['key']}", file=sys.stderr)
 
     summary = {
         "dry_run": args.dry_run,
         "filed": filed,
+        "commented": commented,
         "skipped_existing": report["skipped_existing"],
         "ineligible_verdicts": report["ineligible_verdicts"],
         "filed_without_a_verdict": report["filed_without_a_verdict"],

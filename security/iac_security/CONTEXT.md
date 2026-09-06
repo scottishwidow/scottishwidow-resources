@@ -91,7 +91,23 @@ finding is the thing.
 The GitHub issue a triaged finding is promoted to, under `needs-triage`, carrying
 the verdict, the rationale and the number of the alert it was filed for. Code
 scanning holds state; Issues hold work. Every triaged finding gets one, whatever
-its verdict.
+its verdict. A finding has at most one, open or closed, for the whole life of the
+repository: a second verdict on a finding arrives as a **comment** on the item
+that exists, never as a second item.
+
+**Outstanding**:
+An eligible finding this run must actually triage: one with no tracker item, or
+one whose open tracker item still records `undetermined`. It is the set the
+fan-out runs over, so a finding that is not outstanding reaches no model and
+costs nothing. Outstanding is a property of the *tracker*, not of the finding —
+it changes without the finding changing — which is why it is decided in
+`taskflow/outstanding.py` and is not a fourth `triage_status`.
+_Avoid_: new, unfiled — a re-triaged finding is neither.
+
+**Bypass**:
+Triaging the whole eligible set, tracker item or not. It exists only on the
+manually dispatched run and never fires on its own, and a dispatched run files
+nothing unless a second input asks it to.
 
 **Store**:
 Anything consulted about findings *other than* the one at hand. There are none

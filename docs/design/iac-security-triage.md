@@ -50,7 +50,10 @@ the right arm costs money, needs a token, and is invoked by hand.
        ▼                               ▼
   GitHub code scanning            taskflow/            ← the only model step
   human triage happens here       one branch per       Anthropic Messages API
-       │                          eligible finding     no toolboxes at all
+       │                          outstanding          no toolboxes at all
+       │                          finding: eligible
+       │                          minus what the
+       │                          tracker holds
        ▼                               │
   export_fixture.py                    ▼
        │                        collect_verdicts.py    applies the discard rule
@@ -116,6 +119,14 @@ the load-bearing half: most rules here fire exactly once, so an agreement-only
 gate would hand permanent dismissal authority to a rule on the strength of a
 single case going the right way. `k = 5` is a judgment, not a derivation.
 
+**The corpus is the cacheable prefix.** A cache prefix must be common to every
+branch of the fan-out. The personality is common already; the corpus is common
+only while nothing per-finding precedes it, so the prompt runs personality, then
+corpus, then the finding. It is also the better ordering independently of the
+cost, because the model answers about the last thing it read. What the caching
+actually saves depends on how the framework schedules the fan-out — branches that
+run fully in parallel all miss the cache together — so no figure is quoted here.
+
 **The agent has no tools.** `toolboxes` is empty and deliberately so, and this
 survives ADR-0008 unchanged — it applies to the remediator identically. Every
 fact arrives in the prompt, which buys a run reproducible from its inputs and no
@@ -128,7 +139,30 @@ scoring, but the decision does not depend on it.
 automatically on the scan's completion, and the fork boundary that
 `workflow_dispatch` provided moves to a job condition — see Hard constraints.* A
 code change never assigns a verdict; `workflow_dispatch` is the only trigger on
-the triage workflow.
+the triage workflow. `workflow_dispatch` is since restored *beside* the automatic
+trigger rather than in place of it, and it is the only path that may re-triage a
+finding the tracker already holds — see the tracker exclusion below.
+
+**Triage costs nothing when nothing changed.** The fan-out runs over the
+*outstanding* findings: the eligible set minus every key that already has a
+tracker item. A merge that touches no Terraform therefore reaches no model and
+files nothing. The rule lives in `taskflow/outstanding.py` and deliberately not
+in `normalise.py`: `normalise.py` is pure and replayable against a committed
+fixture, and "has a tracker item" is a property of the *tracker*, which changes
+without the finding changing. It is not a fourth `triage_status` for the same
+reason. Filing was already idempotent on the key, so this changes no filing
+behaviour — it moves the saving to before the money is spent.
+
+**`undetermined` is triaged again; a second verdict is a comment.** It is what
+the discard rule records when a reply is unparseable, has no rationale, or never
+arrives — a failure to judge, not a judgment — so excluding on it would let one
+bad reply silence a finding permanently. A finding whose *open* item records it
+is therefore triaged again, and because the item already exists the new verdict
+is commented onto it and nothing is opened. One finding key owns one item, still.
+`issue_body.py` reads a comment as a verdict as well as a body, which is what
+stops the re-triage repeating forever. A *closed* item excludes its finding
+whatever it records: a reintroduced finding reopens its alert, which is where
+that state belongs.
 
 ## Hard constraints (violate these and it breaks)
 
@@ -141,9 +175,16 @@ the triage workflow.
   default branch *with full secrets access*, and the scan runs on
   `pull_request` — so the test must assert the condition, not the trigger list.
   The old assertion passes against the vulnerable version.
+- **A finding is promoted to at most one tracker item, ever.** The exclusion and
+  the filer must agree on what a tracker item records, or a re-triaged finding
+  gets a second item and the key stops being a join. They agree by sharing
+  `issue_body.py`, which is the one place a body and its comments are read back
+  into a verdict.
 - **The job that runs the model never holds a write permission; the job that
   writes never sees the token.** The split across `triage` and `file-issues` is
-  the containment, and `tests/test_workflows.py` asserts it per job. It extends
+  the containment, and `tests/test_workflows.py` asserts it per job. The tracker
+  read widens the triage job to `issues: read` and no further — it decides what to
+  triage and may not open what it decides on. It extends
   unchanged to remediation: the job running the model holds nothing, and the job
   opening the pull request holds `contents: write` and `pull-requests: write` and
   no token.
@@ -247,8 +288,8 @@ models is a one-line edit to `models:`.
 
 ## Verification
 
-    python3 -m unittest discover -s security/iac_security/tests           # 100
-    python3 -m unittest discover -s security/iac_security/taskflow/tests  #  62
+    python3 -m unittest discover -s security/iac_security/tests           # 112
+    python3 -m unittest discover -s security/iac_security/taskflow/tests  # 124
 
 Both suites are offline — no Trivy, no AWS, no Docker, no model token, no
 network, and no Terraform once the patch gate lands. They run against the

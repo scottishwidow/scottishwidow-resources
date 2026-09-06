@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import os
 import pathlib
 import sys
 import tempfile
@@ -17,6 +18,8 @@ sys.path.insert(0, str(TRIAGE_DIR))
 import yaml  # noqa: E402
 
 import collect_verdicts  # noqa: E402
+import issue_body  # noqa: E402
+import outstanding  # noqa: E402
 import terraform_corpus  # noqa: E402
 import vocabulary  # noqa: E402
 
@@ -62,13 +65,13 @@ class TaskflowShape(unittest.TestCase):
     def setUp(self) -> None:
         self.taskflow = load(TASKFLOW_PATH)
 
-    def test_declares_the_expected_three_tasks(self) -> None:
+    def test_declares_the_expected_four_tasks(self) -> None:
         ids = [entry["task"].get("id") for entry in self.taskflow["taskflow"]]
-        self.assertEqual(ids, ["findings", "corpus", "verdicts"])
+        self.assertEqual(ids, ["findings", "outstanding", "corpus", "verdicts"])
 
     def test_only_the_verdict_task_uses_a_model(self) -> None:
         """The deterministic half must stay deterministic."""
-        for task_id in ("findings", "corpus"):
+        for task_id in ("findings", "outstanding", "corpus"):
             task = task_by_id(self.taskflow, task_id)
             self.assertIn("run", task, f"{task_id} should be a shell task")
             self.assertNotIn("agents", task)
@@ -79,12 +82,32 @@ class TaskflowShape(unittest.TestCase):
         self.assertNotIn("toolboxes", verdicts)
         self.assertNotIn("toolboxes", load(PERSONALITY_PATH))
 
-    def test_fans_out_over_eligible_findings_only(self) -> None:
-        """Vendored and below-threshold findings never reach a prompt."""
+    def test_fans_out_over_the_outstanding_findings_only(self) -> None:
+        """Vendored and below-threshold findings never reach a prompt.
+
+        The fan-out reads `outstanding`, which reads `eligible` -- so the two
+        deterministic filters still stand between a finding and a prompt, with
+        the tracker exclusion behind them.
+        """
         over = task_by_id(self.taskflow, "verdicts")["over"]
-        self.assertIn("outputs.findings.eligible", over)
+        self.assertEqual(over, "outputs.outstanding.findings")
         self.assertNotIn("below_threshold", over)
         self.assertNotIn("vendored", over)
+
+    def test_the_exclusion_runs_before_the_task_that_costs_money(self) -> None:
+        ids = [entry["task"].get("id") for entry in self.taskflow["taskflow"]]
+        self.assertLess(ids.index("outstanding"), ids.index("verdicts"))
+
+    def test_the_exclusion_halts_the_run_rather_than_triaging_everything(self) -> None:
+        """An unreadable tracker excludes nothing, which is the whole bill this task removes."""
+        self.assertTrue(task_by_id(self.taskflow, "outstanding")["must_complete"])
+
+    def test_the_bypass_is_a_global_and_not_a_default(self) -> None:
+        self.assertEqual(self.taskflow["globals"]["bypass"], "false")
+        self.assertEqual(
+            task_by_id(self.taskflow, "outstanding")["env"]["TRIAGE_BYPASS_TRACKER"],
+            "{{ globals.bypass }}",
+        )
 
 
 class RunFieldsResolveFromTheContainerWorkingDirectory(unittest.TestCase):
@@ -327,6 +350,18 @@ class CollectFromManifest(unittest.TestCase):
                 {"outputs": {"findings": {}, "corpus": {}}}, collect_verdicts.EligibleFindings()
             )
 
+    def test_a_run_the_tracker_emptied_collects_no_verdicts_and_does_not_fail(self) -> None:
+        """A run that reached no model is the point of the exclusion, not a failure."""
+        manifest = {"outputs": {"outstanding": {"findings": []}, "corpus": {"documents": []}}}
+        self.assertEqual(
+            collect_verdicts.collect(manifest, collect_verdicts.EligibleFindings()), []
+        )
+
+    def test_a_run_that_had_findings_and_no_verdicts_still_fails_loudly(self) -> None:
+        manifest = {"outputs": {"outstanding": {"findings": [{"key": "A:m:r.n", "rule_id": "A"}]}}}
+        with self.assertRaises(SystemExit):
+            collect_verdicts.collect(manifest, collect_verdicts.EligibleFindings())
+
     def test_flags_evidence_the_corpus_task_never_carried(self) -> None:
         manifest = {
             "outputs": {
@@ -534,3 +569,187 @@ class FallbackKeyUnderDuplicateKeys(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class TheCorpusIsACacheablePrefix(unittest.TestCase):
+    """A cache prefix must be common to every branch of the fan-out.
+
+    The personality is common already. The corpus is common only while nothing
+    per-finding precedes it: put the finding first and every branch diverges
+    before the corpus begins, so the corpus is paid for once per finding rather
+    than once. It is the better prompt either way -- the model answers about the
+    last thing it read, which should be the finding it was asked about.
+    """
+
+    def setUp(self) -> None:
+        self.prompt = task_by_id(load(TASKFLOW_PATH), "verdicts")["user_prompt"]
+
+    def test_the_corpus_precedes_every_per_finding_field(self) -> None:
+        corpus = self.prompt.index("outputs.corpus.documents")
+        for field in ("result.key", "result.rule_id", "result.message", "result.code"):
+            self.assertLess(corpus, self.prompt.index(field), field)
+
+    def test_the_finding_is_the_last_thing_the_model_reads(self) -> None:
+        self.assertLess(
+            self.prompt.rindex("outputs.corpus.documents"), self.prompt.rindex("result.")
+        )
+
+    def test_prompt_caching_is_on(self) -> None:
+        self.assertIs(load(MODEL_CONFIG_PATH)["model_settings"]["triage"]["prompt_caching"], True)
+
+
+class TrackerExclusion(unittest.TestCase):
+    """`outstanding.py`: the eligible set minus what the tracker already holds.
+
+    The rule is a property of the *tracker*, not of the finding, which is why it
+    is not a fourth `triage_status` and not in `normalise.py`: it changes without
+    the finding changing, and `normalise.py` stays pure and replayable.
+    """
+
+    def eligible(self, *keys: str) -> dict:
+        return {
+            "eligible": [
+                {"key": key, "rule_id": key.split(":", 1)[0], "triage_status": "eligible"}
+                for key in keys
+            ]
+        }
+
+    def item(self, key: str, number: int, verdict: str, state: str = "OPEN", comments=()) -> dict:
+        return {
+            "number": number,
+            "state": state,
+            "body": (
+                "## Finding\n\n| | |\n|---|---|\n"
+                f"| **Key** | `{key}` |\n\n"
+                f"## Verdict\n\n`{verdict}`\n\n## Rationale\n\nBecause.\n"
+            ),
+            "comments": [{"body": text} for text in comments],
+        }
+
+    def keys_of(self, selected: dict) -> list[str]:
+        return [record["key"] for record in selected["findings"]]
+
+    def test_a_finding_with_no_tracker_item_is_triaged(self) -> None:
+        selected = outstanding.select(self.eligible("A:m:r.n"), [])
+        self.assertEqual(self.keys_of(selected), ["A:m:r.n"])
+
+    def test_a_finding_that_already_has_an_item_is_not_triaged(self) -> None:
+        selected = outstanding.select(
+            self.eligible("A:m:r.n"), [self.item("A:m:r.n", 5, "real-judgment")]
+        )
+        self.assertEqual(self.keys_of(selected), [])
+        self.assertEqual(selected["excluded"][0]["issue"], 5)
+
+    def test_a_run_whose_findings_all_have_items_reaches_no_model(self) -> None:
+        keys = ("A:m:r.n", "B:m:r.n")
+        items = [self.item(key, n, "not-applicable") for n, key in enumerate(keys)]
+        self.assertEqual(self.keys_of(outstanding.select(self.eligible(*keys), items)), [])
+
+    def test_a_closed_item_keeps_its_finding_excluded(self) -> None:
+        """A reintroduced finding reopens its alert, which is where that state belongs."""
+        selected = outstanding.select(
+            self.eligible("A:m:r.n"), [self.item("A:m:r.n", 5, "wontfix-ish", state="CLOSED")]
+        )
+        self.assertEqual(self.keys_of(selected), [])
+
+    def test_a_closed_item_recording_undetermined_stays_excluded(self) -> None:
+        selected = outstanding.select(
+            self.eligible("A:m:r.n"),
+            [self.item("A:m:r.n", 5, vocabulary.UNDETERMINED, state="CLOSED")],
+        )
+        self.assertEqual(self.keys_of(selected), [])
+
+    def test_an_open_item_recording_undetermined_is_triaged_again(self) -> None:
+        """`undetermined` is a failure to judge, so excluding on it lets one bad
+        reply silence a finding permanently."""
+        selected = outstanding.select(
+            self.eligible("A:m:r.n"), [self.item("A:m:r.n", 5, vocabulary.UNDETERMINED)]
+        )
+        self.assertEqual(self.keys_of(selected), ["A:m:r.n"])
+        self.assertEqual(selected["retriaged"], ["A:m:r.n"])
+
+    def test_an_item_whose_comment_carries_a_verdict_is_excluded_again(self) -> None:
+        """Otherwise the re-triage never ends: the body still says `undetermined`."""
+        commented = self.item(
+            "A:m:r.n",
+            5,
+            vocabulary.UNDETERMINED,
+            comments=[f"## {issue_body.NEW_VERDICT}\n\n`real-mechanical`\n\n## Rationale\n\nx\n"],
+        )
+        self.assertEqual(self.keys_of(outstanding.select(self.eligible("A:m:r.n"), [commented])), [])
+
+    def test_an_unrelated_comment_does_not_count_as_a_verdict(self) -> None:
+        commented = self.item(
+            "A:m:r.n", 5, vocabulary.UNDETERMINED, comments=["I looked at this and I am not sure."]
+        )
+        self.assertEqual(
+            self.keys_of(outstanding.select(self.eligible("A:m:r.n"), [commented])), ["A:m:r.n"]
+        )
+
+    def test_an_issue_carrying_no_finding_key_excludes_nothing(self) -> None:
+        unrelated = [{"number": 7, "state": "OPEN", "body": "A bug report."}]
+        self.assertEqual(
+            self.keys_of(outstanding.select(self.eligible("A:m:r.n"), unrelated)), ["A:m:r.n"]
+        )
+
+    def test_the_records_it_emits_are_the_ones_the_prompt_templates_off(self) -> None:
+        findings = self.eligible("A:m:r.n")
+        self.assertEqual(outstanding.select(findings, [])["findings"], findings["eligible"])
+
+    def test_the_bypass_triages_the_whole_eligible_set(self) -> None:
+        findings = self.eligible("A:m:r.n", "B:m:r.n")
+        items = [self.item("A:m:r.n", 5, "real-judgment"), self.item("B:m:r.n", 6, "not-applicable")]
+        selected = outstanding.select(findings, items, bypass=True)
+        self.assertEqual(self.keys_of(selected), ["A:m:r.n", "B:m:r.n"])
+        self.assertTrue(selected["bypassed"])
+        self.assertEqual(selected["excluded"], [])
+
+    def test_the_bypass_is_off_unless_asked_for(self) -> None:
+        selected = outstanding.select(
+            self.eligible("A:m:r.n"), [self.item("A:m:r.n", 5, "real-judgment")]
+        )
+        self.assertFalse(selected["bypassed"])
+        self.assertEqual(self.keys_of(selected), [])
+
+    def test_only_an_explicit_flag_reads_as_the_bypass(self) -> None:
+        for value, expected in (("true", True), ("1", True), ("false", False), ("", False)):
+            with self.subTest(value=value):
+                os.environ["TRIAGE_BYPASS_TRACKER"] = value
+                try:
+                    self.assertIs(outstanding.env_flag("TRIAGE_BYPASS_TRACKER"), expected)
+                finally:
+                    del os.environ["TRIAGE_BYPASS_TRACKER"]
+
+
+class BranchesAreAttributedToTheListTheyRanOver(unittest.TestCase):
+    """The fan-out list is narrower than the eligible set once the tracker excludes anything.
+
+    A branch that produced nothing is attributed by its position, so reading the
+    wider list would name the wrong finding -- and file a discarded verdict
+    against a finding that was never triaged.
+    """
+
+    manifest = {
+        "outputs": {
+            "outstanding": {
+                "findings": [{"key": "B:m:r.n", "rule_id": "B", "triage_status": "eligible"}]
+            },
+            "verdicts": [{"model": "m", "item": 0, "result": None}],
+        }
+    }
+
+    def test_the_fan_out_list_is_read_from_the_manifest(self) -> None:
+        self.assertEqual(
+            collect_verdicts.fanout_findings_from_manifest(self.manifest),
+            self.manifest["outputs"]["outstanding"]["findings"],
+        )
+
+    def test_a_manifest_without_the_task_falls_back_to_the_eligible_set(self) -> None:
+        self.assertIsNone(collect_verdicts.fanout_findings_from_manifest({"outputs": {}}))
+
+    def test_a_discarded_branch_names_the_finding_it_actually_ran_over(self) -> None:
+        findings = collect_verdicts.EligibleFindings(
+            collect_verdicts.fanout_findings_from_manifest(self.manifest)
+        )
+        record = collect_verdicts.collect(self.manifest, findings)[0]
+        self.assertEqual(record["key"], "B:m:r.n")
