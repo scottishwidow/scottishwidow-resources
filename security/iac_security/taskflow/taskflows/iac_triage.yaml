@@ -2,16 +2,18 @@
 #
 # IaC triage, propose-only (tasks.md 4.3, design.md - Decision 10).
 #
-# Three tasks, and only the last one involves a model:
+# Four tasks, and only the last one involves a model:
 #
-#   findings  run:  scan + normalise + partition + severity gate  (deterministic)
-#   corpus    run:  every first-party .tf file (ADR-0008)         (deterministic)
-#   verdicts  over: outputs.findings.eligible, one branch per finding
+#   findings     run:  scan + normalise + partition + severity gate  (deterministic)
+#   outstanding  run:  the eligible set minus what the tracker holds (deterministic)
+#   corpus       run:  every first-party .tf file (ADR-0008)         (deterministic)
+#   verdicts     over: outputs.outstanding.findings, one branch per finding
 #
 # The pipeline assigns no verdict to anything the deterministic half excluded:
-# `over:` reads `eligible`, so vendored and below-threshold findings are never
-# in a prompt. That is the ownership-then-severity order of Decision 2 holding
-# at the point it costs money.
+# `outstanding` reads `eligible`, so vendored and below-threshold findings are
+# never in a prompt. That is the ownership-then-severity order of Decision 2
+# holding at the point it costs money, and the tracker exclusion is the same
+# argument applied a step later: a finding already filed is judged already.
 #
 # Nothing here writes to alert state or to the tracker (tasks.md 4.6). A run
 # produces a manifest; `collect_verdicts.py` turns that into verdict records and
@@ -32,6 +34,15 @@ globals:
   # automatically off a real scan; replay the committed baseline instead with:
   #   -g report=security/iac_security/fixtures/baseline-scan.json
   report: ""
+
+  # A tracker snapshot, read on the host where `gh` and a token are. Left empty
+  # the `outstanding` task runs `gh` itself, which the published image may not
+  # carry -- so CI hands it a file rather than reaching for the network here.
+  tracker: ""
+
+  # Triage the whole eligible set, tracker item or not. Set only by a dispatched
+  # run: it is what makes re-triaging a filed finding a deliberate act.
+  bypass: "false"
 
 taskflow:
   - task:
@@ -88,6 +99,41 @@ taskflow:
         required: [eligible, below_threshold, vendored, severity_threshold]
 
   - task:
+      name: outstanding
+      id: outstanding
+      must_complete: true
+      env:
+        TRIVY_REPORT: "{{ globals.report }}"
+        TRACKER_ITEMS: "{{ globals.tracker }}"
+        TRIAGE_BYPASS_TRACKER: "{{ globals.bypass }}"
+      # `run:` is not templated, so the report is named again through the
+      # environment rather than read from `outputs.findings`. A named report is
+      # replayed rather than rescanned, so the two tasks partition one report;
+      # only a live local run pays for a second scan here.
+      run: |
+        security/iac_security/taskflow/scan.sh |
+          python3 security/iac_security/taskflow/outstanding.py
+      # `findings` carries whole finding records, not keys: the fan-out prompt
+      # templates off them, and `collect_verdicts.py` attributes a branch that
+      # produced nothing by its position in this list.
+      outputs:
+        type: object
+        properties:
+          findings:
+            type: array
+            items:
+              type: object
+              properties:
+                key: {type: string, minLength: 1}
+                rule_id: {type: string, minLength: 1}
+                triage_status: {const: eligible}
+              required: [key, rule_id, triage_status]
+          excluded: {type: array}
+          retriaged: {type: array}
+          bypassed: {type: boolean}
+        required: [findings, excluded, retriaged, bypassed]
+
+  - task:
       name: corpus
       id: corpus
       must_complete: true
@@ -116,7 +162,7 @@ taskflow:
       # the framework's DEFAULT_MODEL -- `gpt-4.1` -- which is not in that file's
       # `models:` map and would be passed through to Anthropic verbatim.
       model: triage
-      over: outputs.findings.eligible
+      over: outputs.outstanding.findings
       agents:
         - security.iac_security.taskflow.personalities.iac_triage
       # The verdict is the agent's answer, not a tool result -- it calls no
@@ -139,7 +185,21 @@ taskflow:
       outputs:
         type: string
         minLength: 1
+      # The corpus comes first and the finding last, and both orderings are
+      # deliberate. A cache prefix must be common to every branch, and the
+      # personality plus the corpus is the whole of what every branch shares --
+      # put the per-finding text first and each branch diverges before the
+      # corpus begins, so the corpus is paid for once per finding rather than
+      # once. It is also the better prompt: the model answers about the last
+      # thing it read, which should be the finding it is being asked about.
       user_prompt: |
+        The repository's Terraform corpus follows: every first-party `.tf` file,
+        complete and exhaustive. Cite by path any files you rely on.
+        {% for doc in outputs.corpus.documents %}
+        ===== {{ doc.path }} =====
+        {{ doc.text }}
+        {% endfor %}
+
         Triage this finding.
 
         Finding key: {{ result.key }}
@@ -158,12 +218,5 @@ taskflow:
         {% for line in result.code %}
         {{ line.number }}: {{ line.content }}
         {%- endfor %}
-
-        The repository's Terraform corpus follows: every first-party `.tf` file,
-        complete and exhaustive. Cite by path any files you rely on.
-        {% for doc in outputs.corpus.documents %}
-        ===== {{ doc.path }} =====
-        {{ doc.text }}
-        {% endfor %}
 
         Reply with the JSON object described in your task, and nothing else.

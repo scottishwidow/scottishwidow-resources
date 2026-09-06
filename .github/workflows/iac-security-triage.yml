@@ -5,6 +5,19 @@ on:
     workflows: ['IaC security scan']
     types:
       - completed
+  # The manual path, and the only one that may re-triage a finding the tracker
+  # already holds. Both inputs default to the cautious answer, so a dispatch with
+  # nothing changed costs tokens and artifacts and leaves the tracker alone.
+  workflow_dispatch:
+    inputs:
+      retriage_tracked:
+        description: 'Triage every eligible finding, including those that already have an issue'
+        type: boolean
+        default: false
+      file_issues:
+        description: 'File the verdicts as issues (a dispatched run files nothing by default)'
+        type: boolean
+        default: false
 
 permissions:
   contents: read
@@ -17,11 +30,20 @@ jobs:
   triage:
     name: Triage eligible findings
     runs-on: ubuntu-latest
-    # This handler holds the secrets, and the scan it watches also runs on fork pull requests.
+    permissions:
+      contents: read
+      # To read the tracker, never to write it: the exclusion needs to know which
+      # findings already have an issue, and this job may not open one.
+      issues: read
+    # This handler holds the secrets, and the scan it watches also runs on fork pull
+    # requests. A dispatch is not reached by that path at all -- it needs write access
+    # to the repository, which a fork's contributor does not have.
     if: >-
-      github.event.workflow_run.event == 'push' &&
-      github.event.workflow_run.head_branch == 'main' &&
-      github.event.workflow_run.conclusion == 'success'
+      github.event_name == 'workflow_dispatch' || (
+        github.event.workflow_run.event == 'push' &&
+        github.event.workflow_run.head_branch == 'main' &&
+        github.event.workflow_run.conclusion == 'success'
+      )
     steps:
       - name: Checkout main
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -54,12 +76,24 @@ jobs:
           exit-code: '0'
           version: 'v0.74.0'
 
+      - name: Read the tracker
+        # Read on the host, where `gh` and a token are: the published image carries
+        # neither, and the taskflow reaches no network of its own.
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh issue list --state all --limit 500 --json number,state,body,comments \
+            > security/iac_security/runs/tracker.json
+
       - name: Run triage taskflow
         working-directory: security/iac_security/taskflow
         env:
           AI_API_TOKEN: ${{ secrets.AI_API_TOKEN }}
+          BYPASS: ${{ github.event_name == 'workflow_dispatch' && inputs.retriage_tracked }}
         run: |
-          ./run.sh -g report=security/iac_security/runs/trivy-report.json
+          ./run.sh -g report=security/iac_security/runs/trivy-report.json \
+            -g tracker=security/iac_security/runs/tracker.json \
+            -g bypass="$BYPASS"
 
       - name: Collect verdicts
         if: always()
@@ -127,9 +161,16 @@ jobs:
         working-directory: security/iac_security
         env:
           GH_TOKEN: ${{ github.token }}
+          # A dispatched run decides everything and files nothing unless asked, so
+          # testing verdicts costs tokens and artifacts but no tracker churn.
+          DRY_RUN: ${{ github.event_name == 'workflow_dispatch' && inputs.file_issues != true }}
         run: |
           verdicts=/tmp/verdicts/${{ github.run_id }}.json
           [ -f "$verdicts" ] || { echo 'no verdicts to file'; exit 0; }
+          filing=()
+          if [ "$DRY_RUN" = 'true' ]; then
+            filing+=(--dry-run)
+          fi
           python3 file_issues.py \
             --findings /tmp/findings/findings.json \
-            --verdicts "$verdicts"
+            --verdicts "$verdicts" "${filing[@]}"

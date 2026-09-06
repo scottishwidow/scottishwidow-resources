@@ -11,6 +11,10 @@ KEY_ROW = re.compile(r"\|\s*\*\*Key\*\*\s*\|\s*`([^`]+)`\s*\|")
 # Matches a link, a bare `#42`, or a code span alike; all three read back the same number.
 ALERT_ROW = re.compile(r"\|\s*\*\*Alert\*\*\s*\|[^|\n]*?#(\d+)")
 
+# The heading a re-triage comment writes its verdict under, deliberately not `Verdict`:
+# `parse` reads the issue body, and one heading for both would let a comment be read as one.
+NEW_VERDICT = "New verdict"
+
 # `.tf` files under the corpus roots only: anything else was never shown to the agent.
 EVIDENCE_PATH = re.compile(r"\b((?:live|modules)/[\w./-]+\.tf)\b")
 
@@ -57,3 +61,45 @@ def parse(body: str) -> dict[str, Any] | None:
 
 def known_verdict(verdict: str) -> bool:
     return verdict in vocabulary.VERDICTS
+
+
+def comment_verdict(text: str) -> str:
+    """The verdict a re-triage comment carries, or empty if it carries none."""
+    return filled(section(text, NEW_VERDICT)).strip("`").strip()
+
+
+def standing_verdict(body: str, comments: list[str] | None = None) -> str:
+    """What a tracker item records now: its latest re-triage comment, else its body.
+
+    A comment is what a second verdict on an item arrives as, so an item whose
+    body still says `undetermined` may already have been judged.
+    """
+    verdict = (parse(body) or {}).get("verdict", "")
+    for text in comments or []:
+        found = comment_verdict(text)
+        if found:
+            verdict = found
+    return verdict
+
+
+def tracker_items(issues: list[dict[str, Any]]) -> dict[str, dict[str, Any]]:
+    """Finding key -> the item that claims it, for issues that carry a key."""
+    found: dict[str, dict[str, Any]] = {}
+    for issue in issues:
+        parsed = parse(issue.get("body") or "")
+        if not parsed or parsed["key"] in found:
+            continue
+        comments = [entry.get("body") or "" for entry in issue.get("comments") or []]
+        found[parsed["key"]] = {
+            "issue": issue.get("number"),
+            # A snapshot taken before the state field was fetched reads as open, which
+            # re-triages a closed finding rather than silently dropping a live one.
+            "state": str(issue.get("state") or "OPEN").upper(),
+            "verdict": standing_verdict(issue.get("body") or "", comments),
+        }
+    return found
+
+
+def awaits_a_verdict(item: dict[str, Any]) -> bool:
+    """Whether an item's finding is triaged again: `undetermined` is a failure to judge, not a judgment."""
+    return item["state"] == "OPEN" and item["verdict"] == vocabulary.UNDETERMINED

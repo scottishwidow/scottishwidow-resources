@@ -9,5 +9,9 @@ VERDICTS: dict[str, str] = {
     "undetermined": "Not decidable from the available context",
 }
 
+# Named because three modules branch on this one class: it is the outcome of the
+# discard rule, and a tracker item carrying it is a finding still awaiting a verdict.
+UNDETERMINED = "undetermined"
+
 # Not a verdict: ownership is decided by path, not by triage.
 UPSTREAM = "upstream"

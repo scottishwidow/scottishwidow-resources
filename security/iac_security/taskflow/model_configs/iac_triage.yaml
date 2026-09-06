@@ -40,8 +40,14 @@ model_settings:
   triage:
     endpoint: https://api.anthropic.com
     # Every finding's prompt carries the same prefix -- the personality, then
-    # the repository's decision records -- so caching that prefix is the
-    # difference between paying for the ADRs once and paying per finding. On by
-    # default in the backend; named here because it is a cost property of *this*
-    # pipeline's shape, not an incidental default.
+    # the Terraform corpus -- so caching that prefix is the difference between
+    # paying for the corpus once and paying per finding. On by default in the
+    # backend; named here because it is a cost property of *this* pipeline's
+    # shape, not an incidental default.
+    #
+    # The prefix is only common because `taskflows/iac_triage.yaml` puts the
+    # corpus before the per-finding text. What the saving actually comes to
+    # depends on how the framework schedules the fan-out: branches that run
+    # fully in parallel all miss the cache together, so establish that before
+    # quoting a figure.
     prompt_caching: true

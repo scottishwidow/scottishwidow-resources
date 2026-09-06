@@ -41,11 +41,17 @@ class TriageFiresOffTheScan(unittest.TestCase):
         self.workflow = load(TRIAGE)
         self.triage = self.workflow["jobs"]["triage"]
 
+    def on(self) -> dict:
+        return self.workflow[ON] if ON in self.workflow else self.workflow["on"]
+
     def test_it_triggers_on_the_scan_workflow_completing(self) -> None:
-        self.assertEqual(triggers(self.workflow), {"workflow_run"})
-        on = self.workflow[ON] if ON in self.workflow else self.workflow["on"]
-        self.assertEqual(on["workflow_run"]["workflows"], ["IaC security scan"])
-        self.assertIn("completed", on["workflow_run"]["types"])
+        self.assertEqual(triggers(self.workflow), {"workflow_run", "workflow_dispatch"})
+        self.assertEqual(self.on()["workflow_run"]["workflows"], ["IaC security scan"])
+        self.assertIn("completed", self.on()["workflow_run"]["types"])
+
+    def test_a_dispatch_can_reach_the_job(self) -> None:
+        """The manual path is what re-triages a finding the tracker already holds."""
+        self.assertIn("github.event_name == 'workflow_dispatch'", self.triage["if"])
 
     def test_no_pull_request_from_a_fork_can_reach_the_job(self) -> None:
         # The trigger list cannot carry this boundary: a fork raises no `workflow_run`
@@ -90,7 +96,8 @@ class IssuesAreFiledByAJobThatRunsNoModel(unittest.TestCase):
         return job.get("permissions", self.workflow["permissions"])
 
     def test_the_job_running_the_model_cannot_open_an_issue(self) -> None:
-        self.assertNotIn("issues", self.granted(self.triage))
+        """It reads the tracker to decide what to triage, and may do no more than read it."""
+        self.assertEqual(self.granted(self.triage).get("issues"), "read")
 
     def test_the_job_opening_issues_never_sees_the_token(self) -> None:
         self.assertNotIn(TOKEN, yaml.safe_dump(self.filer))
@@ -333,3 +340,87 @@ class TriageVendorsModulesBeforeItScans(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class ATrackerItemIsNotTriagedTwice(unittest.TestCase):
+    """Triage costs nothing when nothing changed.
+
+    The exclusion needs the tracker, and the tracker is read on the host: the
+    published image carries neither `gh` nor a token, and the taskflow reaches no
+    network of its own.
+    """
+
+    def setUp(self) -> None:
+        self.workflow = load(TRIAGE)
+        self.triage = self.workflow["jobs"]["triage"]
+        self.steps = self.triage["steps"]
+
+    def step(self, name: str) -> dict:
+        return next(step for step in self.steps if step.get("name") == name)
+
+    def index_of(self, name: str) -> int:
+        return self.steps.index(self.step(name))
+
+    def test_the_tracker_is_read_before_the_taskflow_that_excludes_on_it(self) -> None:
+        self.assertLess(self.index_of("Read the tracker"), self.index_of("Run triage taskflow"))
+
+    def test_the_snapshot_carries_what_the_exclusion_reads(self) -> None:
+        """State says whether an item is closed; comments say whether it has since been judged."""
+        run = self.step("Read the tracker")["run"]
+        self.assertIn("--state all", run)
+        for field in ("number", "state", "body", "comments"):
+            self.assertIn(field, run)
+
+    def test_the_snapshot_is_named_to_the_container_from_the_repository_root(self) -> None:
+        self.assertIn(
+            "-g tracker=security/iac_security/runs/tracker.json",
+            self.step("Run triage taskflow")["run"],
+        )
+
+    def test_the_step_reading_the_tracker_never_sees_the_model_token(self) -> None:
+        self.assertNotIn(TOKEN, yaml.safe_dump(self.step("Read the tracker")))
+
+    def test_the_step_running_the_model_never_sees_the_tracker_token(self) -> None:
+        self.assertNotIn("GH_TOKEN", yaml.safe_dump(self.step("Run triage taskflow")))
+
+
+class ADispatchedRunIsDeliberate(unittest.TestCase):
+    """Two inputs, both defaulting to the cautious answer.
+
+    The bypass exists only on the dispatch path, and filing is off by default so
+    testing verdicts costs tokens and artifacts but no tracker churn.
+    """
+
+    def setUp(self) -> None:
+        self.workflow = load(TRIAGE)
+        on = self.workflow[ON] if ON in self.workflow else self.workflow["on"]
+        self.inputs = on["workflow_dispatch"]["inputs"]
+        self.triage = self.workflow["jobs"]["triage"]
+        self.filer = self.workflow["jobs"]["file-issues"]
+
+    def step(self, job: dict, name: str) -> dict:
+        return next(step for step in job["steps"] if step.get("name") == name)
+
+    def test_both_inputs_default_to_off(self) -> None:
+        for name in ("retriage_tracked", "file_issues"):
+            self.assertIs(self.inputs[name]["default"], False, name)
+            self.assertEqual(self.inputs[name]["type"], "boolean", name)
+
+    def test_the_bypass_never_fires_on_the_automatic_path(self) -> None:
+        supplied = self.step(self.triage, "Run triage taskflow")["env"]["BYPASS"]
+        self.assertIn("github.event_name == 'workflow_dispatch'", supplied)
+        self.assertIn("inputs.retriage_tracked", supplied)
+
+    def test_the_bypass_reaches_the_taskflow_as_a_global(self) -> None:
+        self.assertIn("-g bypass=", self.step(self.triage, "Run triage taskflow")["run"])
+
+    def test_a_dispatched_run_files_nothing_unless_asked(self) -> None:
+        filing = self.step(self.filer, "File issues")
+        self.assertIn("github.event_name == 'workflow_dispatch'", filing["env"]["DRY_RUN"])
+        self.assertIn("inputs.file_issues != true", filing["env"]["DRY_RUN"])
+        self.assertIn("--dry-run", filing["run"])
+
+    def test_a_run_off_the_scan_still_files(self) -> None:
+        """`DRY_RUN` is false on the automatic path, and the flag is passed only when it is true."""
+        run = self.step(self.filer, "File issues")["run"]
+        self.assertIn('if [ "$DRY_RUN" = \'true\' ]; then', run)

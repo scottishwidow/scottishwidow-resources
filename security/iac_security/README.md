@@ -20,7 +20,8 @@ normalise.py   one record per finding, keyed, then filtered twice:
         |      ownership by path, then severity against the threshold
         |      -> {"eligible": [...], "below_threshold": [...], "vendored": [...]}
         v
-taskflow/   one verdict per eligible finding, with a rationale
+taskflow/   the outstanding findings -- eligible, minus the ones the tracker
+        |   already holds -- and one verdict each, with a rationale
         |   -- see taskflow/README.md
         v
 file_issues.py   one GitHub issue per triaged finding, under needs-triage,
@@ -122,6 +123,8 @@ hides it from where work is reviewed.
 |---|---|---|---|
 | any verdict on an eligible finding | yes | `needs-triage` | left open |
 | an eligible finding no verdict reached | yes, as `undetermined` | `needs-triage` | left open |
+| a second verdict on a finding that has an item | no — a comment on that item | unchanged | left open |
+| an eligible finding whose item already stands | no | unchanged | left open |
 | below threshold | no | — | left open, untriaged |
 | vendored | no | — | recorded upstream |
 
@@ -155,6 +158,18 @@ Idempotency is keyed on the finding key, read back out of existing issue bodies
 by `issue_body.py` across open *and* closed issues. A second run over unchanged
 verdicts creates nothing and edits nothing — the disposition label a human
 applied is this pipeline's output and must survive the next run of it.
+
+The exception is a finding whose **open** item records `undetermined`. That is
+the discard rule's outcome, not a judgment, so the finding is triaged again
+(`taskflow/README.md` — the tracker exclusion) and the new verdict arrives as a
+comment on the item that already exists. One finding key still owns exactly one
+item. A repeat `undetermined` is not commented: the item says so already, and a
+comment per push would bury the finding under restatements of itself.
+
+`issue_body.py` reads a comment as well as a body for this reason. The verdict a
+tracker item records now is the latest one a comment carries, and its body
+otherwise — so an item commented with a real verdict is not triaged a third
+time.
 
 In CI this is a separate job from the one that runs the agent: the job holding
 `issues: write` never sees `AI_API_TOKEN`, and the job that runs the model

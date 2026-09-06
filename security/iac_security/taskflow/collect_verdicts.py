@@ -15,7 +15,7 @@ RUNS = TRIAGE_DIR / "runs"
 sys.path.insert(0, str(TRIAGE_DIR))
 import vocabulary  # noqa: E402
 
-UNDETERMINED = "undetermined"
+UNDETERMINED = vocabulary.UNDETERMINED
 
 DISCARD_MISSING_RATIONALE = "no rationale supplied"
 DISCARD_BLANK_RATIONALE = "rationale was empty or whitespace"
@@ -24,6 +24,10 @@ DISCARD_NO_RESULT = "branch produced no result"
 DISCARD_UNPARSEABLE = "branch result was not a JSON object"
 
 EVIDENCE_DISCREPANCY = "evidence_discrepancy"
+
+# The task the fan-out reads. Its list, not the whole eligible set, is what a
+# branch index points into once the tracker exclusion has narrowed one to the other.
+FANOUT_TASK = "outstanding"
 
 
 def latest_manifest(root: pathlib.Path = RUNS) -> pathlib.Path:
@@ -86,6 +90,20 @@ class EligibleFindings:
         return self._rule_ids.get(key, "")
 
 
+def fanout_findings_from_manifest(manifest: dict[str, Any]) -> list[dict[str, Any]] | None:
+    """The list the fan-out actually ran over, or `None` if the manifest predates the task.
+
+    A branch is attributed by its position, so the list has to be the one the
+    framework indexed into. `--findings` names the whole eligible set, which is
+    a wider list whenever the tracker excluded anything from this run.
+    """
+    task = (manifest.get("outputs") or {}).get(FANOUT_TASK)
+    if not isinstance(task, dict):
+        return None
+    records = task.get("findings")
+    return records if isinstance(records, list) else None
+
+
 def corpus_paths_from_manifest(manifest: dict[str, Any]) -> set[str] | None:
     corpus = (manifest.get("outputs") or {}).get("corpus")
     if not isinstance(corpus, dict):
@@ -144,6 +162,11 @@ def collect(
 ) -> list[dict[str, Any]]:
     outputs = manifest.get("outputs") or {}
     if output_id not in outputs:
+        # A fan-out over nothing produces no output, and that is the shape of a run
+        # the tracker excluded everything from -- a correct run with nothing to say,
+        # not the failed-before-the-model-step degradation the raise below reports.
+        if fanout_findings_from_manifest(manifest) == []:
+            return []
         raise SystemExit(
             f"manifest has no output {output_id!r}; it has: "
             + (", ".join(sorted(outputs)) or "(none)")
@@ -174,7 +197,7 @@ def main(argv: list[str] | None = None) -> int:
     )
     parser.add_argument(
         "--findings",
-        help="normalised findings JSON, to attach a finding key and rule ID to each verdict",
+        help="normalised findings JSON, read only when the manifest carries no fan-out list",
     )
     parser.add_argument("--output-id", default="verdicts", help="the taskflow task id to read")
     parser.add_argument("-o", "--output", help="write here instead of stdout")
@@ -182,7 +205,12 @@ def main(argv: list[str] | None = None) -> int:
 
     path = latest_manifest() if args.latest else pathlib.Path(args.manifest)
     manifest = json.loads(path.read_text(encoding="utf-8"))
-    findings = eligible_findings(pathlib.Path(args.findings) if args.findings else None)
+    fanned_out = fanout_findings_from_manifest(manifest)
+    findings = (
+        EligibleFindings(fanned_out)
+        if fanned_out is not None
+        else eligible_findings(pathlib.Path(args.findings) if args.findings else None)
+    )
 
     records = collect(manifest, findings, args.output_id)
 

@@ -451,5 +451,126 @@ class TwoVerdictsForOneKeyInOneRun(unittest.TestCase):
         self.assertNotIn(self.key, plan["filed_without_a_verdict"])
 
 
+class ATrackerItemAwaitingAVerdictIsCommentedOn(unittest.TestCase):
+    """`undetermined` is a failure to judge, not a judgment, so its finding is
+    triaged again — and the new verdict must reach the item that already exists.
+
+    Opening a second item for one finding key would break the idempotency the
+    whole tracker join rests on.
+    """
+
+    def setUp(self) -> None:
+        self.findings = normalised()
+        self.key = self.findings["eligible"][0]["key"]
+        first = file_issues.plan(
+            self.findings, [verdict(self.key, file_issues.UNDETERMINED)], [], []
+        )
+        self.item = issue_for(self.filed(first), number=77)
+        self.item["state"] = "OPEN"
+
+    def filed(self, plan: dict) -> dict:
+        return next(item for item in plan["create"] if item["key"] == self.key)
+
+    def plan_with(self, records: list[dict], item: dict | None = None) -> dict:
+        return file_issues.plan(self.findings, records, [item or self.item], [])
+
+    def test_the_new_verdict_arrives_as_a_comment(self) -> None:
+        plan = self.plan_with([verdict(self.key, "real-judgment")])
+        self.assertEqual([entry["key"] for entry in plan["comment"]], [self.key])
+        self.assertEqual(plan["comment"][0]["issue"], 77)
+
+    def test_it_opens_no_second_item_for_that_key(self) -> None:
+        plan = self.plan_with([verdict(self.key, "real-judgment")])
+        self.assertNotIn(self.key, {entry["key"] for entry in plan["create"]})
+
+    def test_the_comment_carries_the_verdict_and_the_rationale(self) -> None:
+        plan = self.plan_with(
+            [verdict(self.key, "real-mechanical", rationale="The bucket is unversioned.")]
+        )
+        body = plan["comment"][0]["body"]
+        self.assertEqual(issue_body.comment_verdict(body), "real-mechanical")
+        self.assertIn("The bucket is unversioned.", body)
+
+    def test_the_comment_is_what_the_next_run_reads_the_item_as(self) -> None:
+        """Otherwise the re-triage never ends: the issue body still says `undetermined`."""
+        plan = self.plan_with([verdict(self.key, "real-judgment")])
+        answered = dict(self.item, comments=[{"body": plan["comment"][0]["body"]}])
+        self.assertFalse(issue_body.awaits_a_verdict(issue_body.tracker_items([answered])[self.key]))
+
+    def test_a_second_undetermined_is_not_commented(self) -> None:
+        """The item says `undetermined` already; a comment per push would bury it."""
+        plan = self.plan_with([verdict(self.key, file_issues.UNDETERMINED)])
+        self.assertEqual(plan["comment"], [])
+        self.assertIn({"key": self.key, "issue": 77}, plan["skipped_existing"])
+
+    def test_a_finding_no_verdict_reached_is_not_commented_either(self) -> None:
+        plan = self.plan_with([])
+        self.assertEqual(plan["comment"], [])
+        self.assertNotIn(self.key, plan["filed_without_a_verdict"])
+
+    def test_only_the_first_of_two_records_for_one_key_is_commented(self) -> None:
+        plan = self.plan_with([verdict(self.key, "real-judgment"), verdict(self.key, "not-applicable")])
+        self.assertEqual([entry["verdict"] for entry in plan["comment"]], ["real-judgment"])
+
+    def test_an_item_recording_a_real_verdict_is_skipped_not_commented(self) -> None:
+        judged = file_issues.plan(self.findings, [verdict(self.key, "real-judgment")], [], [])
+        item = issue_for(self.filed(judged), number=88)
+        item["state"] = "OPEN"
+        plan = self.plan_with([verdict(self.key, "not-applicable")], item)
+        self.assertEqual(plan["comment"], [])
+        self.assertIn({"key": self.key, "issue": 88}, plan["skipped_existing"])
+
+    def test_a_closed_item_is_skipped_however_it_was_left(self) -> None:
+        """A reintroduced finding reopens its alert, which is where that state belongs."""
+        plan = self.plan_with(
+            [verdict(self.key, "real-judgment")], dict(self.item, state="CLOSED")
+        )
+        self.assertEqual(plan["comment"], [])
+        self.assertIn({"key": self.key, "issue": 77}, plan["skipped_existing"])
+
+    def test_an_item_of_unknown_state_is_treated_as_open(self) -> None:
+        """A snapshot from before the state field was fetched re-triages rather than drops."""
+        plan = self.plan_with([verdict(self.key, "real-judgment")], issue_for(self.filed(
+            file_issues.plan(self.findings, [verdict(self.key, file_issues.UNDETERMINED)], [], [])
+        ), number=77))
+        self.assertEqual([entry["issue"] for entry in plan["comment"]], [77])
+
+    def test_the_tracker_read_fetches_state_and_comments(self) -> None:
+        captured: list[list[str]] = []
+        original = file_issues.gh_json
+        file_issues.gh_json = lambda args: captured.append(args) or []
+        try:
+            file_issues.fetch_issues()
+        finally:
+            file_issues.gh_json = original
+        fields = captured[0][captured[0].index("--json") + 1]
+        self.assertEqual(set(fields.split(",")), {"number", "state", "body", "comments"})
+
+
+class AnEligibleFindingAlreadyTrackedIsNotReportedUntriaged(unittest.TestCase):
+    """A finding that already has an item is not filed, so it was not left untriaged."""
+
+    def setUp(self) -> None:
+        self.findings = normalised()
+        self.run = full_run(self.findings)
+        first = file_issues.plan(self.findings, self.run, [], [])
+        self.existing = [
+            issue_for(item, number=100 + index) for index, item in enumerate(first["create"])
+        ]
+
+    def test_a_run_that_triaged_nothing_files_nothing_and_reports_nothing_missing(self) -> None:
+        plan = file_issues.plan(self.findings, [], self.existing, [])
+        self.assertEqual(plan["create"], [])
+        self.assertEqual(plan["comment"], [])
+        self.assertEqual(plan["filed_without_a_verdict"], [])
+
+    def test_every_excluded_finding_is_still_reported_against_its_item(self) -> None:
+        plan = file_issues.plan(self.findings, [], self.existing, [])
+        self.assertEqual(
+            {entry["key"]: entry["issue"] for entry in plan["skipped_existing"]},
+            {issue_body.parse(i["body"])["key"]: i["number"] for i in self.existing},
+        )
+
+
 if __name__ == "__main__":
     unittest.main()
