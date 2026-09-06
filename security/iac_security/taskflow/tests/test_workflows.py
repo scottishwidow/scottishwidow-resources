@@ -105,7 +105,16 @@ class IssuesAreFiledByAJobThatRunsNoModel(unittest.TestCase):
         self.assertEqual(self.filer["needs"], "triage")
 
     def test_issue_filing_does_not_run_when_triage_was_skipped(self) -> None:
-        self.assertEqual(self.filer["if"], "needs.triage.result != 'skipped'")
+        self.assertIn("needs.triage.result != 'skipped'", self.filer["if"])
+
+    def test_a_failed_triage_still_files_the_verdicts_it_produced(self) -> None:
+        # A condition carrying no status function has an implicit `success()`,
+        # which a string comparison alone cannot displace.
+        condition = self.filer["if"]
+        self.assertTrue(
+            any(call in condition for call in ("always()", "failure()", "!cancelled()")),
+            condition,
+        )
 
     def test_it_checks_out_main_explicitly_rather_than_the_triggering_commit(self) -> None:
         checkout = next(
@@ -123,6 +132,27 @@ class IssuesAreFiledByAJobThatRunsNoModel(unittest.TestCase):
         self.assertTrue(upload["with"]["path"].endswith("${{ github.run_id }}.json"))
         filing = next(step for step in self.filer["steps"] if step.get("name") == "File issues")
         self.assertIn("/tmp/verdicts/${{ github.run_id }}.json", filing["run"])
+
+
+class PathsCrossTheContainerBoundary(unittest.TestCase):
+    """`run.sh` works in `/app`, the repository root; the host steps do not."""
+
+    def setUp(self) -> None:
+        self.triage = load(TRIAGE)["jobs"]["triage"]
+
+    def step(self, name: str) -> dict:
+        return next(step for step in self.triage["steps"] if step.get("name") == name)
+
+    def test_the_report_the_container_reads_is_named_from_the_repository_root(self) -> None:
+        self.assertIn(
+            "-g report=security/iac_security/runs/trivy-report.json",
+            self.step("Run triage taskflow")["run"],
+        )
+
+    def test_the_host_step_stays_relative_to_its_own_working_directory(self) -> None:
+        collect = self.step("Collect verdicts")
+        self.assertEqual(collect["working-directory"], "security/iac_security/taskflow")
+        self.assertEqual(collect["env"]["TRIVY_REPORT"], "../runs/trivy-report.json")
 
 
 class TokenIsConfinedToTriage(unittest.TestCase):

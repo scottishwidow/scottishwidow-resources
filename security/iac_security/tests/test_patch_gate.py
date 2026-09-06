@@ -81,6 +81,27 @@ def diff_for(path: str, *, new: bool = False, deleted: bool = False) -> str:
     )
 
 
+# Git quotes a path holding a non-ASCII byte and escapes the byte in octal.
+QUOTED_HEADER = r'diff --git "a/modules/bootstrap/pol\303\255tica.tf" "b/modules/bootstrap/pol\303\255tica.tf"'
+QUOTED_PATH_DIFF = (
+    QUOTED_HEADER + "\n"
+    + "--- a/modules/bootstrap/pol\\303\\255tica.tf\n"
+    + "+++ b/modules/bootstrap/pol\\303\\255tica.tf\n"
+    + "@@ -1,1 +1,1 @@\n"
+    + "-old\n"
+    + "+new\n"
+)
+
+
+def rename_diff(old_path: str, new_path: str) -> str:
+    return (
+        f"diff --git a/{old_path} b/{new_path}\n"
+        + "similarity index 100%\n"
+        + f"rename from {old_path}\n"
+        + f"rename to {new_path}\n"
+    )
+
+
 class CleanPatch(unittest.TestCase):
     def test_removes_its_target_and_introduces_nothing(self) -> None:
         decision = patch_gate.decide(
@@ -246,6 +267,58 @@ class ScanComparison(unittest.TestCase):
         self.assertEqual(
             decision.reason,
             f"the patch introduces a new finding: {OTHER_MISCONFIG['ID']}:module.bootstrap:aws_subnet.public_zone_1",
+        )
+
+
+class UnreadablePaths(unittest.TestCase):
+    """A header the gate cannot read a path from must fail, not be skipped.
+
+    Skipping it let the path past the permitted-paths check entirely, and the
+    apply gate does not catch it either -- such a diff applies cleanly.
+    """
+
+    def test_a_quoted_path_is_rejected(self) -> None:
+        decision = patch_gate.decide(
+            QUOTED_PATH_DIFF,
+            FINDING,
+            SCAN_BEFORE,
+            SCAN_AFTER_CLEAN,
+            PASSING_EVIDENCE,
+        )
+        self.assertFalse(decision.passed)
+        self.assertEqual(decision.gate, patch_gate.PERMITTED_PATHS)
+        self.assertEqual(
+            decision.reason, f"`{QUOTED_HEADER}` names no path this gate can read"
+        )
+
+    def test_a_quoted_path_beside_a_permitted_one_is_rejected(self) -> None:
+        decision = patch_gate.decide(
+            diff_for(FINDING["code_path"]) + QUOTED_PATH_DIFF,
+            FINDING,
+            SCAN_BEFORE,
+            SCAN_AFTER_CLEAN,
+            PASSING_EVIDENCE,
+        )
+        self.assertFalse(decision.passed)
+        self.assertEqual(decision.gate, patch_gate.PERMITTED_PATHS)
+
+
+class Renames(unittest.TestCase):
+    """A rename removes the old path while naming neither a deletion nor a new file."""
+
+    def test_renaming_the_code_path_onto_the_owner_path_is_rejected(self) -> None:
+        decision = patch_gate.decide(
+            rename_diff(FINDING["code_path"], FINDING["owner_path"]),
+            FINDING,
+            SCAN_BEFORE,
+            SCAN_AFTER_CLEAN,
+            PASSING_EVIDENCE,
+        )
+        self.assertFalse(decision.passed)
+        self.assertEqual(decision.gate, patch_gate.PERMITTED_PATHS)
+        self.assertEqual(
+            decision.reason,
+            f"`{FINDING['owner_path']}` is renamed, which no remediation permits",
         )
 
 

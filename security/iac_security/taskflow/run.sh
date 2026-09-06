@@ -2,10 +2,10 @@
 # Run the IaC triage taskflow in the published seclab-taskflow-agent image.
 #
 # Usage:
-#   export AI_API_TOKEN=...                            # an Anthropic API key; no token, no run
-#   ./run.sh                                           # live Trivy scan, propose-only
-#   ./run.sh -g report=../fixtures/baseline-scan.json  # replay the committed baseline
-#   ./run.sh --lint                                    # validate offline, no model, no token
+#   export AI_API_TOKEN=...                                               # an Anthropic API key; no token, no run
+#   ./run.sh                                                              # live Trivy scan, propose-only
+#   ./run.sh -g report=security/iac_security/fixtures/baseline-scan.json  # replay the committed baseline
+#   ./run.sh --lint                                                       # validate offline, no model, no token
 
 set -euo pipefail
 
