@@ -22,6 +22,12 @@ IaC security triage pipeline filed, it asks that pipeline for a patch; it means
 nothing on any other issue. See
 [`security/iac_security/CONTEXT.md`](../../security/iac_security/CONTEXT.md).
 
+`wontfix` has a second consequence on an issue that pipeline filed: closing such
+an issue under `wontfix` dismisses the code scanning alert the issue names, as
+`won't fix`, with the issue URL as the dismissal comment. Closing it as
+*completed* dismisses nothing. On any other issue the label means only what the
+table says.
+
 No pipeline in this repository applies `ready-for-agent` or
 `ready-for-remediation` itself. Both authorise unattended work, and an agent
 able to apply one would be authorising its own.

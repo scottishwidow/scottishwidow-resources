@@ -13,6 +13,7 @@ WORKFLOWS = REPO_ROOT / ".github" / "workflows"
 SCAN = WORKFLOWS / "iac-security-scan.yml"
 TRIAGE = WORKFLOWS / "iac-security-triage.yml"
 REMEDIATE = WORKFLOWS / "iac-security-remediate.yml"
+RECONCILE = WORKFLOWS / "iac-security-reconcile.yml"
 
 sys.path.insert(0, str(TRIAGE_DIR))
 
@@ -823,3 +824,80 @@ class AFailingPatchTeachesSomethingOnTheIssue(unittest.TestCase):
         self.assertNotEqual(opener, self.job["if"])
         self.assertIn("needs.gate.outputs.passed", opener)
         self.assertIn("needs.gate.outputs.passed", self.job["if"])
+
+
+def writes_alert_state(workflow: dict) -> bool:
+    grants = [workflow.get("permissions") or {}] + [
+        job.get("permissions", workflow.get("permissions") or {})
+        for job in workflow["jobs"].values()
+    ]
+    return any(grant.get("security-events") == "write" for grant in grants)
+
+
+class AlertStateIsWrittenByReconciliationAndNowhereElse(unittest.TestCase):
+    def setUp(self) -> None:
+        self.workflow = load(RECONCILE)
+        self.job = self.workflow["jobs"]["dismiss"]
+
+    def test_no_other_workflow_holds_the_permission_to_write_alert_state(self) -> None:
+        # The scan is the one exception and it is not a second writer: publishing a
+        # SARIF report is the only thing GitHub accepts this permission for there,
+        # and `ScanDoesNotDismissWhatItPublishes` below holds it to that.
+        holders = {
+            path.name
+            for path in sorted(WORKFLOWS.glob("*.yml"))
+            if writes_alert_state(load(path))
+        }
+        self.assertEqual(holders, {SCAN.name, RECONCILE.name})
+
+    def test_the_one_job_that_writes_alert_state_holds_nothing_else(self) -> None:
+        self.assertEqual(
+            self.job["permissions"], {"contents": "read", "security-events": "write"}
+        )
+        self.assertEqual(self.workflow["permissions"], {"contents": "read"})
+
+    def test_it_runs_no_model(self) -> None:
+        text = RECONCILE.read_text(encoding="utf-8")
+        self.assertNotIn(TOKEN, text)
+        self.assertNotIn("secrets.", text)
+        self.assertNotIn("run.sh", text)
+
+    def test_it_runs_on_a_close_and_decides_on_the_label(self) -> None:
+        """Keyed on `wontfix`: a `Fixes #N` merge closes its issue too, and that alert closes at the next scan."""
+        on = self.workflow[ON] if ON in self.workflow else self.workflow["on"]
+        self.assertEqual(triggers(self.workflow), {"issues"})
+        self.assertEqual(on["issues"]["types"], ["closed"])
+        self.assertIn(
+            "contains(github.event.issue.labels.*.name, 'wontfix')", self.job["if"]
+        )
+
+    def test_the_issue_body_is_read_off_the_event_rather_than_interpolated(self) -> None:
+        rendered = yaml.safe_dump(self.job)
+        self.assertNotIn("github.event.issue.body", rendered)
+        self.assertIn('jq \'.issue\' "$GITHUB_EVENT_PATH"', self.job["steps"][1]["run"])
+
+    def test_it_checks_out_main_explicitly_rather_than_the_triggering_commit(self) -> None:
+        checkout = next(
+            step for step in self.job["steps"] if "actions/checkout" in step.get("uses", "")
+        )
+        self.assertEqual(checkout["with"]["ref"], "main")
+
+
+class ScanDoesNotDismissWhatItPublishes(unittest.TestCase):
+    """The scan's `security-events: write` publishes a SARIF report and reaches no alert."""
+
+    def setUp(self) -> None:
+        self.text = SCAN.read_text(encoding="utf-8")
+
+    def test_the_scan_makes_no_call_that_could_change_an_alert(self) -> None:
+        for reaching in ("code-scanning/alerts", "gh api", "dismissed_reason"):
+            self.assertNotIn(reaching, self.text)
+
+    def test_the_only_step_the_permission_serves_is_the_sarif_upload(self) -> None:
+        publishing = [
+            step
+            for job in load(SCAN)["jobs"].values()
+            for step in job["steps"]
+            if "codeql-action/upload-sarif" in step.get("uses", "")
+        ]
+        self.assertEqual(len(publishing), 1)

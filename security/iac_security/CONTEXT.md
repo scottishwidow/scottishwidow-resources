@@ -146,6 +146,16 @@ and what accepts a patch is the merge.
 _Avoid_: validation, verification — both claim the gate settles correctness, and
 it cannot: no gate here can see that a patch stranded a subnet's instances.
 
+**Reconciliation**:
+Deriving alert state from a human's decision on the tracker item: closing an item
+carrying `wontfix` dismisses the alert its **Alert** row names, with the issue URL
+as the dismissal comment and `won't fix` as the reason. It is keyed on the label
+rather than on the close, because a merged remediation pull request closes its
+item as *completed* and that alert closes on its own at the next scan. It is a
+derivation from a decision, not a **store**: nothing accumulates and nothing is
+queried later. Its workflow is the only place here that writes alert state.
+_Avoid_: sync, auto-close — the human closed the item, and this follows.
+
 **Propose-only**:
 The pipeline's posture, permanently under ADR-0008: it forms verdicts, files them
 as issues, and proposes patches. Nothing merges and nothing is dismissed without
