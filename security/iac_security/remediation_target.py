@@ -24,6 +24,14 @@ import vocabulary
 ITEM_ENV = "ISSUE_ITEM"
 BODY_ENV = "ISSUE_BODY"
 
+# A finding the scan no longer holds is a correct refusal rather than a defect,
+# so it exits apart from the defects and the workflow can end the run green.
+STALE_FINDING_EXIT = 3
+
+
+class StaleFinding(Exception):
+    """The issue names a finding this scan does not hold, so there is nothing to patch."""
+
 
 def load_item(path: str | None) -> dict[str, Any]:
     if not path:
@@ -83,8 +91,8 @@ def target(findings: dict[str, Any], item: dict[str, Any]) -> dict[str, Any]:
 
     matched = eligible_matches(findings, tracked["key"])
     if not matched:
-        raise SystemExit(
-            f"error: {tracked['key']} is not an eligible finding in this scan; "
+        raise StaleFinding(
+            f"{tracked['key']} is not an eligible finding in this scan; "
             "it may have been fixed, dropped below the threshold, or never been first-party"
         )
     if len(matched) > 1:
@@ -125,7 +133,12 @@ def main(argv: list[str] | None = None) -> int:
     with source:
         findings = json.load(source)
 
-    assembled = target(findings, item)
+    try:
+        assembled = target(findings, item)
+    except StaleFinding as stale:
+        print(f"error: {stale}", file=sys.stderr)
+        return STALE_FINDING_EXIT
+
     print(
         f"remediating {assembled['finding']['key']} "
         f"({assembled['issue']['verdict']}, issue #{assembled['issue']['number']})",

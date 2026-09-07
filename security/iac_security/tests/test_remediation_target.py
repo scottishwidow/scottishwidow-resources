@@ -7,7 +7,7 @@ import pathlib
 import sys
 import tempfile
 import unittest
-from contextlib import redirect_stdout
+from contextlib import redirect_stderr, redirect_stdout
 
 HERE = pathlib.Path(__file__).resolve().parent
 TRIAGE_DIR = HERE.parent
@@ -71,7 +71,7 @@ class TheIssueSaysWhichFinding(unittest.TestCase):
         self.assertIn("no finding key", str(raised.exception))
 
     def test_a_key_that_is_not_an_eligible_finding_halts_the_run(self) -> None:
-        with self.assertRaises(SystemExit) as raised:
+        with self.assertRaises(remediation_target.StaleFinding) as raised:
             remediation_target.target(findings(), item(body=body(key="AWS-0001:m:r.n")))
         self.assertIn("not an eligible finding", str(raised.exception))
 
@@ -87,6 +87,32 @@ class TheIssueSaysWhichFinding(unittest.TestCase):
         target = remediation_target.target(findings(), item(comments=[{"body": note}]))
         self.assertEqual(target["issue"]["body"], body())
         self.assertEqual(target["issue"]["comments"], [note])
+
+
+class AStaleFindingIsNotADefect(unittest.TestCase):
+    """The finding is gone, which is a correct stop: the workflow ends the run green on it."""
+
+    def assemble(self, item_record: dict, findings_record: dict) -> int:
+        with tempfile.TemporaryDirectory() as tmp:
+            issue = pathlib.Path(tmp) / "issue.json"
+            issue.write_text(json.dumps(item_record), encoding="utf-8")
+            scan = pathlib.Path(tmp) / "findings.json"
+            scan.write_text(json.dumps(findings_record), encoding="utf-8")
+            with redirect_stdout(io.StringIO()), redirect_stderr(io.StringIO()):
+                return remediation_target.main([str(scan), "--issue", str(issue)])
+
+    def test_a_gone_finding_exits_apart_from_the_defects(self) -> None:
+        self.assertEqual(
+            self.assemble(item(body=body(key="AWS-0001:m:r.n")), findings()),
+            remediation_target.STALE_FINDING_EXIT,
+        )
+
+    def test_the_defect_exits_do_not_share_that_status(self) -> None:
+        self.assertNotEqual(remediation_target.STALE_FINDING_EXIT, 0)
+        self.assertNotEqual(remediation_target.STALE_FINDING_EXIT, 1)
+
+    def test_a_finding_the_scan_still_holds_exits_zero(self) -> None:
+        self.assertEqual(self.assemble(item(), findings()), 0)
 
 
 class AnUnansweredVerdictIsNotAVerdict(unittest.TestCase):

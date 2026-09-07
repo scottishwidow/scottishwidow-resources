@@ -31,3 +31,7 @@ table says.
 No pipeline in this repository applies `ready-for-agent` or
 `ready-for-remediation` itself. Both authorise unattended work, and an agent
 able to apply one would be authorising its own.
+
+The remediation pipeline does *remove* `ready-for-remediation`, from an issue
+whose finding the current scan no longer holds. Removing an authorisation is not
+granting one, and it leaves the next run to whoever applies the label again.

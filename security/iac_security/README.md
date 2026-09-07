@@ -210,6 +210,14 @@ touch. A body carrying no key halts the run, so a mislabelled issue costs
 nothing — and in CI that check runs first, in a job holding no token at all, off
 the body the event payload already carried.
 
+Its three stops are not alike. A body carrying no key, and a key naming two
+eligible findings, are defects and exit `1`. A key naming a finding this scan
+does not hold is a correct refusal — the finding was fixed, dropped below the
+threshold, or read as an upstream module's — and exits
+`STALE_FINDING_EXIT` (`3`) instead. The workflow reads that status as a clean
+stop: it runs no model, opens no pull request, says on the issue which finding
+is gone, removes the `ready-for-remediation` label and ends the run green.
+
     ISSUE_ITEM=runs/issue.json python3 security/iac_security/remediation_target.py \
       --key-only
 

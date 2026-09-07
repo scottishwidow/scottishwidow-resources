@@ -18,6 +18,7 @@ RECONCILE = WORKFLOWS / "iac-security-reconcile.yml"
 sys.path.insert(0, str(TRIAGE_DIR))
 
 import file_issues  # noqa: E402
+import remediation_target  # noqa: E402
 
 TOKEN = "AI_API_TOKEN"
 # `on` is YAML 1.1's boolean true, which is what safe_load makes of the key.
@@ -479,15 +480,22 @@ class RemediationIsInvokedByALabel(unittest.TestCase):
 
     def test_every_checkout_takes_main_rather_than_whatever_the_issue_says(self) -> None:
         """And leaves no token in the tree a model-authored diff is applied to."""
-        checkouts = 0
+        checked_out = set()
         for name, job in self.workflow["jobs"].items():
             for step in job["steps"]:
                 if "actions/checkout" not in step.get("uses", ""):
                     continue
-                checkouts += 1
+                checked_out.add(name)
                 self.assertEqual(step["with"]["ref"], "main", name)
                 self.assertIs(step["with"]["persist-credentials"], False, name)
-        self.assertGreaterEqual(checkouts, len(self.workflow["jobs"]) - 1)
+        # A job that only writes on the tracker reads no repository content, so
+        # the rule is that every job which works in a tree checks out this one.
+        speaking_only = {
+            name
+            for name, job in self.workflow["jobs"].items()
+            if all("gh issue " in step.get("run", "") for step in job["steps"])
+        }
+        self.assertEqual(checked_out, set(self.workflow["jobs"]) - speaking_only)
 
 
 class AMislabelledIssueCostsNothing(unittest.TestCase):
@@ -784,11 +792,15 @@ class APassingPatchOpensAPullRequest(unittest.TestCase):
     def test_the_pull_request_title_is_the_conventional_form_the_repository_validates(self) -> None:
         self.assertIn('--title "fix(security): ', self.step("Open the pull request")["run"])
 
-    def test_nothing_in_the_workflow_removes_the_remediation_label(self) -> None:
+    def test_the_path_to_a_merge_touches_no_label(self) -> None:
         """The merge closes the issue with the label a human applied still on it."""
-        rendered = yaml.safe_dump(self.workflow)
+        rendered = yaml.safe_dump(self.job)
         self.assertNotIn("--remove-label", rendered)
         self.assertNotIn("gh issue edit", rendered)
+
+    def test_the_workflow_applies_no_label_anywhere(self) -> None:
+        """Applying `ready-for-remediation` is authorising its own unattended work."""
+        self.assertNotIn("--add-label", yaml.safe_dump(self.workflow))
 
 
 class AFailingPatchTeachesSomethingOnTheIssue(unittest.TestCase):
@@ -824,6 +836,60 @@ class AFailingPatchTeachesSomethingOnTheIssue(unittest.TestCase):
         self.assertNotEqual(opener, self.job["if"])
         self.assertIn("needs.gate.outputs.passed", opener)
         self.assertIn("needs.gate.outputs.passed", self.job["if"])
+
+
+class AFindingTheScanNoLongerHoldsEndsTheRunGreen(unittest.TestCase):
+    """A correct refusal, not a defect: the key names nothing there is to patch."""
+
+    def setUp(self) -> None:
+        self.workflow = load(REMEDIATE)
+        self.remediate = self.workflow["jobs"]["remediate"]
+        self.job = self.workflow["jobs"]["report-stale-finding"]
+        self.assemble = next(
+            step for step in self.remediate["steps"] if step.get("id") == "assemble"
+        )
+
+    def paid_steps(self) -> list[dict]:
+        return [
+            step
+            for step in self.remediate["steps"]
+            if TOKEN in yaml.safe_dump(step.get("env") or {})
+        ]
+
+    def test_the_assembly_reads_the_distinct_exit_status_as_a_stop(self) -> None:
+        run = self.assemble["run"]
+        self.assertIn(f'-eq {remediation_target.STALE_FINDING_EXIT}', run)
+        self.assertIn("::notice::", run)
+        self.assertIn("stale=true", run)
+
+    def test_a_defect_exit_still_fails_the_step(self) -> None:
+        """Only status 3 is swallowed; everything else leaves the run red."""
+        self.assertIn('exit "$status"', self.assemble["run"])
+
+    def test_no_model_token_is_spent_on_a_stale_finding(self) -> None:
+        paid = self.paid_steps()
+        self.assertTrue(paid)
+        for step in paid:
+            self.assertEqual(step.get("if"), "steps.assemble.outputs.stale != 'true'", step["name"])
+
+    def test_the_gate_does_not_judge_a_patch_that_was_never_derived(self) -> None:
+        self.assertEqual(self.workflow["jobs"]["gate"]["if"], "needs.remediate.outputs.stale != 'true'")
+
+    def test_it_runs_only_when_the_finding_is_gone(self) -> None:
+        self.assertEqual(self.job["if"], "needs.remediate.outputs.stale == 'true'")
+
+    def test_it_may_write_on_the_tracker_and_do_no_more(self) -> None:
+        self.assertEqual(self.job["permissions"], {"issues": "write"})
+        self.assertNotIn(TOKEN, yaml.safe_dump(self.job))
+
+    def test_the_comment_names_the_finding_that_is_gone(self) -> None:
+        run = self.job["steps"][0]["run"]
+        self.assertIn("gh issue comment", run)
+        self.assertIn("${KEY}", run)
+
+    def test_it_gives_back_the_label_that_authorised_the_run(self) -> None:
+        """Removing is not applying: a human still decides whether a new run starts."""
+        self.assertIn("--remove-label ready-for-remediation", self.job["steps"][0]["run"])
 
 
 def writes_alert_state(workflow: dict) -> bool:
