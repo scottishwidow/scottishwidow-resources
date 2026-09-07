@@ -61,6 +61,8 @@ jobs:
     permissions:
       contents: read
       issues: read
+    outputs:
+      stale: ${{ steps.assemble.outputs.stale }}
     steps:
       - name: Checkout main
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -115,14 +117,24 @@ jobs:
         # host because the gate needs the finding record and the container
         # writes nothing out. Before the model, so a finding the scan no longer
         # holds stops the run rather than being paid for.
+        id: assemble
         working-directory: security/iac_security
         env:
           TRIVY_REPORT: runs/trivy-report.json
         run: |
+          status=0
           taskflow/scan.sh |
-            python3 remediation_target.py --issue runs/issue.json -o runs/target.json
+            python3 remediation_target.py --issue runs/issue.json -o runs/target.json ||
+            status=$?
+          if [ "$status" -eq 3 ]; then
+            echo '::notice::the finding this issue names is not in this scan; there is nothing to remediate'
+            echo 'stale=true' >> "$GITHUB_OUTPUT"
+            status=0
+          fi
+          exit "$status"
 
       - name: Run remediation taskflow
+        if: steps.assemble.outputs.stale != 'true'
         working-directory: security/iac_security/taskflow
         env:
           AI_API_TOKEN: ${{ secrets.AI_API_TOKEN }}
@@ -132,12 +144,13 @@ jobs:
             -g issue=security/iac_security/runs/issue.json
 
       - name: Collect the patch
+        if: steps.assemble.outputs.stale != 'true'
         working-directory: security/iac_security/taskflow
         run: |
           python3 collect_patch.py --latest -o "../runs/${{ github.run_id }}.patch"
 
       - name: Upload the patch
-        if: always()
+        if: always() && steps.assemble.outputs.stale != 'true'
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
           name: remediation-patch-${{ github.run_id }}
@@ -145,7 +158,7 @@ jobs:
           if-no-files-found: warn
 
       - name: Upload the evidence the gate decides on
-        if: always()
+        if: always() && steps.assemble.outputs.stale != 'true'
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
           name: remediation-evidence-${{ github.run_id }}
@@ -159,6 +172,7 @@ jobs:
     needs:
       - target
       - remediate
+    if: needs.remediate.outputs.stale != 'true'
     runs-on: ubuntu-latest
     # It applies a model-authored diff to the tree it works in, so it holds
     # nothing to write with and no token of either kind.
@@ -395,3 +409,35 @@ jobs:
           a new run.
           BODY
           gh issue comment "$ISSUE" --body-file "$RUNNER_TEMP/comment.md"
+
+  report-stale-finding:
+    name: Say on the issue that the finding is gone
+    needs:
+      - target
+      - remediate
+    if: needs.remediate.outputs.stale == 'true'
+    runs-on: ubuntu-latest
+    # It writes, so it holds no `AI_API_TOKEN` and runs no model. Removing the
+    # label is not applying one, so the rule in `docs/agents/triage-labels.md`
+    # that no pipeline authorises its own unattended work still holds.
+    permissions:
+      issues: write
+    steps:
+      - name: Comment that the finding is no longer in the scan
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          ISSUE: ${{ github.event.issue.number }}
+          KEY: ${{ needs.target.outputs.key }}
+        run: |
+          cat > "$RUNNER_TEMP/comment.md" <<BODY
+          The remediation pipeline scanned the repository and \`${KEY}\` is not an
+          eligible finding in it. It may have been fixed, dropped below the
+          severity threshold, or read as an upstream module's.
+
+          No model ran, no patch was derived, and nothing was written to the
+          repository. The \`ready-for-remediation\` label is removed; applying it
+          again starts a new run against a fresh scan.
+          BODY
+          gh issue comment "$ISSUE" --body-file "$RUNNER_TEMP/comment.md"
+          gh issue edit "$ISSUE" --remove-label ready-for-remediation

@@ -169,6 +169,12 @@ repository-wide `ready-for-agent`, which is carried by issues that hold no
 finding. `remediation_target.py` halts a run whose issue names no finding key,
 in a job holding no token at all, so a mislabelled issue costs nothing.
 
+**A finding the scan no longer holds is a stop, not a failure.** A key that
+matches nothing eligible exits on a status of its own, apart from the defect
+exits. The run spends no model token, says on the issue which finding is gone,
+removes the label that authorised it and ends green. A red run then means a
+defect, which is the only thing a red run should mean.
+
 **The patch gate is a filter, and says so.** It applies the diff, confines it to
 the paths the finding named, holds `terraform validate` and `terraform fmt
 -check`, and confirms by re-scan that the target key is gone and that no new key
