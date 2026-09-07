@@ -72,6 +72,14 @@ jobs:
         # Gitignored scratch state, so a fresh checkout has no `runs/` for Trivy to write into.
         run: mkdir -p security/iac_security/runs
 
+      - name: Install Terraform
+        # `ubuntu-latest` carries no Terraform, and without it the vendoring
+        # step below cannot run at all.
+        uses: hashicorp/setup-terraform@dfe3c3f87815947d99a8997f908cb6525fc44e9e # v4.0.1
+        with:
+          terraform_version: 1.16.1
+          terraform_wrapper: false
+
       - name: Vendor the upstream modules
         # Until `init` puts them under `.terraform/modules/`, Trivy reports upstream
         # modules at their source path and `normalise.py` reads them as first-party.
