@@ -111,8 +111,8 @@ patch                                                ->  a unified diff, as resp
 ```
 
 The fan-out reads `outstanding`, which reads `eligible`, so the
-ownership-then-severity order of `design.md - Decision 2` holds at the point
-where it costs money: a vendored or below-threshold finding is never in a prompt.
+ownership-then-severity order holds at the point where it costs money: a
+vendored or below-threshold finding is never in a prompt.
 
 `run:` is not templated, so `outstanding` cannot read `outputs.findings` and
 names the report again through `TRIVY_REPORT`. A named report is replayed rather
@@ -205,7 +205,7 @@ for the remediator the tracker item too — so:
 - a run is reproducible from its inputs, and the exact bytes the model saw are
   recoverable from the run manifest;
 - there is no path from a run to a dismissal, an issue, or the network, whatever
-  a prompt says. `tasks.md` 4.6 is then a structural property rather than a
+  a prompt says. Propose-only is then a structural property rather than a
   behaviour to be observed and hoped for. It is the *agent's* reach that is
   empty, not the deterministic tasks': those run the scanner and read the
   tracker, and neither is reachable from a prompt;
@@ -243,8 +243,7 @@ of triaging every finding against nothing while claiming to show everything.
 ## The discard rule
 
 A verdict without a rationale is discarded and the finding recorded as
-`undetermined` (`spec.md - Scenario: Rationale is unavailable`). Two things
-enforce it, and they check different halves:
+`undetermined`. Two things enforce it, and they check different halves:
 
 - the taskflow's `outputs` schema requires the branch to have produced a
   non-empty string, so a branch that said nothing fails at the framework

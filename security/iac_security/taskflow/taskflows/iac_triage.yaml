@@ -1,6 +1,6 @@
 # SPDX-License-Identifier: MIT
 #
-# IaC triage, propose-only (tasks.md 4.3, design.md - Decision 10).
+# IaC triage, propose-only.
 #
 # Four tasks, and only the last one involves a model:
 #
@@ -15,7 +15,7 @@
 # holding at the point it costs money, and the tracker exclusion is the same
 # argument applied a step later: a finding already filed is judged already.
 #
-# Nothing here writes to alert state or to the tracker (tasks.md 4.6). A run
+# Nothing here writes to alert state or to the tracker. A run
 # produces a manifest; `collect_verdicts.py` turns that into verdict records and
 # the group-6 step files them as issues. Read that as the safety property it is:
 # the agent has no toolboxes at all, so there is no path from a run to a
@@ -176,7 +176,7 @@ taskflow:
       # every run -- produced a string, failed this schema, and had its branch
       # recorded as `result: null`. The verdict was not merely rejected but
       # destroyed, leaving `collect_verdicts.py` unable to say what had been
-      # discarded or why, which is precisely the record `tasks.md` 4.5 promises.
+      # discarded or why, which is precisely the record the discard rule promises.
       #
       # A schema on a prose channel cannot tell a formatting slip from a
       # refusal. So it checks the one thing it can -- that the branch produced
