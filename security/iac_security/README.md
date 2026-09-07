@@ -41,6 +41,12 @@ patch_gate.py   whether that diff reaches review
         +--> passed:   a pull request naming the key, the verdict and the
         |              rationale, which a human reviews and merges
         +--> rejected: a comment on the issue naming the gate it failed
+
+   a human closes the issue wontfix
+        |
+        v
+reconcile_alert.py   dismisses the alert that issue names, as `won't fix`,
+                     with the issue URL as the dismissal comment
 ```
 
 The pipeline routes and reasons; it does not claim to be measurably right.
@@ -151,14 +157,15 @@ Three properties, each a boundary rather than a convenience:
   downstream work. Both are absent from the emittable vocabulary, and a label
   outside that vocabulary raises rather than being filed. The issue body names
   `ready-for-remediation` so that a human knows the label exists.
-- **Alert state is read and never written.** The module speaks to the code
-  scanning API for one reason: to resolve, per finding, the number of the alert
-  it was filed for, which it writes as the issue's **Alert** row beside the
+- **The filer reads alert state and never writes it.** The module speaks to the
+  code scanning API for one reason: to resolve, per finding, the number of the
+  alert it was filed for, which it writes as the issue's **Alert** row beside the
   **Key** row so the two can be rejoined later without re-deriving a line
   number that has since moved. That read is what widens the filing job to
   `security-events: read`. A `not-applicable` verdict still files an issue and
-  still leaves the alert open. Nothing merges and nothing is dismissed without
-  a human, permanently (ADR-0008).
+  still leaves the alert open. What dismisses an alert is a human closing its
+  issue `wontfix`, in a separate workflow (below). Nothing merges and nothing is
+  dismissed without a human, permanently (ADR-0008).
 - **Only findings the pipeline submitted for triage are filed.** A verdict
   arriving for a vendored or below-threshold finding is reported as an error,
   because honouring it would defeat the gate that excluded it.
@@ -261,6 +268,36 @@ something instead of disappearing. The job that opens the pull request holds
 job that runs the model holds no write permission; the job that applies the diff
 holds neither, and its checkout leaves no push credential in the tree.
 
+## Reconciliation
+
+The tracker is the only surface a human works on, so alert state is derived from
+what they do there. Closing a tracker item that carries `wontfix` dismisses the
+alert its **Alert** row names, as `won't fix`, with the issue URL as the
+dismissal comment — so the reason a finding was dismissed is one click away from
+the alert.
+
+    python3 security/iac_security/reconcile_alert.py --issue issue.json --dry-run
+
+Three things dismiss nothing, and each says why:
+
+| the close | what happens |
+|---|---|
+| carries `wontfix` and names an alert | that alert is dismissed as `won't fix` |
+| carries no `wontfix` | nothing — this is not a decision not to fix |
+| is *completed*, label or not | nothing — a merged patch closes its issue this way, and its alert closes at the next scan |
+| names no alert | nothing, reported rather than raised |
+
+The decision is keyed on the **label**, not on the close event, and that is the
+whole of why the *completed* row exists. A merged remediation pull request closes
+its issue through `Fixes #N` with `ready-for-remediation` still attached;
+dismissing that alert would hide the one case where an alert should disappear on
+its own, because the finding is genuinely gone at the next scan.
+
+`iac-security-reconcile.yml` is where this runs. It holds
+`security-events: write`, runs no model, sees no `AI_API_TOKEN`, and reads the
+issue off the event payload rather than through an interpolated body. It is a
+derivation from a human decision and nothing accumulates in it (ADR-0008).
+
 ## Propose-only, permanently
 
 Nothing here can write alert state. The pipeline's safety property is one
@@ -269,8 +306,11 @@ human. There is no earned-autonomy ratchet — ADR-0007 proposed one, and
 ADR-0008 supersedes it and puts autonomous dismissal out of scope permanently
 rather than unearned.
 
-No workflow in this repository is granted `security-events: write` for
-triage, and a test asserts that per job.
+No workflow in this repository is granted `security-events: write` for triage,
+and a test asserts that per job. Two workflows hold it and neither judges
+anything: the scan publishes its SARIF report, and the reconciler carries a
+human's `wontfix` close to the alert. A test enumerates both and asserts that the
+scan reaches no alert.
 
 ## Tests
 

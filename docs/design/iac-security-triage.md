@@ -191,9 +191,12 @@ that state belongs.
 - **`security-events: write` is held by the reconciliation path and nowhere
   else.** Recorded here as "no workflow gets it for triage", pending the autonomy
   allowlist. Under ADR-0008 that allowlist never arrives, and the only writer is
-  the workflow that dismisses an alert when its issue is closed `wontfix` — which
-  carries a human decision rather than forming one. The issue filer holds
-  `security-events: read`, to record the alert's number on the issue.
+  `iac-security-reconcile.yml`, which dismisses an alert when its issue is closed
+  `wontfix` — carrying a human decision rather than forming one. The issue filer
+  holds `security-events: read`, to record the alert's number on the issue. The
+  scan holds the permission too and is not a second writer: GitHub accepts
+  nothing narrower for publishing a SARIF report, so the test enumerates both
+  holders and asserts the scan reaches no alert.
 - **The pipeline never applies the label that authorises remediation.** An agent
   able to apply it would be authorising its own downstream work. It is absent from
   the emittable vocabulary and a label outside that vocabulary raises rather than
