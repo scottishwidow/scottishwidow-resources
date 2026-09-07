@@ -7,8 +7,7 @@ stdlib Python: no framework, no network, no cloud credentials.
 `taskflow/` is the exception and the boundary is deliberate. It holds the only
 part that needs `seclab-taskflow-agent`, Docker and a model token, so replacing
 the orchestration engine would touch that directory and nothing else — the
-scanner, the identity scheme and the fixture do not know it exists
-(`design.md - Decision 10`).
+scanner, the identity scheme and the fixture do not know it exists.
 
 ## Pipeline
 
@@ -65,9 +64,8 @@ can be replayed without a scanner:
 
 ## The two filters
 
-Ownership runs first, severity second, and neither is a judgment
-(`design.md - Decision 2`). On the baseline corpus, at the `MEDIUM` threshold
-configured today:
+Ownership runs first, severity second, and neither is a judgment. On the
+baseline corpus, at the `MEDIUM` threshold configured today:
 
 | | count | what happens to it |
 |---|---|---|
@@ -97,8 +95,7 @@ assigns a verdict from `vocabulary.py`.
 ## Identity and ownership
 
 A finding's identity is the readable composite key
-`ruleId:module_address:resource_type.resource_name`, per `design.md - Decision 3`
-— for example:
+`ruleId:module_address:resource_type.resource_name` — for example:
 
     AWS-0089:module.bootstrap:aws_s3_bucket.terraform_state_bucket
 
@@ -114,8 +111,8 @@ judgments, so that case is reported as `duplicate_first_party_keys` rather than
 absorbed; it is empty on the baseline and a test holds it that way.
 
 Ownership is a path check over `Occurrences[0].Filename`, never a model's
-judgment (`Decision 2`): anything under `.terraform/modules/` is vendored, and
-`live/` and `modules/` are first-party. An unrecognised path is treated as
+judgment: anything under `.terraform/modules/` is vendored, and `live/` and
+`modules/` are first-party. An unrecognised path is treated as
 first-party — so nothing escapes triage by being somewhere unexpected — and
 reported on stderr and in `unrecognised_locations`.
 
@@ -131,9 +128,9 @@ says so.
 
 ## Routing to the tracker
 
-Code scanning holds per-finding state; Issues hold the work (`design.md -
-Decision 4`). `file_issues.py` promotes **every** triaged finding to an issue,
-whatever the verdict — deciding that a finding is not worth acting on is the
+Code scanning holds per-finding state; Issues hold the work.
+`file_issues.py` promotes **every** triaged finding to an issue, whatever the
+verdict — deciding that a finding is not worth acting on is the
 judgment this pipeline exists to inform, and burying it in a dismissal comment
 hides it from where work is reviewed.
 

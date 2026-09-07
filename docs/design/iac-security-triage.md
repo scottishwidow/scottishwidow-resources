@@ -1,77 +1,87 @@
-# Agentic IaC security triage — as built
+# Agentic IaC security triage and remediation — as built
 
-Status: **implemented, 39/41 tasks — and substantially superseded by
-[ADR-0008](../adr/0008-this-repository-is-not-a-memory-bank.md).** This document
-still describes the code as it stands today, which is why it has not been
-rewritten; the sections ADR-0008 retires are marked **superseded** where they
-appear, and the machinery behind them leaves in the change tracked by issue #66.
-Read the marks as a warning that a constraint recorded here is no longer one, not
-as a description of the code.
-
-The change that produced this shape is
-`openspec/changes/add-iac-security-triage/`; the behaviour contract is
-`openspec/specs/iac-security-triage/spec.md`.
+Status: **implemented.** This document describes the pipeline that exists. It is
+the behaviour contract, together with the two test suites; there is no separate
+specification.
 
 Note for whoever reads this next, human or otherwise: this file is **not** agent
-input, and the machinery that made it so is being deleted. `docs/design/` is
-where development thinking is worked out and is half-formed by design. What the
-agents read is the Terraform, all of it, and nothing else — see ADR-0008.
+input. `docs/design/` is where development thinking is worked out and is
+half-formed by design. What the agents read is the Terraform, all of it, and
+nothing else — see
+[ADR-0008](../adr/0008-this-repository-is-not-a-memory-bank.md).
 
 Goal: catch security misconfigurations in this repository's Terraform, decide
-what each one *means here*, and record a rationale for every decision. Under
-ADR-0008 the second half of that goal — bounding judgment made without a human by
-earning it rather than configuring it — is replaced by a flat rule: nothing merges
-and nothing is dismissed without a human, permanently.
+what each one *means here*, record a rationale for every decision, and — where a
+human asks for it — propose a patch. The safety property is one sentence:
+**nothing merges and nothing is dismissed without a human.**
 
 ## Shape of the thing
 
-Two arms that meet at the scorer. The left arm is deterministic and always runs;
-the right arm costs money, needs a token, and is invoked by hand.
+One loop, two agents, and a tracker item between them. Everything before the
+first agent and everything after the second is deterministic. A patch reaches
+the repository through exactly two human acts: the label that authorises it, and
+the merge that accepts it.
 
 ```
-                    trivy config --format json .          v0.74.0, pinned
-                              │
-                              ▼
-                       normalise.py                       one record per finding
-                              │                           keyed, then filtered twice
-              ┌───────────────┼───────────────┐
-              │               │               │
-         ┌────▼────┐   ┌──────▼──────┐  ┌─────▼────┐
-         │ eligible│   │below_thresh │  │ vendored │
-         │    9    │   │      3      │  │    8     │
-         └────┬────┘   └──────┬──────┘  └─────┬────┘
-              │               │               │
-              │          open alert,      recorded
-              │          untriaged,       upstream,
-              │          no issue         never prompted
-              │
-       ┌──────┴────────────────────────┐
-       │                               │
-       ▼                               ▼
-  GitHub code scanning            taskflow/            ← the only model step
-  human triage happens here       one branch per       Anthropic Messages API
-       │                          outstanding          no toolboxes at all
-       │                          finding: eligible
-       │                          minus what the
-       │                          tracker holds
-       ▼                               │
-  export_fixture.py                    ▼
-       │                        collect_verdicts.py    applies the discard rule
-       ▼                               │
-  fixtures/ground-truth.yaml           │
-       │                               │
-       └──────────►  score.py  ◄───────┘               agreement per rule,
-                        │                              each figure with its n
-                        ▼
-                   autonomy.py                         the only thing that may
-                        │                              write alert state
-                        ▼
-                  file_issues.py                       one issue per triaged
-                                                       finding, under needs-triage
+                trivy config --format json .        v0.74.0, pinned
+                            │
+                            ▼
+                      normalise.py                  one record per finding,
+                            │                       keyed, then filtered twice
+            ┌───────────────┼───────────────┐
+            │               │               │
+       ┌────▼────┐   ┌──────▼──────┐  ┌─────▼────┐
+       │ eligible│   │below_thresh │  │ vendored │
+       │    9    │   │      3      │  │    8     │
+       └────┬────┘   └──────┬──────┘  └─────┬────┘
+            │               │               │
+            │          open alert,      recorded
+            │          untriaged,       upstream,
+            │          no issue         never prompted
+            ▼
+     outstanding.py                             eligible, minus every key the
+            │                                   tracker already holds
+            ▼
+     taskflows/iac_triage                       ← a model step
+            │                                   one branch per outstanding
+            ▼                                   finding, no toolboxes at all
+     collect_verdicts.py                        applies the discard rule
+            │
+            ▼
+     file_issues.py                             one issue per triaged finding,
+            │                                   under needs-triage
+            ▼
+  ═══════════════ a human reads the tracker item ═══════════════
+            │                                           │
+   labels it ready-for-remediation           closes it wontfix
+            │                                           │
+            ▼                                           ▼
+     remediation_target.py                       reconcile_alert.py
+            │   the finding, its item and the       dismisses the alert
+            │   paths a patch may touch             the item names
+            ▼
+     taskflows/iac_remediate                    ← the other model step
+            │                                   one unified diff, as text
+            ▼
+     collect_patch.py
+            │
+            ▼
+     patch_gate.py                              a filter, not an acceptance
+            │
+      ┌─────┴─────┐
+      │           │
+   passed      rejected
+      │           │
+      ▼           ▼
+ a pull request  a comment on the item
+      │          naming the gate it failed
+      ▼
+  ═══════════════ a human merges it ═══════════════
 ```
 
 `normalise.py` reads stdin or a report path, so the committed baseline replays
-without a scanner and the whole left arm is testable with neither Trivy nor AWS.
+without a scanner and the whole deterministic half is testable with neither
+Trivy nor AWS.
 
 ## Decisions that are load-bearing in the code
 
@@ -100,24 +110,17 @@ first-party findings could in principle collide; that case is *reported* as
 **Code scanning holds per-finding state; Issues hold the work.** Every triaged
 finding becomes an issue whatever its verdict, because deciding a finding is not
 worth acting on is precisely the judgment this pipeline exists to inform, and
-burying it in a dismissal comment hides it from where work is reviewed.
+burying it in a dismissal comment hides it from where work is reviewed. The
+issue carries the alert's number, so a human decision can be rejoined to its
+alert later without re-deriving a line number that has since moved.
 
-**Ground truth is harvested from real triage, not authored beside it.**
-*Superseded by ADR-0008 — the fixture, its exporter and provenance are deleted
-along with the rest of the measurement arm.* `export_fixture.py` joins verdicts
-back out of dismissal comments and promoted issues. There is no hand-labelling
-worksheet, because a second store is a second place a verdict can be authored.
-Every entry carries `verdict_author`, and only `human` entries may contribute to
-an agreement figure — a verdict written by a model cannot score that model.
-
-**Autonomy is a ratchet gated on agreement *and* support.** *Superseded by
-ADR-0008, which supersedes ADR-0007 — the ratchet, its floor and its allowlist
-are deleted, and autonomous dismissal is out of scope permanently rather than
-unearned.* Dismissal without a human requires all three of `agreement == 100%`,
-`scored >= support_floor`, and the rule being allowlisted. The support floor is
-the load-bearing half: most rules here fire exactly once, so an agreement-only
-gate would hand permanent dismissal authority to a rule on the strength of a
-single case going the right way. `k = 5` is a judgment, not a derivation.
+**The agents read the code, and nothing else about this system.** Every
+first-party `.tf` file is assembled by `terraform_corpus.py` and carried in each
+agent's prompt: 24 files, 778 lines, about 20KB. There is no store — nothing in
+this pipeline may consult what was decided about a *different* finding. The
+remediator reading the tracker item for the finding it is patching is not a
+loophole in that rule: an item is one finding's own record, and it is where the
+verdict was written in the first place rather than a second copy of it.
 
 **The corpus is the cacheable prefix.** A cache prefix must be common to every
 branch of the fan-out. The personality is common already; the corpus is common
@@ -127,25 +130,20 @@ cost, because the model answers about the last thing it read. What the caching
 actually saves depends on how the framework schedules the fan-out — branches that
 run fully in parallel all miss the cache together — so no figure is quoted here.
 
-**The agent has no tools.** `toolboxes` is empty and deliberately so, and this
-survives ADR-0008 unchanged — it applies to the remediator identically. Every
-fact arrives in the prompt, which buys a run reproducible from its inputs and no
-structural path from a run to a dismissal, an issue or a commit whatever a prompt
-says. The third reason originally recorded here — that an agent with read access
-could read the verdict it was about to be scored against — leaves with the
-scoring, but the decision does not depend on it.
+**Neither agent has any tools.** `toolboxes` is empty on both, deliberately.
+Every fact arrives in the prompt, which buys a run reproducible from its inputs
+and no structural path from a run to a dismissal, an issue or a commit whatever a
+prompt says. It matters most on the remediator, where none of the framework's
+own containment would do instead: its `confirm:` list prompts through a bare
+`input()`, which in unattended CI raises rather than denies; `headless: true`
+auto-allows every call; and `blocked_tools` blocks named tools rather than
+granting none. An agent holding no toolbox needs none of that.
 
-**Scanning is automatic; triage is invoked.** *Superseded by ADR-0008: triage runs
-automatically on the scan's completion, and the fork boundary that
-`workflow_dispatch` provided moves to a job condition — see Hard constraints.* A
-code change never assigns a verdict; `workflow_dispatch` is the only trigger on
-the triage workflow. `workflow_dispatch` is since restored *beside* the automatic
-trigger rather than in place of it, and it is the only path that may re-triage a
-finding the tracker already holds — see the tracker exclusion below.
-
-**Triage costs nothing when nothing changed.** The fan-out runs over the
-*outstanding* findings: the eligible set minus every key that already has a
-tracker item. A merge that touches no Terraform therefore reaches no model and
+**Scanning is automatic and triage follows it; the money is spent on change
+only.** Triage runs on the scan's completion, so a code change is triaged without
+anyone asking. It costs nothing when nothing changed, because the fan-out runs
+over the *outstanding* findings — the eligible set minus every key that already
+has a tracker item — so a merge that touches no Terraform reaches no model and
 files nothing. The rule lives in `taskflow/outstanding.py` and deliberately not
 in `normalise.py`: `normalise.py` is pure and replayable against a committed
 fixture, and "has a tracker item" is a property of the *tracker*, which changes
@@ -164,126 +162,131 @@ stops the re-triage repeating forever. A *closed* item excludes its finding
 whatever it records: a reintroduced finding reopens its alert, which is where
 that state belongs.
 
+**Remediation is invoked by a label, never by a verdict.** `real-mechanical` is
+advice to whoever reads the issue and gates nothing. What starts a run is
+`ready-for-remediation` on that issue — a dedicated label rather than the
+repository-wide `ready-for-agent`, which is carried by issues that hold no
+finding. `remediation_target.py` halts a run whose issue names no finding key,
+in a job holding no token at all, so a mislabelled issue costs nothing.
+
+**The patch gate is a filter, and says so.** It applies the diff, confines it to
+the paths the finding named, holds `terraform validate` and `terraform fmt
+-check`, and confirms by re-scan that the target key is gone and that no new key
+appeared. It claims nothing beyond that: no gate here can see that a patch
+stranded a subnet's instances. A passed patch becomes a pull request naming the
+key, the verdict and the rationale; a rejected one becomes a comment on the issue
+naming the gate it failed, so a failure teaches something instead of
+disappearing. What accepts a patch is the merge.
+
+**Alert state is derived from what a human does on the tracker.** Closing an item
+that carries `wontfix` dismisses the alert its **Alert** row names, with the
+issue URL as the dismissal comment. It is keyed on the label rather than on the
+close, because a merged remediation pull request closes its item as *completed*
+and that alert closes on its own at the next scan. It is a derivation from a
+decision, not a store: nothing accumulates and nothing is queried later.
+
 ## Hard constraints (violate these and it breaks)
 
 - **No pull request from a fork may cause a run that reads `AI_API_TOKEN`.**
-  Recorded here as "`workflow_dispatch` stays the only trigger", which ADR-0008
-  weakens deliberately: triage moves to `workflow_run` on the scan's completion,
-  so the boundary moves from the `on:` block to a job condition pinning
-  `workflow_run.event == 'push'` and `head_branch == 'main'`. This is the more
-  dangerous form of the same constraint — a `workflow_run` handler runs from the
-  default branch *with full secrets access*, and the scan runs on
-  `pull_request` — so the test must assert the condition, not the trigger list.
-  The old assertion passes against the vulnerable version.
+  Triage runs on `workflow_run` from the scan's completion, so the boundary is a
+  job condition rather than the `on:` block: it pins `workflow_run.event ==
+  'push'` and `head_branch == 'main'`. This is the more dangerous form of the
+  constraint — a `workflow_run` handler runs from the default branch *with full
+  secrets access*, and the scan runs on `pull_request` — so the test asserts the
+  condition, not the trigger list. An assertion over the trigger list passes
+  against the vulnerable version.
 - **A finding is promoted to at most one tracker item, ever.** The exclusion and
   the filer must agree on what a tracker item records, or a re-triaged finding
   gets a second item and the key stops being a join. They agree by sharing
   `issue_body.py`, which is the one place a body and its comments are read back
   into a verdict.
 - **The job that runs the model never holds a write permission; the job that
-  writes never sees the token.** The split across `triage` and `file-issues` is
-  the containment, and `tests/test_workflows.py` asserts it per job. The tracker
-  read widens the triage job to `issues: read` and no further — it decides what to
-  triage and may not open what it decides on. It extends
-  unchanged to remediation: the job running the model holds nothing, and the job
-  opening the pull request holds `contents: write` and `pull-requests: write` and
-  no token.
+  writes never sees the token.** `taskflow/tests/test_workflows.py` asserts it
+  per job.
+  The tracker read widens the triage job to `issues: read` and no further — it
+  decides what to triage and may not open what it decides on. It holds
+  identically on the remediation side: the job running the model holds nothing,
+  the job that applies a model-authored diff holds neither a write permission nor
+  a push credential, and the job opening the pull request holds `contents: write`
+  and `pull-requests: write` and no token.
 - **`security-events: write` is held by the reconciliation path and nowhere
-  else.** Recorded here as "no workflow gets it for triage", pending the autonomy
-  allowlist. Under ADR-0008 that allowlist never arrives, and the only writer is
-  `iac-security-reconcile.yml`, which dismisses an alert when its issue is closed
-  `wontfix` — carrying a human decision rather than forming one. The issue filer
-  holds `security-events: read`, to record the alert's number on the issue. The
-  scan holds the permission too and is not a second writer: GitHub accepts
+  else.** `iac-security-reconcile.yml` dismisses an alert when its issue is
+  closed `wontfix`, carrying a human decision rather than forming one. The issue
+  filer holds `security-events: read`, to record the alert's number on the issue.
+  The scan holds the permission too and is not a second writer: GitHub accepts
   nothing narrower for publishing a SARIF report, so the test enumerates both
   holders and asserts the scan reaches no alert.
 - **The pipeline never applies the label that authorises remediation.** An agent
-  able to apply it would be authorising its own downstream work. It is absent from
-  the emittable vocabulary and a label outside that vocabulary raises rather than
-  being filed. Under ADR-0008 that label is a dedicated
-  `ready-for-remediation` rather than the repo-wide `ready-for-agent`, which is
-  carried by issues that have nothing to do with findings.
+  able to apply it would be authorising its own downstream work.
+  `ready-for-remediation` and `ready-for-agent` are both absent from the
+  emittable vocabulary, and a label outside that vocabulary raises rather than
+  being filed.
 - **The scan workflow must not reference the triage workflow.** Triage being
   broken, unfunded or unrun must never stop a finding being published. Declaring
   the `workflow_run` trigger on the triage side is what keeps this true.
-- **`export_fixture.py` refuses to run once `runs/` is non-empty.** *Superseded —
-  the exporter, the guard and the `.agent-data/`-is-not-`runs/` separation that
-  protected it all leave with the measurement arm.*
 - **Below threshold means untriaged, never dismissed.** Dismissal is a verdict
   and none has been formed. Those findings keep their key, so lowering the
   threshold extends what has been judged rather than resetting it — as it did at
   MEDIUM.
-- **A patch is filtered, never accepted, by anything other than a human.** New
-  under ADR-0008. The patch gate must apply the diff, confine it to the paths the
-  finding named, hold `terraform validate` and `fmt`, and confirm by re-scan that
-  the target key is gone and no new key appeared — and it must claim nothing
-  beyond that. No gate here can see that a patch stranded a subnet's instances.
+- **A patch is filtered, never accepted, by anything other than a human.** The
+  gate makes review cheap; it does not make review unnecessary, and the pull
+  request body says so where the reviewer will read it.
 - **A verdict without a rationale is discarded, and discarded is not dropped.**
   The finding survives as `undetermined` carrying `discarded_verdict` and
   `discarded_because`. A finding that vanished from a run would be invisible to
-  both scoring and the tracker. An eligible finding that no verdict record
-  reached is discarded on the same rule and filed as `undetermined`, since only
-  `file_issues.py` compares the verdicts against the whole eligible set.
+  the tracker. An eligible finding that no verdict record reached is discarded on
+  the same rule and filed as `undetermined`, since only `file_issues.py` compares
+  the verdicts against the whole eligible set.
 
-## Consequence to carry forward
+## What the pipeline claims
 
-**There is no agreement figure, and there will not be one for this corpus.** All
-9 fixture entries carry `verdict_author: model`: the eligible findings were
-released to the agent untriaged, at the repo owner's instruction, for speed. The
-scorer excludes every entry on provenance and reports nothing — which is the
-honest outcome rather than a number. The forfeit is one-way, because a finding
-the agent has judged can no longer be given an *independent* human verdict.
-
-*Superseded by ADR-0008: measurement does not resume.* It was to have resumed over
-the below-threshold first-party findings, which the agent had not been shown —
-which is why `taskflow/` runs scoped by `globals.scope_keys`. That scoping global,
-the scorer that would have consumed it and
-`docs/security/iac-triage-measurement.md` all leave together. What survives is the
-conclusion, which was never a measurement: **the pipeline claims that it routes
-and reasons, not that it is measurably right.**
+**It routes and reasons; it does not claim to be measurably right.** There is no
+agreement figure and there will not be one for this corpus. The eligible findings
+were released to the agent untriaged, at the repository owner's instruction, for
+speed — so every verdict this corpus has ever carried was written by the model,
+and a verdict cannot score the model that wrote it. The forfeit is one-way: a
+finding the agent has judged can no longer be given an independent human verdict.
 
 The corpus is also too narrow to carry an accuracy claim even once clean: 9
 findings over 8 rules, 7 of which fire exactly once, reducing to roughly four
-distinct judgment calls. That was the direct reason autonomy needed a support
-floor rather than an agreement threshold alone — and, followed one step further,
-the reason ADR-0008 drops earned autonomy rather than tuning its gate.
+distinct judgment calls. That is the direct reason autonomy was dropped rather
+than tuned — an earned-authority gate needs support that this corpus cannot
+supply, and ADR-0008 puts autonomous dismissal out of scope permanently rather
+than unearned.
 
-## Owed artifacts
+## Deferred
 
-*All four are cancelled or deferred without a mechanism by ADR-0008.* Kept here
-because a reader who remembers being owed them should find out where they went
-rather than wonder.
+- **Plan-JSON scanning.** Static HCL only today.
+- **Non-Terraform IaC** — Ansible, shell, `user_data`.
 
-- **5.2 — the ADR-context ablation.** Cancelled: there is no doc context to ablate
-  against, and the `context.py --without-context` control arm is deleted.
-- **5.3 — the multi-model comparison.** Cancelled: it needed per-model agreement,
-  which needed a human-assigned reference that will now never exist.
-- **Plan-JSON scanning** (Decision 8) and **non-Terraform IaC** — Ansible, shell,
-  `user_data` (Decision 9) — both still deferred, static HCL only today.
-- **The dismissal wiring.** Delivered in a different form: not autonomous
-  dismissal earned by a rule, but an alert dismissed when a human closes its issue
-  `wontfix`.
+Both are deferred without a mechanism: nothing is staged for them, and taking
+either on is a design change rather than a configuration one.
 
 ## Boundaries worth keeping
 
-Everything under `security/iac_security/` is stdlib Python: no framework,
-no network, no cloud credentials. `taskflow/` is the single exception and the
+Everything under `security/iac_security/` is stdlib Python: no framework, no
+network, no cloud credentials. `taskflow/` is the single exception and the
 boundary is deliberate — it holds the only part needing
 `seclab-taskflow-agent`, Docker and a model token, so replacing the orchestration
 engine touches that directory and nothing else. The scanner, the identity scheme,
-the fixtures and the scoring do not know it exists.
+the fixture, the gate and the reconciler do not know it exists.
 
-`vocabulary.py` defines the four verdict classes once, shared by the fixture
-schema, the scorer and the personality, so they cannot drift apart. After the
-measurement arm leaves, the sharing is between the personalities alone — both of
-them, since the remediation personality restates the vocabulary too. `upstream` is
-kept out of that set: ownership is decided by path, not by triage, so it is not a
-verdict. The four classes survive ADR-0008 unchanged, but `real-mechanical`
-survives as *advice* to whoever labels the issue: nothing enforces it, because
-routing is the label and never the verdict.
+`vocabulary.py` defines the four verdict classes once, shared by both
+personalities, so they cannot drift apart. `upstream` is kept out of that set:
+ownership is decided by path, not by triage, so it is not a verdict.
+`real-mechanical` is advice to whoever labels the issue: nothing enforces it,
+because routing is the label and never the verdict.
 
-The model is selected in `taskflow/model_configs/iac_triage.yaml` — Anthropic's
-Messages API via `backend: anthropic_sdk`, not the framework's Copilot default.
+The corpus assembler may contain code and never prose, enforced by only ever
+globbing `.tf`. It is structurally the same shape as the document-context
+assembler ADR-0008 deleted, and the distinction is what it may hold rather than
+what it does. A test asserts both its extension filter and the exact file set it
+produces.
+
+Each agent selects its model in its own file under `taskflow/model_configs/`,
+one for triage and one for remediation, so a model swap for one flow cannot
+silently swap the other. Both name Anthropic's Messages API through
+`backend: anthropic_sdk` rather than the framework's Copilot default.
 The `endpoint` field is what makes authentication correct: the framework's
 `get_provider()` does not recognise `api.anthropic.com`, so the token goes out as
 `x-api-key` rather than as a bearer token that endpoint would reject. Swapping
@@ -291,29 +294,20 @@ models is a one-line edit to `models:`.
 
 ## Verification
 
-    python3 -m unittest discover -s security/iac_security/tests           # 136
-    python3 -m unittest discover -s security/iac_security/taskflow/tests  # 213
+    python3 -m unittest discover -s security/iac_security/tests           # 147
+    python3 -m unittest discover -s security/iac_security/taskflow/tests  # 221
 
 Both suites are offline — no Trivy, no AWS, no Docker, no model token, no
-network, and no Terraform once the patch gate lands. They run against the
-committed baseline, and the tests that matter most *derive* their expectations
-from it rather than restating them, so they move when the findings do: that no
-first-party key is claimed twice, and that the fork boundary holds per job. (The
-third of that trio — that no rule clears the support floor — goes with the
-autonomy arm.) `fixtures/baseline-scan.json` survives the deletions with its
-purpose rewritten: it is what the suite scans instead of Trivy, and no longer any
-run's default report.
+network, and no Terraform. They run against the committed baseline, and the tests
+that matter most *derive* their expectations from it rather than restating them,
+so they move when the findings do: that no first-party key is claimed twice, and
+that the fork boundary holds per job. `fixtures/baseline-scan.json` is what the
+suites scan instead of Trivy, and is no run's default report.
 
 ## Sources
 
-- `openspec/specs/iac-security-triage/spec.md` — the behaviour contract
-- `openspec/changes/add-iac-security-triage/design.md` — Decisions 1–11, with the
-  rejected alternatives this document omits
-- `security/iac_security/README.md` — the deterministic arm, in operating detail
-- `security/iac_security/taskflow/README.md` — the agentic arm, ditto
-- `docs/security/iac-triage-measurement.md` — the forfeited corpus; superseded, and
-  deleted with the measurement arm
-- `docs/adr/0007-autonomous-alert-dismissal-is-earned-per-rule.md` — superseded by
-  ADR-0008
-- `docs/adr/0008-this-repository-is-not-a-memory-bank.md` — what supersedes much of
-  this document, and why
+- `security/iac_security/CONTEXT.md` — the domain language this document uses
+- `security/iac_security/README.md` — the deterministic half, in operating detail
+- `security/iac_security/taskflow/README.md` — the agentic half, ditto
+- `docs/adr/0008-this-repository-is-not-a-memory-bank.md` — why there is no store,
+  and why the corpus is the code
