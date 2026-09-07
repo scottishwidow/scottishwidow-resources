@@ -111,14 +111,15 @@ taskflow:
       # The patch is the agent's answer, not a tool result -- it calls no tools --
       # so what gets captured is the response text.
       capture: response
-      # A liveness check, deliberately, and not a shape check: a schema on a
-      # prose channel cannot tell a formatting slip from a refusal, and a reply
-      # rejected by one is destroyed rather than reported. Whether the text is a
-      # diff is decided in `collect_patch.py`, where it survives to be read, and
-      # whether that diff is acceptable is decided by the patch gate.
-      outputs:
-        type: string
-        minLength: 1
+      # No `outputs` schema, and it is not an omission. A single-branch task
+      # decodes its captured text with a bare `json.loads` and, when a schema is
+      # declared, lets the decode error end the run -- so a diff, which is never
+      # JSON, fails capture before any schema is reached. Without one the
+      # framework falls back to the raw text, which is what a diff is. (The
+      # fan-out path in `iac_triage.yaml` catches that error and can carry a
+      # schema; this one cannot.) Whether the text is a diff is decided in
+      # `collect_patch.py`, where it survives to be read, and whether that diff
+      # is acceptable is decided by the patch gate.
       # The corpus comes first and the finding last, for the same two reasons as
       # in `iac_triage.yaml`: the corpus is the cacheable prefix, and the model
       # answers about the last thing it read.
