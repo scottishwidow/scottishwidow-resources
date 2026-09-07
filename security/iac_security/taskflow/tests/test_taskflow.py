@@ -806,12 +806,11 @@ class RemediationTaskflowShape(unittest.TestCase):
     def test_the_patch_is_captured_as_response_text(self) -> None:
         self.assertEqual(task_by_id(self.taskflow, "patch")["capture"], "response")
 
-    def test_the_branch_schema_checks_liveness_and_not_shape(self) -> None:
-        """A schema on a prose channel destroys the reply it rejects; the diff is
-        read in `collect_patch.py` and judged by the patch gate."""
-        schema = task_by_id(self.taskflow, "patch")["outputs"]
-        self.assertEqual(schema["type"], "string")
-        self.assertEqual(schema["minLength"], 1)
+    def test_the_patch_task_declares_no_output_schema(self) -> None:
+        """A single-branch task with a schema decodes its text as JSON and ends the
+        run when that fails, so a diff never reaches the schema. The diff is read in
+        `collect_patch.py` and judged by the patch gate."""
+        self.assertNotIn("outputs", task_by_id(self.taskflow, "patch"))
 
     def test_the_issue_has_no_default(self) -> None:
         """Remediation is about one issue; a run without one has nothing to patch."""
