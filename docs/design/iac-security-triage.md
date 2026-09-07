@@ -288,8 +288,8 @@ models is a one-line edit to `models:`.
 
 ## Verification
 
-    python3 -m unittest discover -s security/iac_security/tests           # 112
-    python3 -m unittest discover -s security/iac_security/taskflow/tests  # 124
+    python3 -m unittest discover -s security/iac_security/tests           # 136
+    python3 -m unittest discover -s security/iac_security/taskflow/tests  # 213
 
 Both suites are offline — no Trivy, no AWS, no Docker, no model token, no
 network, and no Terraform once the patch gate lands. They run against the

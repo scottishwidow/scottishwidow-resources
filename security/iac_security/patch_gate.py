@@ -1,15 +1,21 @@
 """The patch gate: the deterministic filter a remediation patch passes before it reaches review.
 
 See `docs/design/iac-security-triage.md` — "A patch is filtered, never accepted,
-by anything other than a human." This module performs no I/O: the workflow
-applies the diff, runs `terraform validate` and `fmt -check`, and re-scans, then
-hands the outcomes here as evidence.
+by anything other than a human." `decide` performs no I/O: the workflow applies
+the diff, runs `terraform validate` and `fmt -check`, and re-scans, then hands
+the outcomes here as evidence. `main` reads that evidence back off disk and
+prints the decision, so the workflow does the I/O and the gate does the deciding.
 """
 
 from __future__ import annotations
 
+import argparse
+import dataclasses
+import json
+import pathlib
 import posixpath
 import re
+import sys
 from dataclasses import dataclass
 from typing import Any
 
@@ -178,3 +184,56 @@ def decide(
         )
 
     return Decision(True, PASSED, f"{key} is removed and no new finding is introduced")
+
+
+def read_json(path: str | None) -> dict[str, Any]:
+    """An absent path reads as an empty report: a diff that does not apply leaves no post-scan."""
+    if not path:
+        return {}
+    return json.loads(pathlib.Path(path).read_text(encoding="utf-8"))
+
+
+def main(argv: list[str] | None = None) -> int:
+    parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
+    parser.add_argument("--diff", required=True, help="the unified diff `collect_patch.py` wrote")
+    parser.add_argument(
+        "--target", required=True, help="`remediation_target.py` output, read for its finding"
+    )
+    parser.add_argument("--pre-scan", required=True, help="the report the finding was read from")
+    parser.add_argument("--post-scan", help="the report taken after the patch; absent when it did not apply")
+    parser.add_argument(
+        "--evidence",
+        required=True,
+        help="JSON object: applies, validate_passed, fmt_passed, as the workflow observed them",
+    )
+    parser.add_argument("-o", "--output", help="write here instead of stdout")
+    args = parser.parse_args(argv)
+
+    observed = read_json(args.evidence)
+    decision = decide(
+        pathlib.Path(args.diff).read_text(encoding="utf-8"),
+        read_json(args.target)["finding"],
+        read_json(args.pre_scan),
+        read_json(args.post_scan),
+        Evidence(
+            applies=bool(observed["applies"]),
+            validate_passed=bool(observed["validate_passed"]),
+            fmt_passed=bool(observed["fmt_passed"]),
+        ),
+    )
+
+    print(
+        f"{'passed' if decision.passed else 'rejected'} at {decision.gate}: {decision.reason}",
+        file=sys.stderr,
+    )
+
+    rendered = json.dumps(dataclasses.asdict(decision), indent=2)
+    if args.output:
+        pathlib.Path(args.output).write_text(rendered + "\n", encoding="utf-8")
+    else:
+        print(rendered)
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

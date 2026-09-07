@@ -476,13 +476,17 @@ class RemediationIsInvokedByALabel(unittest.TestCase):
         self.assertIn("github.event.issue.number", concurrency["group"])
         self.assertIs(concurrency["cancel-in-progress"], False)
 
-    def test_both_jobs_check_out_main_rather_than_whatever_the_issue_says(self) -> None:
+    def test_every_checkout_takes_main_rather_than_whatever_the_issue_says(self) -> None:
+        """And leaves no token in the tree a model-authored diff is applied to."""
+        checkouts = 0
         for name, job in self.workflow["jobs"].items():
-            checkout = next(
-                step for step in job["steps"] if "actions/checkout" in step.get("uses", "")
-            )
-            self.assertEqual(checkout["with"]["ref"], "main", name)
-            self.assertIs(checkout["with"]["persist-credentials"], False, name)
+            for step in job["steps"]:
+                if "actions/checkout" not in step.get("uses", ""):
+                    continue
+                checkouts += 1
+                self.assertEqual(step["with"]["ref"], "main", name)
+                self.assertIs(step["with"]["persist-credentials"], False, name)
+        self.assertGreaterEqual(checkouts, len(self.workflow["jobs"]) - 1)
 
 
 class AMislabelledIssueCostsNothing(unittest.TestCase):
@@ -544,9 +548,10 @@ class TheRemediatorHoldsNoWritePermission(unittest.TestCase):
     def test_the_workflow_grants_nothing_but_read(self) -> None:
         self.assertEqual(self.workflow["permissions"], {"contents": "read"})
 
-    def test_no_job_holds_a_write_permission_of_any_kind(self) -> None:
-        for name, job in self.workflow["jobs"].items():
-            for scope, level in self.granted(job).items():
+    def test_no_job_that_runs_a_model_or_a_patch_holds_a_write_permission(self) -> None:
+        """Every job up to and including the gate; what writes is downstream of the decision."""
+        for name in ("target", "remediate", "gate"):
+            for scope, level in self.granted(self.workflow["jobs"][name]).items():
                 self.assertNotEqual(level, "write", f"{name}: {scope}")
 
     def test_the_job_running_the_model_may_read_the_issue_and_no_more(self) -> None:
@@ -600,6 +605,18 @@ class RemediationPathsCrossTheContainerBoundary(unittest.TestCase):
         for field in ("number", "body", "comments"):
             self.assertIn(field, run)
 
+    def test_the_target_the_gate_reads_is_assembled_before_the_model_runs(self) -> None:
+        """The container writes nothing out, and a finding the scan no longer holds
+        stops the run rather than being paid for."""
+        self.assertLess(
+            self.index_of("Read the remediation target"),
+            self.index_of("Run remediation taskflow"),
+        )
+        step = self.step("Read the remediation target")
+        self.assertEqual(step["working-directory"], "security/iac_security")
+        self.assertIn("remediation_target.py", step["run"])
+        self.assertIn("runs/target.json", step["run"])
+
     def test_the_host_step_collecting_the_patch_stays_relative_to_its_own_directory(self) -> None:
         collect = self.step("Collect the patch")
         self.assertEqual(collect["working-directory"], "security/iac_security/taskflow")
@@ -634,3 +651,175 @@ class RemediationVendorsModulesBeforeItScans(unittest.TestCase):
 
     def test_an_unreachable_registry_does_not_fail_the_run(self) -> None:
         self.assertTrue(self.init_step().get("continue-on-error"))
+
+
+class TheGateRunsWhatItDecidesOn(unittest.TestCase):
+    """The workflow does the I/O and hands the outcomes to `patch_gate.py`, which runs nothing."""
+
+    def setUp(self) -> None:
+        self.workflow = load(REMEDIATE)
+        self.gate = self.workflow["jobs"]["gate"]
+        self.steps = self.gate["steps"]
+
+    def step(self, name_fragment: str) -> dict:
+        return next(step for step in self.steps if name_fragment in step.get("name", ""))
+
+    def index_of(self, name_fragment: str) -> int:
+        return self.steps.index(self.step(name_fragment))
+
+    def test_it_waits_for_the_patch(self) -> None:
+        self.assertEqual(self.gate["needs"], ["target", "remediate"])
+
+    def test_it_applies_the_diff(self) -> None:
+        self.assertIn("git apply", self.step("Apply the patch")["run"])
+
+    def test_it_applies_from_the_repository_root(self) -> None:
+        """`git apply` reads the diff's paths relative to the working directory."""
+        self.assertNotIn("working-directory", self.step("Apply the patch"))
+
+    def test_it_runs_terraform_validate(self) -> None:
+        self.assertIn("terraform -chdir=\"$dir\" validate", self.step("Validate")["run"])
+
+    def test_it_checks_formatting_per_touched_file_rather_than_per_directory(self) -> None:
+        """A directory check would fail the gate on formatting that predates the patch."""
+        run = self.step("Check the formatting")["run"]
+        self.assertIn("terraform fmt -check", run)
+        self.assertIn("git apply --numstat", run)
+
+    def test_it_rescans_the_patched_tree(self) -> None:
+        rescan = self.step("Re-scan")
+        self.assertIn("trivy-action", rescan["uses"])
+        self.assertIn("post-scan.json", rescan["with"]["output"])
+
+    def test_every_step_that_runs_the_patch_waits_for_it_to_apply(self) -> None:
+        for name in ("Check the formatting", "Validate", "Re-scan"):
+            self.assertEqual(self.step(name)["if"], "steps.apply.outputs.applies == 'true'", name)
+
+    def test_the_evidence_and_both_reports_reach_the_gate(self) -> None:
+        decide = self.step("Decide")
+        self.assertIn("patch_gate.py", decide["run"])
+        for argument in ("--diff", "--target", "--pre-scan", "$post_scan", "--evidence"):
+            self.assertIn(argument, decide["run"])
+        for observed in ("applies", "validate_passed", "fmt_passed"):
+            self.assertIn(observed, decide["run"])
+
+    def test_an_unobserved_outcome_reads_as_a_failure(self) -> None:
+        """A skipped step leaves its output empty, and the gate must not read that as a pass."""
+        run = self.step("Decide")["run"]
+        for observed in ("APPLIES", "VALIDATE_PASSED", "FMT_PASSED"):
+            self.assertIn(f"${{{observed}:-false}}", run)
+
+    def test_it_decides_after_it_has_gathered_the_evidence(self) -> None:
+        for name in ("Apply the patch", "Check the formatting", "Validate", "Re-scan"):
+            self.assertLess(self.index_of(name), self.index_of("Decide"), name)
+
+    def test_the_decision_is_what_the_job_hands_downstream(self) -> None:
+        for field in ("passed", "gate", "reason"):
+            self.assertIn(f"steps.decision.outputs.{field}", self.gate["outputs"][field])
+
+    def test_the_evidence_never_sits_in_the_tree_the_gate_re_scans(self) -> None:
+        """A report left in the working tree is scanned as if it were repository content,
+        and a key raised off it would read as a finding the patch introduced."""
+        for step in self.steps:
+            if "download-artifact" in step.get("uses", ""):
+                self.assertIn("runner.temp", step["with"]["path"])
+            if "trivy-action" in step.get("uses", ""):
+                self.assertIn("runner.temp", step["with"]["output"])
+
+    def test_the_rescan_is_pinned_to_the_scanner_that_raised_the_finding(self) -> None:
+        scans = [step for step in self.steps if "trivy-action" in step.get("uses", "")]
+        first = trivy_step(load(SCAN))
+        for step in scans:
+            self.assertEqual(step["uses"], first["uses"])
+            self.assertEqual(step["with"]["version"], first["with"]["version"])
+
+
+class APassingPatchOpensAPullRequest(unittest.TestCase):
+    def setUp(self) -> None:
+        self.workflow = load(REMEDIATE)
+        self.job = self.workflow["jobs"]["pull-request"]
+        self.steps = self.job["steps"]
+
+    def step(self, name_fragment: str) -> dict:
+        return next(step for step in self.steps if name_fragment in step.get("name", ""))
+
+    def test_it_runs_only_on_a_patch_the_gate_passed(self) -> None:
+        self.assertEqual(self.job["if"], "needs.gate.outputs.passed == 'true'")
+
+    def test_it_holds_what_it_needs_to_open_one_and_no_more(self) -> None:
+        self.assertEqual(
+            self.job["permissions"], {"contents": "write", "pull-requests": "write"}
+        )
+
+    def test_it_never_sees_the_model_token(self) -> None:
+        self.assertNotIn(TOKEN, yaml.safe_dump(self.job))
+
+    def test_it_runs_no_model(self) -> None:
+        self.assertNotIn("run.sh", yaml.safe_dump(self.job))
+
+    def test_the_push_credential_reaches_only_the_command_that_pushes(self) -> None:
+        """The tree a model-authored diff is applied in never holds one."""
+        checkout = self.step("Checkout")
+        self.assertIs(checkout["with"]["persist-credentials"], False)
+        self.assertIn("git push", self.step("Commit the patch")["run"])
+
+    def test_it_opens_the_pull_request_off_the_branch_it_pushed(self) -> None:
+        opening = self.step("Open the pull request")["run"]
+        self.assertIn("gh pr create", opening)
+        self.assertIn("steps.branch.outputs.name", opening)
+        self.assertIn("--base main", opening)
+
+    def test_the_description_carries_the_finding_key_the_verdict_and_the_rationale(self) -> None:
+        """A reviewer judges the patch without opening three tabs."""
+        opening = self.step("Open the pull request")["run"]
+        self.assertIn("${KEY}", opening)
+        self.assertIn(".issue.verdict", opening)
+        self.assertIn(".issue.rationale", opening)
+        self.assertIn("${GATE_REASON}", opening)
+
+    def test_the_description_links_the_issue_and_closes_it_on_merge(self) -> None:
+        self.assertIn("Closes #${ISSUE}", self.step("Open the pull request")["run"])
+
+    def test_the_pull_request_title_is_the_conventional_form_the_repository_validates(self) -> None:
+        self.assertIn('--title "fix(security): ', self.step("Open the pull request")["run"])
+
+    def test_nothing_in_the_workflow_removes_the_remediation_label(self) -> None:
+        """The merge closes the issue with the label a human applied still on it."""
+        rendered = yaml.safe_dump(self.workflow)
+        self.assertNotIn("--remove-label", rendered)
+        self.assertNotIn("gh issue edit", rendered)
+
+
+class AFailingPatchTeachesSomethingOnTheIssue(unittest.TestCase):
+    def setUp(self) -> None:
+        self.workflow = load(REMEDIATE)
+        self.job = self.workflow["jobs"]["report-rejection"]
+        self.step = self.job["steps"][0]
+
+    def test_it_runs_only_on_a_patch_the_gate_rejected(self) -> None:
+        """`== 'false'`, not `!= 'true'`: a gate that crashed decided nothing to report."""
+        self.assertEqual(self.job["if"], "needs.gate.outputs.passed == 'false'")
+
+    def test_it_opens_no_pull_request(self) -> None:
+        rendered = yaml.safe_dump(self.job)
+        self.assertNotIn("pull-requests", rendered)
+        self.assertNotIn("gh pr create", rendered)
+        self.assertNotIn("git push", rendered)
+
+    def test_it_may_comment_and_do_no_more(self) -> None:
+        self.assertEqual(self.job["permissions"], {"issues": "write"})
+
+    def test_it_never_sees_the_model_token(self) -> None:
+        self.assertNotIn(TOKEN, yaml.safe_dump(self.job))
+
+    def test_the_comment_names_the_gate_the_patch_failed(self) -> None:
+        run = self.step["run"]
+        self.assertIn("gh issue comment", run)
+        self.assertIn("${GATE}", run)
+        self.assertIn("${GATE_REASON}", run)
+
+    def test_the_two_outcomes_cannot_both_run(self) -> None:
+        opener = self.workflow["jobs"]["pull-request"]["if"]
+        self.assertNotEqual(opener, self.job["if"])
+        self.assertIn("needs.gate.outputs.passed", opener)
+        self.assertIn("needs.gate.outputs.passed", self.job["if"])

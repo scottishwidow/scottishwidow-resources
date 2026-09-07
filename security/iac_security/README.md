@@ -37,6 +37,10 @@ taskflow/   one unified diff, as text -- see taskflow/README.md
         |
         v
 patch_gate.py   whether that diff reaches review
+        |
+        +--> passed:   a pull request naming the key, the verdict and the
+        |              rationale, which a human reviews and merges
+        +--> rejected: a comment on the issue naming the gate it failed
 ```
 
 The pipeline routes and reasons; it does not claim to be measurably right.
@@ -216,10 +220,10 @@ it holds no write permission of any kind.
 
 ## The patch gate
 
-`patch_gate.py` decides whether a remediation patch reaches review. It performs
-no I/O: the remediation workflow applies the diff, runs `terraform validate` and
-`terraform fmt -check`, re-scans, and hands `patch_gate.decide()` the diff, the
-finding record, the pre- and post-change scan reports, and the two tool
+`patch_gate.py` decides whether a remediation patch reaches review.
+`patch_gate.decide()` performs no I/O: the remediation workflow applies the diff,
+runs `terraform validate` and `terraform fmt -check`, re-scans, and hands it the
+diff, the finding record, the pre- and post-change scan reports, and the two tool
 outcomes. It is a filter, not an acceptance — what accepts a patch is the human
 merge.
 
@@ -237,8 +241,25 @@ would make the module directory too loose to be called "the finding named it".
 A diff that touches no file, and a diff that deletes a file, are both rejected:
 neither is a remediation of the finding.
 
-The gate is invoked directly, not run as a script — the module holds no CLI,
-since reading a diff or a scan report from a file would itself be I/O.
+The CLI reads that evidence back off disk and prints the decision as JSON, so
+the workflow does the I/O and the gate does the deciding:
+
+    python3 security/iac_security/patch_gate.py \
+        --diff runs/patch.diff --target runs/target.json \
+        --pre-scan runs/trivy-report.json --post-scan runs/post-scan.json \
+        --evidence runs/evidence.json
+
+`--evidence` is a JSON object carrying `applies`, `validate_passed` and
+`fmt_passed`. `--post-scan` is omitted when the diff did not apply, because the
+workflow runs nothing after that.
+
+A patch the gate passes becomes a pull request naming the finding key, the
+verdict and the rationale, and closing the issue on merge. A patch it rejects
+becomes a comment on the issue naming the gate it failed, so a failure teaches
+something instead of disappearing. The job that opens the pull request holds
+`contents: write` and `pull-requests: write` and never sees `AI_API_TOKEN`; the
+job that runs the model holds no write permission; the job that applies the diff
+holds neither, and its checkout leaves no push credential in the tree.
 
 ## Propose-only, permanently
 

@@ -1,6 +1,11 @@
 from __future__ import annotations
 
+import contextlib
+import io
+import json
+import shutil
 import sys
+import tempfile
 import unittest
 from pathlib import Path
 
@@ -320,6 +325,58 @@ class Renames(unittest.TestCase):
             decision.reason,
             f"`{FINDING['code_path']}` is renamed away, which no remediation permits",
         )
+
+
+class TheCommandLineTheWorkflowCalls(unittest.TestCase):
+    """The workflow does the I/O; this is where it hands the outcomes over."""
+
+    def setUp(self) -> None:
+        self.scratch = Path(tempfile.mkdtemp())
+        self.addCleanup(shutil.rmtree, self.scratch)
+
+    def write(self, name: str, content: str | dict) -> str:
+        path = self.scratch / name
+        path.write_text(
+            content if isinstance(content, str) else json.dumps(content), encoding="utf-8"
+        )
+        return str(path)
+
+    def run_gate(self, *, diff: str, post_scan: dict | None, **observed: bool) -> dict:
+        evidence = {"applies": True, "validate_passed": True, "fmt_passed": True} | observed
+        argv = [
+            "--diff", self.write("patch.diff", diff),
+            "--target", self.write("target.json", {"finding": FINDING}),
+            "--pre-scan", self.write("pre.json", SCAN_BEFORE),
+            "--evidence", self.write("evidence.json", evidence),
+            "-o", str(self.scratch / "decision.json"),
+        ]
+        if post_scan is not None:
+            argv += ["--post-scan", self.write("post.json", post_scan)]
+        with contextlib.redirect_stderr(io.StringIO()):
+            self.assertEqual(patch_gate.main(argv), 0)
+        return json.loads((self.scratch / "decision.json").read_text(encoding="utf-8"))
+
+    def test_it_writes_the_decision_the_workflow_reads_back(self) -> None:
+        decision = self.run_gate(
+            diff=diff_for(FINDING["code_path"]), post_scan=SCAN_AFTER_CLEAN
+        )
+        self.assertEqual(decision, {"passed": True, "gate": patch_gate.PASSED, "reason": PASSED_REASON})
+
+    def test_it_names_the_gate_a_rejected_patch_failed(self) -> None:
+        decision = self.run_gate(
+            diff=diff_for(FINDING["code_path"]),
+            post_scan=SCAN_AFTER_UNCHANGED,
+        )
+        self.assertFalse(decision["passed"])
+        self.assertEqual(decision["gate"], patch_gate.TARGET_REMOVAL)
+
+    def test_a_diff_that_did_not_apply_needs_no_post_scan(self) -> None:
+        """The workflow runs nothing after a failed apply, so there is none to hand over."""
+        decision = self.run_gate(
+            diff=diff_for(FINDING["code_path"]), post_scan=None, applies=False
+        )
+        self.assertFalse(decision["passed"])
+        self.assertEqual(decision["gate"], patch_gate.APPLY)
 
 
 if __name__ == "__main__":
