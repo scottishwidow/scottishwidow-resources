@@ -17,16 +17,11 @@ Edit the right-hand column to match whatever vocabulary you actually use.
 ## Beyond the five roles
 
 `ready-for-remediation` is a sixth label, outside the table above and belonging
-to one capability rather than to the tracker as a whole. Applied to an issue the
-IaC security triage pipeline filed, it asks that pipeline for a patch; it means
-nothing on any other issue. See
-[`security/iac_security/CONTEXT.md`](../../security/iac_security/CONTEXT.md).
-
-`wontfix` has a second consequence on an issue that pipeline filed: closing such
-an issue under `wontfix` dismisses the code scanning alert the issue names, as
-`won't fix`, with the issue URL as the dismissal comment. Closing it as
-*completed* dismisses nothing. On any other issue the label means only what the
-table says.
+to one capability rather than to the tracker as a whole: applied to an issue the
+IaC security triage pipeline filed, it asked that pipeline for a patch. That
+pipeline is archived, so today the label triggers nothing and `wontfix` on such an
+issue dismisses no alert. Both behaviours return with the pipeline — see
+[the restore runbook](../runbooks/iac-security-triage-restore.md).
 
 No pipeline in this repository applies `ready-for-agent` or
 `ready-for-remediation` itself. Both authorise unattended work, and an agent
