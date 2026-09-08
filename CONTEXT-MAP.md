@@ -9,12 +9,12 @@
   GitLab modelled on GitLab's 2k reference architecture, with RDS, ElastiCache and
   S3 in place of the self-managed Postgres, Redis and local storage. **Design only —
   nothing provisioned yet.** Start at [the design draft](./docs/design/gitlab-on-aws.md).
-- [IaC security triage](./security/iac_security/CONTEXT.md) — the pipeline
-  that scans the Terraform for misconfigurations, assigns each finding a verdict
-  with a rationale, and proposes a patch where a human asks for one. Nothing
-  merges and nothing is dismissed without a human ([ADR-0008](./docs/adr/0008-this-repository-is-not-a-memory-bank.md)).
-  Spans no AWS environment and needs no cloud credentials. Start at [the as-built
-  design](./docs/design/iac-security-triage.md).
+- **IaC security triage — archived.** The pipeline that scanned the Terraform for
+  misconfigurations, assigned each finding a verdict with a rationale, and proposed
+  a patch where a human asked for one. It was a proof of concept, it worked, and its
+  code, workflows and design are held at the tag `poc/iac-security-triage` rather
+  than on `main`. Trivy still scans and still raises alerts; nothing triages them.
+  To bring it back, see [the restore runbook](./docs/runbooks/iac-security-triage-restore.md).
 
 ## Relationships
 
@@ -34,19 +34,10 @@
   database app role from inside the VPC. `gitlab.rb` is deliberately *not* in
   `user_data`: `user_data` edits replace instances, which is intolerable for the
   Gitaly node.
-- **Triage → Management, GitLab (reads only)**: the scanner reads every `.tf` file
-  in the repo, so both environments are its input, but it provisions nothing and
-  holds no AWS credentials — it reads *code*, never live infrastructure. Ownership
-  is decided on the **owner path**, so a finding in `modules/` reached through
-  `live/management/` is first-party and triaged, while one in `.terraform/modules/`
-  is recorded upstream and never sent to a model.
-- **Terraform → Triage (the corpus)**: every first-party `.tf` file in the repo is
-  assembled into the **Terraform corpus** and carried in each agent's prompt, so
-  the code — both environments' and every module's — is the whole of what an agent
-  knows about this system. It is small enough to push: 24 files, ~20KB, ~6k tokens
-  per finding. `live/gitlab/` landing is what changes that arithmetic, and at
-  roughly ten times today's size a pull-based read toolbox becomes worth building
-  ([ADR-0008](./docs/adr/0008-this-repository-is-not-a-memory-bank.md)).
+- **Scan → Management, GitLab (reads only)**: Trivy reads every `.tf` file in the
+  repo, so both environments are its input, but it provisions nothing and holds no
+  AWS credentials — it reads *code*, never live infrastructure. Its findings reach
+  code scanning as alerts and stop there while triage is archived.
 - **ADRs, design docs → nothing**: they are *not* agent input, and the machinery
   that made them so is deleted. `docs/design/` is where development thinking is
   worked out and is half-formed by design; feeding it to an agent promoted drafts
