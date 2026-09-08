@@ -1,0 +1,25 @@
+# Findings this repository accepts, with the reason and a review date.
+# Trivy reads this file because trivy.yaml sets `ignorefile`; the default
+# name is `.trivyignore`, which holds no statements and no expiry.
+#
+# A finding that is a real gap does not belong here. It stays an open code
+# scanning alert until the Terraform changes.
+
+misconfigurations:
+  - id: AVD-AWS-0088
+    paths:
+      - "modules/bootstrap/main.tf"
+    statement: >-
+      S3 applies SSE-S3 to every new bucket since January 2023. The check
+      reads the Terraform only, so it cannot see the default that the
+      account already applies.
+    expired_at: 2027-03-08
+
+  - id: AVD-AWS-0164
+    paths:
+      - "modules/vpc/main.tf"
+    statement: >-
+      The two subnets are the public subnets. A public address on launch is
+      what makes them public, and the Nextcloud instance reaches the
+      internet through them.
+    expired_at: 2027-03-08

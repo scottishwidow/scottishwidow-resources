@@ -1,4 +1,5 @@
 exit-code: 0
+ignorefile: .trivyignore.yaml
 timeout: 10m
 severity:
   - MEDIUM
