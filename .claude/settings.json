@@ -3,5 +3,9 @@
     "commit": "",
     "pr": ""
   },
-  "enableAllProjectMcpServers": true
+  "enableAllProjectMcpServers": true,
+  "enabledPlugins": {
+    "terraform-skill@antonbabenko": true,
+    "code-intelligence@antonbabenko": true
+  }
 }

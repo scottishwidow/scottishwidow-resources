@@ -150,5 +150,4 @@ corpus is 24 files, 770 lines, 20,249 bytes — about 6k tokens per finding, 55k
 for a full run, and cacheable. Pull was avoiding a cost that does not exist.
 Pushing it also puts the vendored tree — 1,205 files — out of reach rather than
 merely outside a glob, and gives the remediator the exact bytes a diff has to
-apply against. Pull becomes worth building at roughly ten times today's corpus,
-which is what `live/gitlab/` landing would do.
+apply against. Pull becomes worth building at roughly ten times today's corpus.
