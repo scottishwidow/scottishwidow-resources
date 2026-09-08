@@ -90,10 +90,9 @@ findings, and a rule that would qualify but has not been granted.
 Phase 2 of the ratchet is therefore unreachable today. That is the correct outcome and a
 better claim than an auto-dismissal justified by n=1.
 
-The corpus becomes able to carry this once `live/gitlab/` exists and contributes RDS,
-ElastiCache and load balancer findings, and once the severity threshold is lowered to
-readmit the two `MEDIUM` findings that were the most independent judgments in the original
-set.
+The corpus becomes able to carry this once a second environment lands and contributes
+findings of its own, and once the severity threshold is lowered to readmit the two
+`MEDIUM` findings that were the most independent judgments in the original set.
 
 ### Reversibility
 

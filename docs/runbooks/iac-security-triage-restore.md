@@ -71,8 +71,8 @@ dismisses them while the pipeline is archived. That is the intended state.
 ## Before you restore
 
 The pipeline reads the whole first-party Terraform corpus into each agent
-prompt. That arithmetic held at 24 files and roughly 6k tokens per finding. If
-`live/gitlab/` has landed since, read
+prompt. That arithmetic held at 24 files and roughly 6k tokens per finding. If the
+corpus has grown since, read
 [ADR-0008](../adr/0008-this-repository-is-not-a-memory-bank.md) first: at about
 ten times that size, the corpus stops being something to push and a pull-based
 read toolbox becomes the right shape.
