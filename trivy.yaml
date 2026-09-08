@@ -1,0 +1,19 @@
+exit-code: 0
+timeout: 10m
+severity:
+  - MEDIUM
+  - HIGH
+  - CRITICAL
+scan:
+  scanners:
+    - misconfig
+    - secret
+  skip-dirs:
+    - "**/.terraform"
+misconfiguration:
+  scanners:
+    - terraform
+    - ansible
+  checks-bundle-repository: ghcr.io/aquasecurity/trivy-checks:1
+  terraform:
+    exclude-downloaded-modules: true
