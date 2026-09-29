@@ -2,9 +2,11 @@
 
 ## Contexts
 
-- [Management](./live/management/CONTEXT.md) — the `management` AWS environment:
+- [Management](./live/aws/management/CONTEXT.md) — the `management` AWS environment:
   the Nextcloud and Song Vault instances, their Terraform, and the Ansible that
   configures Nextcloud.
+- [Hetzner](./live/hetzner/CONTEXT.md) — the `hetzner` Hetzner Cloud environment:
+  the Gateway and the Private Hosts behind it.
 - **IaC security triage — archived.** The pipeline that scanned the Terraform for
   misconfigurations, assigned each finding a verdict with a rationale, and proposed
   a patch where a human asked for one. It was a proof of concept, it worked, and its
