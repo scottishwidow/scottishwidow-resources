@@ -18,26 +18,10 @@ variable "tags" {
   description = "Tags applied to all resources in this environment"
   type        = map(string)
   default = {
-    environment = "management"
-    management  = "terraform"
-    Name        = "scottishwidow"
+    env        = "management"
+    management = "terraform"
+    Name       = "scottishwidow"
   }
-}
-
-#########################
-# Song Vault
-#########################
-
-variable "song_vault_instance_name" {
-  description = "Name tag for the Song Vault EC2 instance"
-  type        = string
-  default     = "song-vault"
-}
-
-variable "song_vault_instance_type" {
-  description = "EC2 instance type for the Song Vault server (amd64/x86_64 — must match the amd64 AMI in data.tf)"
-  type        = string
-  default     = "t3.micro"
 }
 
 #########################
