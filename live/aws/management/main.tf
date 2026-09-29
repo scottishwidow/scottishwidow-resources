@@ -9,62 +9,6 @@ module "vpc" {
 }
 
 #########################
-# Song Vault
-#########################
-
-module "song_vault" {
-  source  = "terraform-aws-modules/ec2-instance/aws"
-  version = "~> 6.0"
-
-  name = var.song_vault_instance_name
-
-  ami                         = data.aws_ssm_parameter.ubuntu_amd64.value
-  instance_type               = var.song_vault_instance_type
-  subnet_id                   = module.vpc.public_zone_1
-  vpc_security_group_ids      = [module.song_vault_sg.security_group_id]
-  associate_public_ip_address = true
-
-  ignore_ami_changes = true
-
-  user_data                   = file("${path.module}/user_data_song_vault.sh")
-  user_data_replace_on_change = true
-
-  root_block_device = {
-    type      = "gp3"
-    size      = 10
-    encrypted = true
-  }
-
-  create_iam_instance_profile = true
-  iam_role_description        = "Instance role for ${var.song_vault_instance_name}: enables SSM Session Manager (no SSH)."
-  iam_role_policies = {
-    AmazonSSMManagedInstanceCore = "arn:aws:iam::aws:policy/AmazonSSMManagedInstanceCore"
-  }
-
-  tags = {
-    env        = "management"
-    management = "terraform"
-    Name       = "scottishwidow"
-  }
-}
-
-module "song_vault_sg" {
-  source  = "terraform-aws-modules/security-group/aws"
-  version = "~> 5.3"
-
-  name        = "${var.song_vault_instance_name}-sg"
-  description = "Song Vault instance: HTTP/HTTPS inbound only"
-  vpc_id      = module.vpc.vpc_id
-
-  ingress_cidr_blocks = ["0.0.0.0/0"]
-  ingress_rules       = ["http-80-tcp", "https-443-tcp"]
-
-  egress_rules = ["all-all"]
-
-  tags = var.tags
-}
-
-#########################
 # Nextcloud
 #########################
 

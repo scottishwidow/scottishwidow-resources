@@ -1,13 +1,4 @@
 #########################
-# Song Vault
-#########################
-
-output "song_vault_public_ip" {
-  description = "Public IP address associated with the Song Vault instance."
-  value       = module.song_vault.public_ip
-}
-
-#########################
 # Nextcloud
 #########################
 
