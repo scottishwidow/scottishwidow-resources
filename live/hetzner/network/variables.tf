@@ -23,7 +23,7 @@ variable "network_zone" {
 }
 
 variable "gateway_private_ip" {
-  description = "Fixed private IP of the Gateway. Hetzner reserves the first host address of the subnet"
+  description = "Fixed private IP of the Gateway. Must not be the subnet's first host address, which Hetzner reserves as the subnet gateway"
   type        = string
   default     = "10.10.0.2"
 }
