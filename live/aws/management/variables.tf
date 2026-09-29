@@ -18,9 +18,9 @@ variable "tags" {
   description = "Tags applied to all resources in this environment"
   type        = map(string)
   default = {
-    environment = "management"
-    management  = "terraform"
-    Name        = "scottishwidow"
+    env        = "management"
+    management = "terraform"
+    Name       = "scottishwidow"
   }
 }
 

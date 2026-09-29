@@ -3,8 +3,8 @@
 #########################
 
 module "vpc" {
-  source = "../../modules/vpc"
-  tags   = { environment = "management", management = "terraform", Name = "scottishwidow" }
+  source = "../../../modules/vpc"
+  tags   = { env = "management", management = "terraform", Name = "scottishwidow" }
   region = var.aws_region
 }
 
@@ -42,9 +42,9 @@ module "song_vault" {
   }
 
   tags = {
-    environment = "management"
-    management  = "terraform"
-    Name        = "scottishwidow"
+    env        = "management"
+    management = "terraform"
+    Name       = "scottishwidow"
   }
 }
 
@@ -102,9 +102,9 @@ module "next_cloud" {
   }
 
   tags = {
-    environment = "management"
-    management  = "terraform"
-    Name        = "scottishwidow"
+    env        = "management"
+    management = "terraform"
+    Name       = "scottishwidow"
   }
 }
 
@@ -129,7 +129,7 @@ module "next_cloud_sg" {
 #########################
 
 module "next_cloud_backup" {
-  source = "../../modules/dlm_backup"
+  source = "../../../modules/dlm_backup"
 
   name        = var.next_cloud_instance_name
   description = "Nextcloud EBS snapshots - ${join(" ", [for s in var.next_cloud_backup_schedules : "${s.retain_count} ${s.name}"])}"
