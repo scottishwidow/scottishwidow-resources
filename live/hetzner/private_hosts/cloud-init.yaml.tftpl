@@ -1,0 +1,29 @@
+#cloud-config
+write_files:
+  - path: /etc/nftables.conf
+    owner: root:root
+    permissions: "0755"
+    content: |
+      #!/usr/sbin/nft -f
+      flush ruleset
+
+      table inet filter {
+        chain input {
+          type filter hook input priority filter; policy drop;
+          iif "lo" accept
+          ct state established,related accept
+          ct state invalid drop
+          ip saddr ${gateway_private_ip} accept
+        }
+
+        chain forward {
+          type filter hook forward priority filter; policy drop;
+        }
+
+        chain output {
+          type filter hook output priority filter; policy accept;
+        }
+      }
+
+runcmd:
+  - systemctl enable --now nftables.service

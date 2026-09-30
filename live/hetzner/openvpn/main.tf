@@ -1,7 +1,3 @@
-locals {
-  gateway_labels = merge(var.labels, { role = "gateway" })
-}
-
 resource "hcloud_primary_ip" "gateway" {
   name              = "gateway-ipv4"
   type              = "ipv4"

@@ -52,3 +52,9 @@ variable "labels" {
   type        = map(string)
   default     = {}
 }
+
+variable "user_data" {
+  description = "Cloud-init user data. A change replaces the server"
+  type        = string
+  default     = null
+}
