@@ -1,5 +1,24 @@
 #cloud-config
 write_files:
+  - path: /etc/systemd/network/05-private.network
+    owner: root:root
+    permissions: "0644"
+    content: |
+      [Match]
+      Name=en*
+
+      [Network]
+      DHCP=ipv4
+      DNS=${join(" ", dns_servers)}
+      Domains=~.
+
+      [DHCPv4]
+      UseDNS=no
+
+      [Route]
+      Gateway=${network_gateway_ip}
+      GatewayOnLink=yes
+
   - path: /etc/nftables.conf
     owner: root:root
     permissions: "0755"
@@ -26,4 +45,5 @@ write_files:
       }
 
 runcmd:
+  - systemctl restart systemd-networkd.service
   - systemctl enable --now nftables.service

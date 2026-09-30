@@ -21,6 +21,18 @@ variable "gateway_private_ip" {
   default     = "10.10.0.2"
 }
 
+variable "network_gateway_ip" {
+  description = "Gateway IP of the private network subnet. Hetzner reserves the first host address of the subnet for it"
+  type        = string
+  default     = "10.10.0.1"
+}
+
+variable "dns_servers" {
+  description = "DNS resolvers of the Private Hosts"
+  type        = list(string)
+  default     = ["185.12.64.1", "185.12.64.2"]
+}
+
 variable "private_host_count" {
   description = "Number of identical Private Hosts. They are named private-1 to private-N"
   type        = number
