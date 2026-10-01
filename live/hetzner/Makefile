@@ -3,7 +3,7 @@ TF_ARGS   ?=
 
 REQUIRED_ENV  := AWS_PROFILE HCLOUD_TOKEN
 
-APPLY_ORDER   := bootstrap network openvpn private_hosts
+APPLY_ORDER   := network openvpn private_hosts
 DESTROY_ORDER := private_hosts openvpn network
 
 .NOTPARALLEL:
@@ -29,7 +29,6 @@ apply-%:
 	$(call require_stack,$*,$(APPLY_ORDER))
 	$(TERRAFORM) -chdir=$* apply $(TF_ARGS)
 
-# bootstrap holds the state bucket of every other stack, so it is never destroyed from here.
 destroy-%:
 	$(call require_env)
 	$(call require_stack,$*,$(DESTROY_ORDER))
