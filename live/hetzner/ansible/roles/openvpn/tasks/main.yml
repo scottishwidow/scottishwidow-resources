@@ -5,6 +5,7 @@
   ansible.builtin.command:
     cmd: cloud-init status --wait
   changed_when: false
+  check_mode: false
   failed_when: false
 
 - name: Read IPv4 forwarding
@@ -12,12 +13,14 @@
     cmd: sysctl -n net.ipv4.ip_forward
   register: openvpn_ip_forward
   changed_when: false
+  check_mode: false
 
 - name: Read the NAT chain
   ansible.builtin.command:
     cmd: nft list chain ip nat postrouting
   register: openvpn_nat_chain
   changed_when: false
+  check_mode: false
   failed_when: false
 
 - name: Require forwarding and NAT from the Gateway user data
