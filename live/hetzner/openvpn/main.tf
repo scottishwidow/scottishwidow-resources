@@ -40,5 +40,6 @@ module "gateway" {
   primary_ipv4_id = hcloud_primary_ip.gateway.id
   network_id      = data.hcloud_network.private.id
   private_ip      = var.gateway_private_ip
+  user_data       = local.gateway_user_data
   labels          = local.gateway_labels
 }

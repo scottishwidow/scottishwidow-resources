@@ -1,0 +1,51 @@
+#cloud-config
+write_files:
+  - path: /etc/sysctl.d/90-gateway-forwarding.conf
+    owner: root:root
+    permissions: "0644"
+    content: |
+      net.ipv4.ip_forward = 1
+
+  - path: /etc/nftables.conf
+    owner: root:root
+    permissions: "0755"
+    content: |
+      #!/usr/sbin/nft -f
+      flush ruleset
+
+      define private_network = ${private_network_ip_range}
+
+      table inet filter {
+        chain input {
+          type filter hook input priority filter; policy drop;
+          iif "lo" accept
+          ct state established,related accept
+          ct state invalid drop
+          ip protocol icmp accept
+          tcp dport 22 accept
+          udp dport 1194 accept
+        }
+
+        chain forward {
+          type filter hook forward priority filter; policy drop;
+          tcp flags syn tcp option maxseg size set rt mtu
+          ct state established,related accept
+          ct state invalid drop
+          ip saddr $private_network ip daddr != $private_network accept
+        }
+
+        chain output {
+          type filter hook output priority filter; policy accept;
+        }
+      }
+
+      table ip nat {
+        chain postrouting {
+          type nat hook postrouting priority srcnat; policy accept;
+          ip saddr $private_network ip daddr != $private_network masquerade
+        }
+      }
+
+runcmd:
+  - sysctl --system
+  - systemctl enable --now nftables.service
