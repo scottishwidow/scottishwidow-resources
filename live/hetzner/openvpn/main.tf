@@ -1,7 +1,3 @@
-locals {
-  gateway_labels = merge(var.labels, { role = "gateway" })
-}
-
 resource "hcloud_primary_ip" "gateway" {
   name              = "gateway-ipv4"
   type              = "ipv4"
@@ -44,5 +40,6 @@ module "gateway" {
   primary_ipv4_id = hcloud_primary_ip.gateway.id
   network_id      = data.hcloud_network.private.id
   private_ip      = var.gateway_private_ip
+  user_data       = local.gateway_user_data
   labels          = local.gateway_labels
 }

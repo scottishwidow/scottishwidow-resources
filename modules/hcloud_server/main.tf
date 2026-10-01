@@ -6,6 +6,7 @@ resource "hcloud_server" "this" {
   ssh_keys     = var.ssh_key_ids
   firewall_ids = var.firewall_ids
   labels       = var.labels
+  user_data    = var.user_data
 
   public_net {
     ipv4_enabled = var.primary_ipv4_id != null

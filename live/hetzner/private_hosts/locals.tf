@@ -1,0 +1,11 @@
+locals {
+  private_host_names = toset([for index in range(var.private_host_count) : "private-${index + 1}"])
+
+  private_host_labels = merge(var.labels, { role = "private-host" })
+
+  private_host_user_data = templatefile("${path.module}/cloud-init.yaml.tftpl", {
+    gateway_private_ip = var.gateway_private_ip
+    network_gateway_ip = var.network_gateway_ip
+    dns_servers        = var.dns_servers
+  })
+}
