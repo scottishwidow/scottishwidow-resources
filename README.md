@@ -38,7 +38,7 @@ The Hetzner roots depend on each other. Apply `live/hetzner/bootstrap` first. Th
 
 | Command | Order |
 |---|---|
-| `make init`, `make plan`, `make apply` | `network`, `openvpn`, `private_hosts` |
+| `make init`, `make apply` | `network`, `openvpn`, `private_hosts` |
 | `make destroy` | `private_hosts`, `openvpn`, `network` |
 
 To run one action on one root, use `make <action>-<root>`:
@@ -51,12 +51,12 @@ make apply-openvpn
 To pass arguments to Terraform, use `TF_ARGS`:
 
 ```sh
-make plan TF_ARGS=-refresh=false
+make plan-network TF_ARGS=-refresh=false
 ```
 
 Obey these rules:
 
 - Apply `openvpn` before `private_hosts`. The Gateway uses the fixed private IP `10.10.0.2`. If a Private Host is created first, Hetzner can give that IP to the Private Host.
-- On a new environment, `make plan` fails for `openvpn` and `private_hosts` because the network does not exist yet. Use `make apply`.
+- There is no `make plan` for all roots. The `openvpn` and `private_hosts` roots read the network with data sources, so their plan does not show changes that are not yet applied to `network`. Use `make plan-<root>` on one root at a time, and apply it before you plan the next root.
 - The Makefile does not manage `bootstrap`, because it holds the state bucket of the other roots.
 - `make destroy` stops at `openvpn` because the Gateway primary IPv4 has delete protection. Remove the protection manually if you must delete the IP.

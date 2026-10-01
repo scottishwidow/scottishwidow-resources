@@ -7,10 +7,9 @@ APPLY_ORDER   := network openvpn private_hosts
 DESTROY_ORDER := private_hosts openvpn network
 
 .NOTPARALLEL:
-.PHONY: init plan apply destroy
+.PHONY: init apply destroy
 
 init: $(addprefix init-,$(APPLY_ORDER))
-plan: $(addprefix plan-,$(APPLY_ORDER))
 apply: $(addprefix apply-,$(APPLY_ORDER))
 destroy: $(addprefix destroy-,$(DESTROY_ORDER))
 
