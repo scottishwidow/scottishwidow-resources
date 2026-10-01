@@ -15,7 +15,7 @@ resource "hcloud_firewall" "gateway" {
     description = "OpenVPN"
     direction   = "in"
     protocol    = "udp"
-    port        = "1194"
+    port        = tostring(var.openvpn_port)
     source_ips  = ["0.0.0.0/0", "::/0"]
   }
 

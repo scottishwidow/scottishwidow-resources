@@ -1,0 +1,22 @@
+client
+dev tun
+proto udp
+remote {{ openvpn_public_address }} {{ openvpn_port }}
+nobind
+persist-key
+persist-tun
+remote-cert-tls server
+verb 3
+
+<ca>
+{{ openvpn_ca_cert.content | b64decode | trim }}
+</ca>
+<cert>
+{{ item.0.content | b64decode | regex_search('-----BEGIN CERTIFICATE-----[\s\S]+-----END CERTIFICATE-----') }}
+</cert>
+<key>
+{{ item.1.content | b64decode | trim }}
+</key>
+<tls-crypt>
+{{ openvpn_tls_crypt.content | b64decode | trim }}
+</tls-crypt>

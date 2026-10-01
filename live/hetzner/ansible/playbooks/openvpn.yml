@@ -1,0 +1,7 @@
+---
+- name: Deploy OpenVPN on the Gateway
+  hosts: gateways
+  gather_facts: false
+
+  roles:
+    - openvpn

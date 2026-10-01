@@ -43,6 +43,23 @@ variable "gateway_private_ip" {
   default     = "10.10.0.2"
 }
 
+variable "vpn_network_ip_range" {
+  description = "IP range OpenVPN assigns to VPN clients. Must not overlap the private network"
+  type        = string
+  default     = "10.8.0.0/24"
+
+  validation {
+    condition     = can(cidrnetmask(var.vpn_network_ip_range))
+    error_message = "vpn_network_ip_range must be an IPv4 CIDR."
+  }
+}
+
+variable "openvpn_port" {
+  description = "UDP port OpenVPN listens on"
+  type        = number
+  default     = 1194
+}
+
 variable "labels" {
   description = "Labels applied to all Gateway resources"
   type        = map(string)
