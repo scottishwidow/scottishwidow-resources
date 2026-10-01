@@ -1,0 +1,20 @@
+port {{ openvpn_port }}
+proto udp
+dev tun
+topology subnet
+
+server {{ openvpn_network_address }} {{ openvpn_network_netmask }}
+push "route {{ private_network_address }} {{ private_network_netmask }}"
+
+ca {{ openvpn_pki_dir }}/ca.crt
+cert {{ openvpn_pki_dir }}/issued/server.crt
+key {{ openvpn_pki_dir }}/private/server.key
+dh none
+tls-crypt {{ openvpn_tls_crypt_key }}
+
+keepalive 10 60
+user nobody
+group nogroup
+persist-key
+persist-tun
+verb 3

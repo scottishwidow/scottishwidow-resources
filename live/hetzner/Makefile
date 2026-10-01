@@ -1,5 +1,6 @@
-TERRAFORM ?= terraform
-TF_ARGS   ?=
+TERRAFORM        ?= terraform
+ANSIBLE_PLAYBOOK ?= ansible-playbook
+TF_ARGS          ?=
 
 REQUIRED_ENV  := AWS_PROFILE HCLOUD_TOKEN
 
@@ -7,11 +8,20 @@ APPLY_ORDER   := network openvpn private_hosts
 DESTROY_ORDER := private_hosts openvpn network
 
 .NOTPARALLEL:
-.PHONY: init apply destroy
+.PHONY: init apply destroy inventory configure
 
 init: $(addprefix init-,$(APPLY_ORDER))
 apply: $(addprefix apply-,$(APPLY_ORDER))
 destroy: $(addprefix destroy-,$(DESTROY_ORDER))
+
+inventory:
+	$(call require_env)
+	$(TERRAFORM) -chdir=openvpn output -json ansible_inventory > ansible/inventory/hosts.json.tmp
+	mv ansible/inventory/hosts.json.tmp ansible/inventory/hosts.json
+	rm -f ansible/.known_hosts
+
+configure: inventory
+	cd ansible && $(ANSIBLE_PLAYBOOK) playbooks/openvpn.yml
 
 init-%:
 	$(call require_env)
