@@ -1,0 +1,20 @@
+{
+  "$schema": "https://docs.renovatebot.com/renovate-schema.json",
+  "extends": ["config:recommended", "helpers:pinGitHubActionDigests"],
+  "enabledManagers": ["terraform", "ansible-galaxy", "github-actions", "custom.regex"],
+  "lockFileMaintenance": {
+    "enabled": false
+  },
+  "customManagers": [
+    {
+      "customType": "regex",
+      "description": "Trivy CLI version used by trivy-action",
+      "managerFilePatterns": ["/^\\.github/workflows/[^/]+\\.ya?ml$/"],
+      "matchStrings": [
+        "uses: aquasecurity/trivy-action@[^\\n]+\\n(?:\\s+[^\\n]*\\n)*?\\s+version: '(?<currentValue>v[^']+)'"
+      ],
+      "depNameTemplate": "aquasecurity/trivy",
+      "datasourceTemplate": "github-releases"
+    }
+  ]
+}
