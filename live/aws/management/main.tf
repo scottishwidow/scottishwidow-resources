@@ -54,7 +54,7 @@ module "next_cloud" {
 
 module "next_cloud_sg" {
   source  = "terraform-aws-modules/security-group/aws"
-  version = "~> 5.3"
+  version = "~> 6.0"
 
   name        = "${var.next_cloud_instance_name}-sg"
   description = "Nextcloud instance: HTTP/HTTPS inbound only"
