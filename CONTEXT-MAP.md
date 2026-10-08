@@ -6,6 +6,8 @@
   the Nextcloud instance, its Terraform, and the Ansible that configures it.
 - [Hetzner](./live/hetzner/CONTEXT.md) — the `hetzner` Hetzner Cloud environment:
   the Gateway and the Private Hosts behind it.
+- [Honeynet](./live/honeynet/CONTEXT.md) — the `honeynet` environment: Honeypots
+  that attract attacks for Suricata to inspect.
 - **IaC security triage — archived.** The pipeline that scanned the Terraform for
   misconfigurations, assigned each finding a verdict with a rationale, and proposed
   a patch where a human asked for one. It was a proof of concept, it worked, and its
@@ -14,6 +16,13 @@
   To bring it back, see [the restore runbook](./docs/runbooks/iac-security-triage-restore.md).
 
 ## Relationships
+
+- **Honeynet → nothing**: the Honeynet shares no network, Hetzner project, Hetzner
+  token or SSH key with any other context. Nothing in another context may route to
+  it or trust it.
+- **Honeynet → Hetzner (state only)**: the Honeynet keeps its state files under
+  their own keys in the Hetzner state bucket. The Hetzner bootstrap must exist
+  first. This is the only shared resource.
 
 - **Terraform → Ansible**: Terraform (`live/management/`) provisions the instance
   and supporting resources (EIP, Route 53 record, SSM scratch bucket); Ansible
