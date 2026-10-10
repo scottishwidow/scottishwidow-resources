@@ -13,7 +13,7 @@ The Terraform roots keep their state in S3 buckets in `eu-central-1`:
 |---|---|
 | `live/aws/management` | `tf-state-scottishwidow-management` |
 | `live/hetzner/ovpn/{network,openvpn,private_hosts}` | `tf-state-scottishwidow-hetzner`, keys under `ovpn/` |
-| `live/hetzner/honeynet/{network,sensor}` | `tf-state-scottishwidow-hetzner`, keys under `honeynet/` |
+| `live/hetzner/honeynet/{network,sensor,honeypots}` | `tf-state-scottishwidow-hetzner`, keys under `honeynet/` |
 
 The credentials must be able to read, write and delete objects in the bucket, including the `.tflock` lock file.
 
@@ -81,12 +81,12 @@ Apply `live/hetzner/ovpn/bootstrap` first, because the Honeynet roots keep their
 
 | Command | Order |
 |---|---|
-| `make init`, `make apply` | `bootstrap`, `network`, `sensor` |
-| `make destroy` | `sensor`, `network`, `bootstrap` |
+| `make init`, `make apply` | `bootstrap`, `network`, `sensor`, `honeypots` |
+| `make destroy` | `honeypots`, `sensor`, `network`, `bootstrap` |
 
 The Honeynet `bootstrap` root creates only the Honeynet SSH key. It keeps its state locally, so the Makefile manages it with the other roots.
 
-To configure and check the Sensor after `make apply`:
+To configure and check the Sensor and the Honeypots after `make apply`:
 
 ```sh
 cd live/hetzner/honeynet
