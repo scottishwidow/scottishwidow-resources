@@ -12,7 +12,8 @@ The Terraform roots keep their state in S3 buckets in `eu-central-1`:
 | Roots | State bucket |
 |---|---|
 | `live/aws/management` | `tf-state-scottishwidow-management` |
-| `live/hetzner/network`, `live/hetzner/openvpn`, `live/hetzner/private_hosts` | `tf-state-scottishwidow-hetzner` |
+| `live/hetzner/ovpn/{network,openvpn,private_hosts}` | `tf-state-scottishwidow-hetzner`, keys under `ovpn/` |
+| `live/hetzner/honeynet/{network,sensor}` | `tf-state-scottishwidow-hetzner`, keys under `honeynet/` |
 
 The credentials must be able to read, write and delete objects in the bucket, including the `.tflock` lock file.
 
@@ -22,26 +23,32 @@ Set the AWS profile before you run Terraform:
 export AWS_PROFILE=<profile>
 ```
 
-### Hetzner Cloud token
+### Hetzner Cloud tokens
 
-The Hetzner roots also need a Hetzner Cloud API token with Read & Write permission:
+Each Hetzner project has its own Hetzner Cloud project and API token. The tokens need Read & Write permission:
 
-```sh
-export HETZNER_HCLOUD_TOKEN=<token>
-```
-
-The Makefile gives this token to Terraform as `HCLOUD_TOKEN`. It ignores an `HCLOUD_TOKEN` that the shell already exports.
-
-The `live/hetzner/bootstrap` root creates the Hetzner state bucket and the admin SSH key. It keeps its state locally. Apply it manually before the other Hetzner roots:
+| Project | Token |
+|---|---|
+| `live/hetzner/ovpn` | `OVPN_HCLOUD_TOKEN` |
+| `live/hetzner/honeynet` | `HONEYNET_HCLOUD_TOKEN` |
 
 ```sh
-cd live/hetzner/bootstrap
-HCLOUD_TOKEN=$HETZNER_HCLOUD_TOKEN terraform apply
+export OVPN_HCLOUD_TOKEN=<token>
+export HONEYNET_HCLOUD_TOKEN=<token>
 ```
 
-## Hetzner provisioning
+Each Makefile gives its token to Terraform as `HCLOUD_TOKEN`. It ignores an `HCLOUD_TOKEN` that the shell already exports.
 
-The Hetzner roots depend on each other. Apply `live/hetzner/bootstrap` first. Then use the Makefile in `live/hetzner` to apply them in the correct order. It stops if `AWS_PROFILE` or `HETZNER_HCLOUD_TOKEN` is not set.
+The `live/hetzner/ovpn/bootstrap` root creates the Hetzner state bucket, which both projects share, and the OVPN admin SSH key. It keeps its state locally. Apply it manually before all other Hetzner roots, including the Honeynet roots:
+
+```sh
+cd live/hetzner/ovpn/bootstrap
+HCLOUD_TOKEN=$OVPN_HCLOUD_TOKEN terraform apply
+```
+
+## OVPN provisioning
+
+The OVPN roots depend on each other. Apply `live/hetzner/ovpn/bootstrap` first. Then use the Makefile in `live/hetzner/ovpn` to apply them in the correct order. It stops if `AWS_PROFILE` or `OVPN_HCLOUD_TOKEN` is not set.
 
 | Command | Order |
 |---|---|
@@ -51,7 +58,7 @@ The Hetzner roots depend on each other. Apply `live/hetzner/bootstrap` first. Th
 To run one action on one root, use `make <action>-<root>`:
 
 ```sh
-cd live/hetzner
+cd live/hetzner/ovpn
 make apply-openvpn
 ```
 
@@ -67,3 +74,22 @@ Obey these rules:
 - There is no `make plan` for all roots. The `openvpn` and `private_hosts` roots read the network with data sources, so their plan does not show changes that are not yet applied to `network`. Use `make plan-<root>` on one root at a time, and apply it before you plan the next root.
 - The Makefile does not manage `bootstrap`, because it holds the state bucket of the other roots.
 - `make destroy` stops at `openvpn` because the Gateway primary IPv4 has delete protection. Remove the protection manually if you must delete the IP.
+
+## Honeynet provisioning
+
+Apply `live/hetzner/ovpn/bootstrap` first, because the Honeynet roots keep their state in its bucket. Then use the Makefile in `live/hetzner/honeynet`. It stops if `AWS_PROFILE` or `HONEYNET_HCLOUD_TOKEN` is not set.
+
+| Command | Order |
+|---|---|
+| `make init`, `make apply` | `bootstrap`, `network`, `sensor` |
+| `make destroy` | `sensor`, `network`, `bootstrap` |
+
+The Honeynet `bootstrap` root creates only the Honeynet SSH key. It keeps its state locally, so the Makefile manages it with the other roots.
+
+To configure and check the Sensor after `make apply`:
+
+```sh
+cd live/hetzner/honeynet
+make configure
+make verify
+```

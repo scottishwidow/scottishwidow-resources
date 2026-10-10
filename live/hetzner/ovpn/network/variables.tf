@@ -1,7 +1,7 @@
 variable "network_name" {
   description = "Name of the private network"
   type        = string
-  default     = "hetzner"
+  default     = "ovpn"
 }
 
 variable "network_ip_range" {
@@ -32,7 +32,7 @@ variable "labels" {
   description = "Labels applied to the network"
   type        = map(string)
   default = {
-    env        = "hetzner"
+    env        = "ovpn"
     management = "terraform"
   }
 }

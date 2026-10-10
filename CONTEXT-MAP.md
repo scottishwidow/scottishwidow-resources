@@ -4,9 +4,9 @@
 
 - [Management](./live/aws/management/CONTEXT.md) — the `management` AWS environment:
   the Nextcloud instance, its Terraform, and the Ansible that configures it.
-- [Hetzner](./live/hetzner/CONTEXT.md) — the `hetzner` Hetzner Cloud environment:
+- [OVPN](./live/hetzner/ovpn/CONTEXT.md) — the `ovpn` Hetzner Cloud environment:
   the Gateway and the Private Hosts behind it.
-- [Honeynet](./live/honeynet/CONTEXT.md) — the `honeynet` environment: Honeypots
+- [Honeynet](./live/hetzner/honeynet/CONTEXT.md) — the `honeynet` environment: Honeypots
   that attract attacks for Suricata to inspect.
 - **IaC security triage — archived.** The pipeline that scanned the Terraform for
   misconfigurations, assigned each finding a verdict with a rationale, and proposed
@@ -20,18 +20,18 @@
 - **Honeynet → nothing**: the Honeynet shares no network, Hetzner project, Hetzner
   token or SSH key with any other context. Nothing in another context may route to
   it or trust it.
-- **Honeynet → Hetzner (state only)**: the Honeynet keeps its state files under
-  their own keys in the Hetzner state bucket. The Hetzner bootstrap must exist
-  first. This is the only shared resource.
+- **Honeynet → OVPN (state only)**: the Honeynet keeps its state files under
+  their own keys in the Hetzner state bucket, which the OVPN bootstrap creates.
+  The OVPN bootstrap must exist first. This is the only shared resource.
 
-- **Terraform → Ansible**: Terraform (`live/management/`) provisions the instance
+- **Terraform → Ansible**: Terraform (`live/aws/management/`) provisions the instance
   and supporting resources (EIP, Route 53 record, SSM scratch bucket); Ansible
-  (`live/management/ansible/`) configures Nextcloud AIO on it, standalone (no
+  (`live/aws/management/ansible/`) configures Nextcloud AIO on it, standalone (no
   `remote-exec`). They share no state file — Ansible discovers the instance via
   dynamic inventory (tags) and reads bucket/region from Terraform outputs.
 - **DNS**: the Route 53 hosted zone is to be imported into and owned by
-  `live/management/` (issue #20). Once the import lands, the manual `UPSERT`
-  procedure documented in `live/management/CONTEXT.md` is no longer accurate.
+  `live/aws/management/` (issue #20). Once the import lands, the manual `UPSERT`
+  procedure documented in `live/aws/management/CONTEXT.md` is no longer accurate.
 - **Scan → Management (reads only)**: Trivy reads every `.tf` file in the repo,
   but it provisions nothing and holds no AWS credentials — it reads *code*, never
   live infrastructure. Its findings reach code scanning as alerts and stop there

@@ -1,6 +1,6 @@
-# Hetzner
+# OVPN
 
-The `hetzner` Hetzner Cloud environment: a private network of hosts reached through one public entry point.
+The `ovpn` Hetzner Cloud environment: a private network of hosts reached through one public entry point.
 
 ## Language
 

@@ -29,7 +29,7 @@ resource "hcloud_firewall" "gateway" {
 }
 
 module "gateway" {
-  source = "../../../modules/hcloud_server"
+  source = "../../../../modules/hcloud_server"
 
   name            = "gateway"
   server_type     = var.gateway_server_type

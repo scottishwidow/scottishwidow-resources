@@ -1,7 +1,7 @@
 variable "network_name" {
   description = "Name of the private network the Private Hosts are attached to"
   type        = string
-  default     = "hetzner"
+  default     = "ovpn"
 }
 
 variable "ssh_key_name" {
@@ -60,7 +60,7 @@ variable "labels" {
   description = "Labels applied to all Private Host resources"
   type        = map(string)
   default = {
-    env        = "hetzner"
+    env        = "ovpn"
     management = "terraform"
   }
 }

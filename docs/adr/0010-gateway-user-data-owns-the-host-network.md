@@ -19,11 +19,11 @@ public IP stays (ADR-0009), so a replacement costs nothing extra.
 
 ## Decision
 
-- Gateway user data (`live/hetzner/openvpn/cloud-init.yaml.tftpl`) owns sysctl
+- Gateway user data (`live/hetzner/ovpn/openvpn/cloud-init.yaml.tftpl`) owns sysctl
   and the complete, static nftables rule set, including the rules for VPN
   clients. The rules match on addresses, not interface names, so they load at
   boot before `tun0` exists.
-- Ansible (`live/hetzner/ansible`, role `openvpn`) owns the OpenVPN package,
+- Ansible (`live/hetzner/ovpn/ansible`, role `openvpn`) owns the OpenVPN package,
   server config, PKI and client configs.
 - Ansible never writes nftables or sysctl. It only reads them and stops if
   forwarding or NAT is missing.

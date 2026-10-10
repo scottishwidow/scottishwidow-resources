@@ -21,7 +21,7 @@ resource "hcloud_firewall" "sensor" {
 }
 
 module "sensor" {
-  source = "../../../modules/hcloud_server"
+  source = "../../../../modules/hcloud_server"
 
   name            = "sensor"
   server_type     = var.sensor_server_type

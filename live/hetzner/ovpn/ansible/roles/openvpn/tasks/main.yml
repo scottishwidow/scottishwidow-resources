@@ -28,7 +28,7 @@
     that:
       - openvpn_ip_forward.stdout == "1"
       - openvpn_nat_chain.rc == 0
-    fail_msg: IPv4 forwarding or nftables NAT is missing. They belong to the Gateway user data in live/hetzner/openvpn, not to this role.
+    fail_msg: IPv4 forwarding or nftables NAT is missing. They belong to the Gateway user data in live/hetzner/ovpn/openvpn, not to this role.
 
 - name: Install OpenVPN and Easy-RSA
   ansible.builtin.apt:

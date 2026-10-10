@@ -1,7 +1,7 @@
 variable "network_name" {
   description = "Name of the private network the Gateway is attached to"
   type        = string
-  default     = "hetzner"
+  default     = "ovpn"
 }
 
 variable "ssh_key_name" {
@@ -64,7 +64,7 @@ variable "labels" {
   description = "Labels applied to all Gateway resources"
   type        = map(string)
   default = {
-    env        = "hetzner"
+    env        = "ovpn"
     management = "terraform"
   }
 }

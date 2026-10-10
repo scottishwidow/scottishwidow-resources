@@ -1,5 +1,5 @@
 module "private_host" {
-  source   = "../../../modules/hcloud_server"
+  source   = "../../../../modules/hcloud_server"
   for_each = local.private_host_names
 
   name        = each.key

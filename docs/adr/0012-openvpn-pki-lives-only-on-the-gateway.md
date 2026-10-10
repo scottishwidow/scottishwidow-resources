@@ -18,7 +18,7 @@ exposes it.
 
 The `openvpn` Ansible role creates the PKI on the Gateway with Easy-RSA. The PKI
 exists only there. Ansible copies the client configs to the workstation, in
-`live/hetzner/ansible/clients/` (not in Git).
+`live/hetzner/ovpn/ansible/clients/` (not in Git).
 
 ## Consequences
 
