@@ -1,0 +1,8 @@
+---
+# ProxyJump does not give the -i and -o options of Ansible to the jump
+# connection, so the Honeypots use the equivalent ProxyCommand.
+ansible_ssh_common_args: >-
+  -o ProxyCommand="ssh -W %h:%p -q -p {{ hostvars['sensor'].ansible_port }}
+  -i {{ lookup('ansible.builtin.config', 'DEFAULT_PRIVATE_KEY_FILE') | expanduser }}
+  -o IdentitiesOnly=yes -o StrictHostKeyChecking=accept-new -o UserKnownHostsFile=.known_hosts
+  admin@{{ hostvars['sensor'].ansible_host }}"

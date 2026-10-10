@@ -31,6 +31,8 @@
       changed_when: false
       failed_when: false
 
+    # The Sensor forwards port 22 to honeypot-1, which accepts SSH only from
+    # the Sensor private IP.
     - name: Probe port 22 on the Sensor public IPv4
       ansible.builtin.wait_for:
         host: "{{ ansible_host }}"
@@ -40,7 +42,7 @@
       register: verify_port_22
       failed_when: false
 
-    - name: Require key-only SSH on the admin port and no answer on port 22
+    - name: Require key-only SSH on the admin port and no SSH answer from honeypot-1 to the internet
       ansible.builtin.assert:
         that:
           - verify_key_login.rc == 0
@@ -52,13 +54,14 @@
           password login stderr={{ verify_password_login.stderr | trim }};
           port 22={{ verify_port_22.msg | default('answered') }}
 
-- name: Verify the Sensor from inside
-  hosts: sensors
+- name: Verify every Honeynet host from inside
+  hosts: all
   gather_facts: false
 
   vars:
+    verify_is_sensor: "{{ 'sensors' in group_names }}"
     verify_sshd_baseline:
-      port: "{{ ansible_port | string }}"
+      port: "{{ ansible_port | default(22) | string }}"
       hostkeyalgorithms: ssh-ed25519
       kexalgorithms: sntrup761x25519-sha512@openssh.com,curve25519-sha256,curve25519-sha256@libssh.org
       ciphers: aes256-gcm@openssh.com,aes128-gcm@openssh.com
@@ -67,13 +70,13 @@
       passwordauthentication: "no"
       kbdinteractiveauthentication: "no"
       permitrootlogin: "no"
-      allowusers: admin
+      allowusers: "{{ 'admin' if verify_is_sensor else 'admin@' ~ sensor_private_ip }}"
       maxauthtries: "3"
       logingracetime: "20"
       x11forwarding: "no"
       allowagentforwarding: "no"
       permittunnel: "no"
-      allowtcpforwarding: local
+      allowtcpforwarding: "{{ 'local' if verify_is_sensor else 'no' }}"
 
   tasks:
     - name: Read the effective sshd config
@@ -87,6 +90,13 @@
       ansible.builtin.command:
         cmd: ip -6 -o addr show scope global
       register: verify_ipv6
+      changed_when: false
+      check_mode: false
+
+    - name: Read the global IPv4 addresses
+      ansible.builtin.command:
+        cmd: ip -4 -o addr show scope global
+      register: verify_ipv4
       changed_when: false
       check_mode: false
 
@@ -109,3 +119,46 @@
         fail_msg: >-
           host keys={{ verify_sshd.stdout_lines | select('match', '^hostkey ') | list }};
           global IPv6={{ verify_ipv6.stdout_lines }}
+
+    - name: Require the private IP as the only IPv4 address of a Honeypot
+      ansible.builtin.assert:
+        that: verify_ipv4.stdout | regex_findall('inet ([0-9.]+)/') == [ansible_host]
+        fail_msg: "global IPv4={{ verify_ipv4.stdout_lines }}"
+      when: not verify_is_sensor
+
+- name: Verify Containment and SSH isolation from each Honeypot
+  hosts: honeypots
+  gather_facts: false
+  become: false
+
+  vars:
+    verify_internet_host: 1.1.1.1
+    verify_internet_port: 443
+    verify_peer_honeypots: "{{ groups['honeypots'] | difference([inventory_hostname]) }}"
+
+  tasks:
+    - name: Open a direct TCP connection to the internet
+      ansible.builtin.wait_for:
+        host: "{{ verify_internet_host }}"
+        port: "{{ verify_internet_port }}"
+        timeout: 10
+      register: verify_direct_outbound
+      failed_when: false
+
+    - name: Open an SSH connection to the other Honeypots
+      ansible.builtin.wait_for:
+        host: "{{ hostvars[item].ansible_host }}"
+        port: 22
+        timeout: 10
+      loop: "{{ verify_peer_honeypots }}"
+      register: verify_peer_ssh
+      failed_when: false
+
+    - name: Require Containment and no SSH between Honeypots
+      ansible.builtin.assert:
+        that:
+          - "'Timeout' in verify_direct_outbound.msg | default('')"
+          - verify_peer_ssh.results | map(attribute='msg', default='') | reject('search', 'Timeout') | list == []
+        fail_msg: >-
+          direct outbound to {{ verify_internet_host }}:{{ verify_internet_port }}={{ verify_direct_outbound.msg | default('connected') }};
+          SSH to the other Honeypots={{ verify_peer_ssh.results | map(attribute='msg', default='connected') | list }}
