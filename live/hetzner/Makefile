@@ -2,10 +2,14 @@ TERRAFORM        ?= terraform
 ANSIBLE_PLAYBOOK ?= ansible-playbook
 TF_ARGS          ?=
 
-REQUIRED_ENV  := AWS_PROFILE HCLOUD_TOKEN
+REQUIRED_ENV  := AWS_PROFILE HETZNER_HCLOUD_TOKEN
 
 APPLY_ORDER   := network openvpn private_hosts
 DESTROY_ORDER := private_hosts openvpn network
+
+# Only the Hetzner token may reach the Hetzner project. This assignment
+# overrides an HCLOUD_TOKEN inherited from the shell.
+export HCLOUD_TOKEN := $(HETZNER_HCLOUD_TOKEN)
 
 .NOTPARALLEL:
 .PHONY: init apply destroy inventory configure

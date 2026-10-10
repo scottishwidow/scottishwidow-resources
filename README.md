@@ -27,14 +27,21 @@ export AWS_PROFILE=<profile>
 The Hetzner roots also need a Hetzner Cloud API token with Read & Write permission:
 
 ```sh
-export HCLOUD_TOKEN=<token>
+export HETZNER_HCLOUD_TOKEN=<token>
 ```
 
-The `live/hetzner/bootstrap` root creates the Hetzner state bucket and the admin SSH key. It keeps its state locally. Apply it manually before the other Hetzner roots.
+The Makefile gives this token to Terraform as `HCLOUD_TOKEN`. It ignores an `HCLOUD_TOKEN` that the shell already exports.
+
+The `live/hetzner/bootstrap` root creates the Hetzner state bucket and the admin SSH key. It keeps its state locally. Apply it manually before the other Hetzner roots:
+
+```sh
+cd live/hetzner/bootstrap
+HCLOUD_TOKEN=$HETZNER_HCLOUD_TOKEN terraform apply
+```
 
 ## Hetzner provisioning
 
-The Hetzner roots depend on each other. Apply `live/hetzner/bootstrap` first. Then use the Makefile in `live/hetzner` to apply them in the correct order. It stops if `AWS_PROFILE` or `HCLOUD_TOKEN` is not set.
+The Hetzner roots depend on each other. Apply `live/hetzner/bootstrap` first. Then use the Makefile in `live/hetzner` to apply them in the correct order. It stops if `AWS_PROFILE` or `HETZNER_HCLOUD_TOKEN` is not set.
 
 | Command | Order |
 |---|---|
