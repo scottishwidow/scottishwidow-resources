@@ -1,0 +1,7 @@
+---
+- name: Harden SSH on every Honeynet host
+  hosts: all
+  gather_facts: false
+
+  roles:
+    - ssh_hardening

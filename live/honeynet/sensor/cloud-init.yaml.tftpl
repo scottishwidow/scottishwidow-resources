@@ -1,0 +1,25 @@
+#cloud-config
+users:
+  - name: admin
+    groups: [sudo]
+    shell: /bin/bash
+    lock_passwd: true
+    sudo: "ALL=(ALL) NOPASSWD:ALL"
+    ssh_authorized_keys:
+      - ${admin_ssh_public_key}
+
+write_files:
+  - path: /etc/ssh/sshd_config.d/10-port.conf
+    owner: root:root
+    permissions: "0644"
+    content: |
+      Port ${admin_ssh_port}
+
+# Ubuntu 24.04 starts sshd through ssh.socket, which listens on port 22 until
+# it is regenerated. Plain ssh.service reads the port from sshd_config.
+runcmd:
+  - systemctl disable --now ssh.socket
+  - rm -f /etc/systemd/system/ssh.service.d/00-socket.conf /etc/systemd/system/ssh.socket.d/addresses.conf
+  - systemctl daemon-reload
+  - systemctl enable ssh.service
+  - systemctl restart ssh.service
