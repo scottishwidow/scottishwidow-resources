@@ -2,17 +2,17 @@ TERRAFORM        ?= terraform
 ANSIBLE_PLAYBOOK ?= ansible-playbook
 TF_ARGS          ?=
 
-REQUIRED_ENV  := AWS_PROFILE HETZNER_HCLOUD_TOKEN
+REQUIRED_ENV  := AWS_PROFILE HONEYNET_HCLOUD_TOKEN
 
-APPLY_ORDER   := network openvpn private_hosts
-DESTROY_ORDER := private_hosts openvpn network
+APPLY_ORDER   := bootstrap network sensor
+DESTROY_ORDER := sensor network bootstrap
 
-# Only the Hetzner token may reach the Hetzner project. This assignment
+# Only the Honeynet token may reach the Honeynet project. This assignment
 # overrides an HCLOUD_TOKEN inherited from the shell.
-export HCLOUD_TOKEN := $(HETZNER_HCLOUD_TOKEN)
+export HCLOUD_TOKEN := $(HONEYNET_HCLOUD_TOKEN)
 
 .NOTPARALLEL:
-.PHONY: init apply destroy inventory configure
+.PHONY: init apply destroy inventory configure verify
 
 init: $(addprefix init-,$(APPLY_ORDER))
 apply: $(addprefix apply-,$(APPLY_ORDER))
@@ -20,12 +20,15 @@ destroy: $(addprefix destroy-,$(DESTROY_ORDER))
 
 inventory:
 	$(call require_env)
-	$(TERRAFORM) -chdir=openvpn output -json ansible_inventory > ansible/inventory/hosts.json.tmp
+	$(TERRAFORM) -chdir=sensor output -json ansible_inventory > ansible/inventory/hosts.json.tmp
 	mv ansible/inventory/hosts.json.tmp ansible/inventory/hosts.json
 	rm -f ansible/.known_hosts
 
 configure: inventory
-	cd ansible && $(ANSIBLE_PLAYBOOK) playbooks/openvpn.yml
+	cd ansible && $(ANSIBLE_PLAYBOOK) playbooks/site.yml
+
+verify:
+	cd ansible && $(ANSIBLE_PLAYBOOK) playbooks/verify.yml
 
 init-%:
 	$(call require_env)
