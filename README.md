@@ -81,10 +81,18 @@ Apply `live/hetzner/ovpn/bootstrap` first, because the Honeynet roots keep their
 
 | Command | Order |
 |---|---|
-| `make init`, `make apply` | `bootstrap`, `network`, `sensor`, `honeypots` |
-| `make destroy` | `honeypots`, `sensor`, `network`, `bootstrap` |
+| `make init`, `make apply` | `network`, `sensor`, `honeypots` |
+| `make destroy` | `honeypots`, `sensor`, `network` |
 
-The Honeynet `bootstrap` root creates only the Honeynet SSH key. It keeps its state locally, so the Makefile manages it with the other roots.
+The Honeynet `bootstrap` root creates only the Honeynet SSH key, and keeps its state locally. The bulk targets leave it out, because the key is created once and the other roots read it with a data source. Apply it manually before the first `make apply`, and again only if the key is deleted:
+
+```sh
+cd live/hetzner/honeynet/bootstrap
+HCLOUD_TOKEN=$HONEYNET_HCLOUD_TOKEN terraform init
+HCLOUD_TOKEN=$HONEYNET_HCLOUD_TOKEN terraform apply
+```
+
+The Makefile still reaches the root on request with `make init-bootstrap`, `make plan-bootstrap`, `make apply-bootstrap` and `make destroy-bootstrap`.
 
 To configure and check the Sensor and the Honeypots after `make apply`:
 
