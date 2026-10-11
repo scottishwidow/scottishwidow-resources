@@ -31,28 +31,106 @@
       changed_when: false
       failed_when: false
 
-    # The Sensor forwards port 22 to honeypot-1, which accepts SSH only from
-    # the Sensor private IP.
-    - name: Probe port 22 on the Sensor public IPv4
-      ansible.builtin.wait_for:
-        host: "{{ ansible_host }}"
-        port: 22
-        timeout: 10
-      delegate_to: localhost
-      register: verify_port_22
-      failed_when: false
-
-    - name: Require key-only SSH on the admin port and no SSH answer from honeypot-1 to the internet
+    - name: Require key-only SSH on the admin port
       ansible.builtin.assert:
         that:
           - verify_key_login.rc == 0
           - verify_password_login.rc == 255
           - "'Permission denied (publickey)' in verify_password_login.stderr"
-          - "'Timeout' in verify_port_22.msg | default('')"
         fail_msg: >-
           key login stderr={{ verify_key_login.stderr | trim }};
-          password login stderr={{ verify_password_login.stderr | trim }};
-          port 22={{ verify_port_22.msg | default('answered') }}
+          password login stderr={{ verify_password_login.stderr | trim }}
+
+- name: Verify Cowrie and the allowlist proxy from the workstation
+  hosts: sensors
+  gather_facts: false
+
+  tasks:
+    - name: Read the address the workstation connects from
+      ansible.builtin.shell:
+        cmd: echo "$SSH_CONNECTION"
+      become: false
+      register: verify_ssh_connection
+      changed_when: false
+      check_mode: false
+
+    - name: Keep the workstation address for the Honeypot checks
+      ansible.builtin.set_fact:
+        verify_workstation_ip: "{{ verify_ssh_connection.stdout.split() | first }}"
+
+    - name: Read the Containment drop counter
+      ansible.builtin.command:
+        cmd: nft list chain inet filter forward
+      register: verify_containment_before
+      changed_when: false
+      check_mode: false
+
+    - name: Grab the Cowrie SSH banner on port 22
+      ansible.builtin.wait_for:
+        host: "{{ ansible_host }}"
+        port: 22
+        search_regex: (SSH-2.0-.*)
+        timeout: 30
+      delegate_to: localhost
+      become: false
+      register: verify_cowrie_banner
+      failed_when: false
+
+    - name: Log in to Cowrie on port 23 and download a file
+      ansible.builtin.command:
+        argv:
+          - python3
+          - "{{ playbook_dir }}/files/cowrie_telnet_probe.py"
+          - --host
+          - "{{ ansible_host }}"
+          - --port
+          - "23"
+          - --username
+          - "{{ verify_cowrie_username }}"
+          - --password
+          - "{{ verify_cowrie_password }}"
+          - --command
+          - "wget {{ verify_cowrie_download_url }}"
+      delegate_to: localhost
+      become: false
+      register: verify_cowrie_telnet
+      changed_when: false
+      failed_when: false
+
+    - name: Probe the proxy port on the Sensor public IPv4
+      ansible.builtin.wait_for:
+        host: "{{ ansible_host }}"
+        port: "{{ proxy_port }}"
+        timeout: 10
+      delegate_to: localhost
+      become: false
+      register: verify_proxy_port
+      failed_when: false
+
+    - name: Read the Containment drop counter again
+      ansible.builtin.command:
+        cmd: nft list chain inet filter forward
+      register: verify_containment_after
+      changed_when: false
+      check_mode: false
+
+    - name: Require Cowrie on ports 22 and 23, a closed proxy port and a contained download
+      vars:
+        verify_telnet_session: "{{ verify_cowrie_telnet.stdout | default('{}', true) | from_json }}"
+        verify_drops_before: "{{ (verify_containment_before.stdout | regex_findall('counter packets ([0-9]+)')) + ['-1'] }}"
+        verify_drops_after: "{{ (verify_containment_after.stdout | regex_findall('counter packets ([0-9]+)')) + ['-1'] }}"
+      ansible.builtin.assert:
+        that:
+          - verify_cowrie_banner.match_groups | default([]) | length == 1
+          - verify_cowrie_telnet.rc == 0
+          - verify_telnet_session.negotiation | default('') is match('ff')
+          - "'Timeout' in verify_proxy_port.msg | default('')"
+          - verify_drops_after | first | int > verify_drops_before | first | int
+        fail_msg: >-
+          port 22 banner={{ verify_cowrie_banner.match_groups | default('none') }};
+          port 23 session={{ verify_cowrie_telnet.stderr | default('') | trim }}{{ verify_telnet_session.command_output | default('') }};
+          proxy port {{ proxy_port }}={{ verify_proxy_port.msg | default('answered') }};
+          Containment drops before={{ verify_drops_before | first }} after={{ verify_drops_after | first }}
 
 - name: Verify every Honeynet host from inside
   hosts: all
@@ -162,3 +240,89 @@
         fail_msg: >-
           direct outbound to {{ verify_internet_host }}:{{ verify_internet_port }}={{ verify_direct_outbound.msg | default('connected') }};
           SSH to the other Honeypots={{ verify_peer_ssh.results | map(attribute='msg', default='connected') | list }}
+
+- name: Verify the Cowrie sessions and the allowlist proxy from each Honeypot
+  hosts: honeypots
+  gather_facts: false
+
+  vars:
+    verify_cowrie_log: "{{ cowrie_dir }}/var/log/cowrie/cowrie.json"
+    verify_workstation_ip: "{{ hostvars['sensor'].verify_workstation_ip }}"
+    verify_allowlisted_url: http://archive.ubuntu.com/ubuntu/dists/noble/Release
+    verify_denied_url: http://example.com/
+
+  tasks:
+    - name: Read the sessions Cowrie recorded
+      ansible.builtin.command:
+        argv:
+          - python3
+          - -c
+          - |
+            import json, sys
+            source_ips, commands = set(), []
+            with open(sys.argv[1]) as log:
+                for line in log:
+                    event = json.loads(line)
+                    if "src_ip" in event:
+                        source_ips.add(event["src_ip"])
+                    if event.get("eventid") == "cowrie.command.input":
+                        commands.append(event.get("input", ""))
+            print(json.dumps({"source_ips": sorted(source_ips), "commands": commands}))
+          - "{{ verify_cowrie_log }}"
+      register: verify_cowrie_sessions
+      changed_when: false
+      check_mode: false
+
+    - name: Request an allowlisted domain through the proxy
+      ansible.builtin.command:
+        argv:
+          - curl
+          - --silent
+          - --show-error
+          - --max-time
+          - "20"
+          - --output
+          - /dev/null
+          - --write-out
+          - "%{http_code}"
+          - --proxy
+          - "{{ honeynet_proxy_url }}"
+          - "{{ verify_allowlisted_url }}"
+      register: verify_proxy_allowed
+      changed_when: false
+      failed_when: false
+
+    - name: Request a domain that is not on the allowlist through the proxy
+      ansible.builtin.command:
+        argv:
+          - curl
+          - --silent
+          - --show-error
+          - --max-time
+          - "20"
+          - --output
+          - /dev/null
+          - --write-out
+          - "%{http_code}"
+          - --proxy
+          - "{{ honeynet_proxy_url }}"
+          - "{{ verify_denied_url }}"
+      register: verify_proxy_denied
+      changed_when: false
+      failed_when: false
+
+    - name: Require the attacker address in the Cowrie log and an allowlist that refuses
+      vars:
+        verify_cowrie_session: "{{ verify_cowrie_sessions.stdout | default('{}', true) | from_json }}"
+      ansible.builtin.assert:
+        that:
+          - verify_workstation_ip in verify_cowrie_session.source_ips | default([])
+          - sensor_private_ip not in verify_cowrie_session.source_ips | default([])
+          - verify_cowrie_session.commands | default([]) | select('search', verify_cowrie_download_url) | list | length > 0
+          - verify_proxy_allowed.stdout == '200'
+          - verify_proxy_denied.stdout == '403'
+        fail_msg: >-
+          Cowrie source addresses={{ verify_cowrie_session.source_ips | default('none') }};
+          Cowrie commands={{ verify_cowrie_session.commands | default('none') }};
+          allowlisted domain={{ verify_proxy_allowed.stdout | default('') }} {{ verify_proxy_allowed.stderr | default('') | trim }};
+          domain not on the allowlist={{ verify_proxy_denied.stdout | default('') }} {{ verify_proxy_denied.stderr | default('') | trim }}

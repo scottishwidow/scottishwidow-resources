@@ -6,3 +6,6 @@ ansible_ssh_common_args: >-
   -i {{ lookup('ansible.builtin.config', 'DEFAULT_PRIVATE_KEY_FILE') | expanduser }}
   -o IdentitiesOnly=yes -o StrictHostKeyChecking=accept-new -o UserKnownHostsFile=.known_hosts
   admin@{{ hostvars['sensor'].ansible_host }}"
+
+# The verify playbook reads the Cowrie session log below this directory.
+cowrie_dir: /opt/cowrie

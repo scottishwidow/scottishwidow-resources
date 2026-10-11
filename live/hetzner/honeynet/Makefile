@@ -18,6 +18,14 @@ export HCLOUD_TOKEN := $(HONEYNET_HCLOUD_TOKEN)
 # root gives it to honeypot-1.
 export TF_VAR_honeypot_1_private_ip := 10.20.0.11
 
+# The sensor root opens this port for the Honeynet network only, and the
+# honeypots root points the Docker daemon and apt at it.
+export TF_VAR_proxy_port := 3128
+
+# The sensor root forwards these public ports to the mapped port on
+# honeypot-1, and the honeypots root makes Cowrie listen on the mapped ports.
+export TF_VAR_honeypot_port_redirects := {"22":2222,"23":2223}
+
 .NOTPARALLEL:
 .PHONY: init apply destroy inventory configure verify
 

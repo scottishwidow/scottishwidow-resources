@@ -1,0 +1,7 @@
+---
+# The verify playbook opens a Cowrie session with these credentials and runs
+# this download in it. The address needs no resolver and is routable, so
+# Cowrie tries to reach it and Containment drops the attempt.
+verify_cowrie_username: root
+verify_cowrie_password: letmein
+verify_cowrie_download_url: http://1.1.1.1/malware.sh

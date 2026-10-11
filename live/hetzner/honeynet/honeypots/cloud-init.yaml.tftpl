@@ -46,8 +46,15 @@ write_files:
           ip saddr ${sensor_private_ip} tcp dport 22 accept
         }
 
+        # Docker publishes the honeypot ports. A published port is DNAT'd to
+        # a container, so its packets pass this hook, and the rules Docker
+        # keeps in the ip filter table decide them.
         chain forward {
           type filter hook forward priority filter; policy drop;
+          iifname "docker0" accept
+          oifname "docker0" accept
+          iifname "br-*" accept
+          oifname "br-*" accept
         }
 
         chain output {
