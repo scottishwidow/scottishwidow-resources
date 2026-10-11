@@ -15,9 +15,65 @@ write_files:
     content: |
       Port ${admin_ssh_port}
 
+  - path: /etc/sysctl.d/90-sensor-forwarding.conf
+    owner: root:root
+    permissions: "0644"
+    content: |
+      net.ipv4.ip_forward = 1
+
+  - path: /etc/nftables.conf
+    owner: root:root
+    permissions: "0755"
+    content: |
+      #!/usr/sbin/nft -f
+      flush ruleset
+
+      define honeynet = ${network_ip_range}
+      define sensor_public_ipv4 = ${public_ipv4}
+      define honeypot = ${honeypot_ip}
+      define honeypot_tcp_ports = { ${join(", ", honeypot_tcp_ports)} }
+
+      table inet filter {
+        chain input {
+          type filter hook input priority filter; policy drop;
+          iif "lo" accept
+          ct state established,related accept
+          ct state invalid drop
+          ip protocol icmp accept
+          tcp dport ${admin_ssh_port} accept
+          ip saddr $honeynet tcp dport ${proxy_port} accept
+        }
+
+        # Containment comes first, so no later rule can let a new connection
+        # leave the Honeynet. The queue rule comes before the established
+        # rule, so that in IPS mode Suricata gets every packet of a flow and
+        # not only the first one.
+        chain forward {
+          type filter hook forward priority filter; policy drop;
+          ip saddr $honeynet ip daddr != $honeynet ct state new drop
+          ct status dnat queue num 0 bypass
+          ct state established,related accept
+        }
+
+        chain output {
+          type filter hook output priority filter; policy accept;
+        }
+      }
+
+      # The Honeypots' replies need no masquerade: conntrack reverses the
+      # DNAT, so they leave with the Sensor public IPv4 as the source.
+      table ip nat {
+        chain prerouting {
+          type nat hook prerouting priority dstnat; policy accept;
+          ip daddr $sensor_public_ipv4 tcp dport $honeypot_tcp_ports dnat to $honeypot
+        }
+      }
+
 # Ubuntu 24.04 starts sshd through ssh.socket, which listens on port 22 until
 # it is regenerated. Plain ssh.service reads the port from sshd_config.
 runcmd:
+  - sysctl --system
+  - systemctl enable --now nftables.service
   - systemctl disable --now ssh.socket
   - rm -f /etc/systemd/system/ssh.service.d/00-socket.conf /etc/systemd/system/ssh.socket.d/addresses.conf
   - systemctl daemon-reload

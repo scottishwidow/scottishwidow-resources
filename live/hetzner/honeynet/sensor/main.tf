@@ -18,6 +18,18 @@ resource "hcloud_firewall" "sensor" {
     port        = tostring(var.admin_ssh_port)
     source_ips  = var.admin_cidrs
   }
+
+  dynamic "rule" {
+    for_each = var.honeypot_tcp_ports
+
+    content {
+      description = "Honeypot port ${rule.value} from anywhere"
+      direction   = "in"
+      protocol    = "tcp"
+      port        = tostring(rule.value)
+      source_ips  = ["0.0.0.0/0"]
+    }
+  }
 }
 
 module "sensor" {

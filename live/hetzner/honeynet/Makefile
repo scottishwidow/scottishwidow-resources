@@ -4,12 +4,19 @@ TF_ARGS          ?=
 
 REQUIRED_ENV  := AWS_PROFILE HONEYNET_HCLOUD_TOKEN
 
-APPLY_ORDER   := bootstrap network sensor
-DESTROY_ORDER := sensor network bootstrap
+# bootstrap keeps its state locally and creates the Honeynet SSH key once. It
+# is not part of the bulk targets, so it only runs with `make <target>-bootstrap`.
+APPLY_ORDER   := network sensor honeypots
+DESTROY_ORDER := honeypots sensor network
+ALL_STACKS    := bootstrap $(APPLY_ORDER)
 
 # Only the Honeynet token may reach the Honeynet project. This assignment
 # overrides an HCLOUD_TOKEN inherited from the shell.
 export HCLOUD_TOKEN := $(HONEYNET_HCLOUD_TOKEN)
+
+# The sensor root forwards the honeypot ports to this IP, and the honeypots
+# root gives it to honeypot-1.
+export TF_VAR_honeypot_1_private_ip := 10.20.0.11
 
 .NOTPARALLEL:
 .PHONY: init apply destroy inventory configure verify
@@ -20,8 +27,10 @@ destroy: $(addprefix destroy-,$(DESTROY_ORDER))
 
 inventory:
 	$(call require_env)
-	$(TERRAFORM) -chdir=sensor output -json ansible_inventory > ansible/inventory/hosts.json.tmp
-	mv ansible/inventory/hosts.json.tmp ansible/inventory/hosts.json
+	$(TERRAFORM) -chdir=sensor output -json ansible_inventory > ansible/inventory/sensor.json.tmp
+	$(TERRAFORM) -chdir=honeypots output -json ansible_inventory > ansible/inventory/honeypots.json.tmp
+	mv ansible/inventory/sensor.json.tmp ansible/inventory/sensor.json
+	mv ansible/inventory/honeypots.json.tmp ansible/inventory/honeypots.json
 	rm -f ansible/.known_hosts
 
 configure: inventory
@@ -32,22 +41,22 @@ verify:
 
 init-%:
 	$(call require_env)
-	$(call require_stack,$*,$(APPLY_ORDER))
+	$(call require_stack,$*,$(ALL_STACKS))
 	$(TERRAFORM) -chdir=$* init -input=false $(TF_ARGS)
 
 plan-%:
 	$(call require_env)
-	$(call require_stack,$*,$(APPLY_ORDER))
+	$(call require_stack,$*,$(ALL_STACKS))
 	$(TERRAFORM) -chdir=$* plan $(TF_ARGS)
 
 apply-%:
 	$(call require_env)
-	$(call require_stack,$*,$(APPLY_ORDER))
+	$(call require_stack,$*,$(ALL_STACKS))
 	$(TERRAFORM) -chdir=$* apply $(TF_ARGS)
 
 destroy-%:
 	$(call require_env)
-	$(call require_stack,$*,$(DESTROY_ORDER))
+	$(call require_stack,$*,$(ALL_STACKS))
 	$(TERRAFORM) -chdir=$* destroy $(TF_ARGS)
 
 require_stack = $(if $(filter $(1),$(2)),,$(error Unknown stack '$(1)'. Allowed: $(2)))

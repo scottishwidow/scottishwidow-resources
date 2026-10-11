@@ -1,4 +1,11 @@
 ---
+- name: Check the host network of the Sensor
+  hosts: sensors
+  gather_facts: false
+
+  roles:
+    - sensor_network_check
+
 - name: Harden SSH on every Honeynet host
   hosts: all
   gather_facts: false

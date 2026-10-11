@@ -1,0 +1,56 @@
+---
+# cloud-init can end in status "error" while user data still applies, so the
+# checks below verify the result instead of the exit code.
+- name: Wait for cloud-init to finish
+  ansible.builtin.command:
+    cmd: cloud-init status --wait
+  changed_when: false
+  check_mode: false
+  failed_when: false
+
+- name: Read IPv4 forwarding
+  ansible.builtin.command:
+    cmd: sysctl -n net.ipv4.ip_forward
+  register: sensor_network_check_ip_forward
+  changed_when: false
+  check_mode: false
+
+- name: Read the forward chain
+  ansible.builtin.command:
+    cmd: nft list chain inet filter forward
+  register: sensor_network_check_forward_chain
+  changed_when: false
+  check_mode: false
+  failed_when: false
+
+- name: Read the DNAT chain
+  ansible.builtin.command:
+    cmd: nft list chain ip nat prerouting
+  register: sensor_network_check_dnat_chain
+  changed_when: false
+  check_mode: false
+  failed_when: false
+
+- name: Require the host network from the Sensor user data
+  vars:
+    sensor_network_check_forward_rules: "{{ sensor_network_check_forward_chain.stdout_lines | map('trim') | reject('match', '^(table |chain |type |}|$)') | list }}"
+    sensor_network_check_containment_rule: "ip saddr {{ honeynet_network_ip_range }} ip daddr != {{ honeynet_network_ip_range }} ct state new drop"
+  ansible.builtin.assert:
+    that: item.condition
+    fail_msg: >-
+      {{ item.missing }} is missing on the Sensor. It belongs to the Sensor user data in
+      live/hetzner/honeynet/sensor, not to Ansible. Fix the template and replace the Sensor.
+    quiet: true
+  loop:
+    - missing: IPv4 forwarding
+      condition: "{{ sensor_network_check_ip_forward.stdout == '1' }}"
+    - missing: "DNAT of the honeypot ports to {{ honeypot_1_private_ip }}"
+      condition: "{{ sensor_network_check_dnat_chain.stdout is search('dnat to ' ~ honeypot_1_private_ip ~ '$', multiline=true) }}"
+    - missing: "Containment as the first forward rule, with policy drop"
+      condition: >-
+        {{ sensor_network_check_forward_chain.stdout is search('policy drop;')
+           and sensor_network_check_forward_rules[:1] == [sensor_network_check_containment_rule] }}
+    - missing: "The forward rule to queue 0 with bypass"
+      condition: "{{ sensor_network_check_forward_rules | select('search', '^ct status dnat queue flags bypass to 0$') | list | length == 1 }}"
+  loop_control:
+    label: "{{ item.missing }}"

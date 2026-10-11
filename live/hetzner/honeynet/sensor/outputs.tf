@@ -17,6 +17,8 @@ output "ansible_inventory" {
       }
       vars = {
         ssh_hardening_allow_tcp_forwarding = "local"
+        honeynet_network_ip_range          = data.hcloud_network.honeynet.ip_range
+        honeypot_1_private_ip              = var.honeypot_1_private_ip
       }
     }
   }

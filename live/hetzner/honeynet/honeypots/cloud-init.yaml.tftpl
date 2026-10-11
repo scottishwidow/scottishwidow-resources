@@ -1,0 +1,60 @@
+#cloud-config
+users:
+  - name: admin
+    groups: [sudo]
+    shell: /bin/bash
+    lock_passwd: true
+    sudo: "ALL=(ALL) NOPASSWD:ALL"
+    ssh_authorized_keys:
+      - ${admin_ssh_public_key}
+
+# The default route goes to the Hetzner network gateway, and the network
+# route sends it on to the Sensor. Containment drops DNS to the internet,
+# so the Honeypots use no resolver.
+write_files:
+  - path: /etc/systemd/network/05-honeynet.network
+    owner: root:root
+    permissions: "0644"
+    content: |
+      [Match]
+      Name=en*
+
+      [Network]
+      DHCP=ipv4
+
+      [DHCPv4]
+      UseDNS=no
+
+      [Route]
+      Gateway=${network_gateway_ip}
+      GatewayOnLink=yes
+
+  - path: /etc/nftables.conf
+    owner: root:root
+    permissions: "0755"
+    content: |
+      #!/usr/sbin/nft -f
+      flush ruleset
+
+      table inet filter {
+        chain input {
+          type filter hook input priority filter; policy drop;
+          iif "lo" accept
+          ct state established,related accept
+          ct state invalid drop
+          ip protocol icmp accept
+          ip saddr ${sensor_private_ip} tcp dport 22 accept
+        }
+
+        chain forward {
+          type filter hook forward priority filter; policy drop;
+        }
+
+        chain output {
+          type filter hook output priority filter; policy accept;
+        }
+      }
+
+runcmd:
+  - systemctl restart systemd-networkd.service
+  - systemctl enable --now nftables.service
