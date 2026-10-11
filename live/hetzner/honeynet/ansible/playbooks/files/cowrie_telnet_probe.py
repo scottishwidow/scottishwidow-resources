@@ -1,10 +1,4 @@
 #!/usr/bin/env python3
-"""Log in to Cowrie over Telnet, run one command and report what happened.
-
-Prints a JSON object on stdout and exits non-zero when a step fails:
-
-    {"negotiation": "<hex>", "logged_in": true, "command_output": "<text>"}
-"""
 
 from __future__ import annotations
 
@@ -31,7 +25,6 @@ class ProbeError(Exception):
 
 
 class TelnetClient:
-    """A Telnet client that refuses every option the server offers."""
 
     def __init__(self, host: str, port: int, timeout: float) -> None:
         self.socket = socket.create_connection((host, port), timeout)
@@ -48,7 +41,6 @@ class TelnetClient:
         self.socket.sendall(line.encode() + b"\r\n")
 
     def read_until(self, matches, deadline: float) -> str:
-        """Read until matches() accepts the text read so far."""
         while not matches(self.text):
             if time.monotonic() > deadline:
                 raise ProbeError(f"timeout, last read: {self.text[-200:]!r}")
@@ -62,7 +54,6 @@ class TelnetClient:
         return self.text
 
     def _strip_commands(self, data: bytes) -> str:
-        """Answer the Telnet commands in data and return its plain text."""
         self.buffer.extend(data)
         plain = bytearray()
         answer = bytearray()
