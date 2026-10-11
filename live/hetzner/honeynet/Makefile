@@ -4,8 +4,11 @@ TF_ARGS          ?=
 
 REQUIRED_ENV  := AWS_PROFILE HONEYNET_HCLOUD_TOKEN
 
-APPLY_ORDER   := bootstrap network sensor honeypots
-DESTROY_ORDER := honeypots sensor network bootstrap
+# bootstrap keeps its state locally and creates the Honeynet SSH key once. It
+# is not part of the bulk targets, so it only runs with `make <target>-bootstrap`.
+APPLY_ORDER   := network sensor honeypots
+DESTROY_ORDER := honeypots sensor network
+ALL_STACKS    := bootstrap $(APPLY_ORDER)
 
 # Only the Honeynet token may reach the Honeynet project. This assignment
 # overrides an HCLOUD_TOKEN inherited from the shell.
@@ -38,22 +41,22 @@ verify:
 
 init-%:
 	$(call require_env)
-	$(call require_stack,$*,$(APPLY_ORDER))
+	$(call require_stack,$*,$(ALL_STACKS))
 	$(TERRAFORM) -chdir=$* init -input=false $(TF_ARGS)
 
 plan-%:
 	$(call require_env)
-	$(call require_stack,$*,$(APPLY_ORDER))
+	$(call require_stack,$*,$(ALL_STACKS))
 	$(TERRAFORM) -chdir=$* plan $(TF_ARGS)
 
 apply-%:
 	$(call require_env)
-	$(call require_stack,$*,$(APPLY_ORDER))
+	$(call require_stack,$*,$(ALL_STACKS))
 	$(TERRAFORM) -chdir=$* apply $(TF_ARGS)
 
 destroy-%:
 	$(call require_env)
-	$(call require_stack,$*,$(DESTROY_ORDER))
+	$(call require_stack,$*,$(ALL_STACKS))
 	$(TERRAFORM) -chdir=$* destroy $(TF_ARGS)
 
 require_stack = $(if $(filter $(1),$(2)),,$(error Unknown stack '$(1)'. Allowed: $(2)))
