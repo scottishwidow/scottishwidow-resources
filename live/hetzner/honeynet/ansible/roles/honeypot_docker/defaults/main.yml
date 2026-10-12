@@ -1,0 +1,2 @@
+---
+honeypot_docker_no_proxy: "{{ honeynet_network_ip_range }},localhost,127.0.0.1"

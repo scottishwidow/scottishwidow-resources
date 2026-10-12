@@ -32,6 +32,21 @@ variable "honeypot_1_private_ip" {
   }
 }
 
+variable "honeypot_port_redirects" {
+  description = "Public TCP ports that the Sensor forwards to another port on honeypot-1. Cowrie listens on the mapped ports. The Makefile sets it for the sensor and honeypots roots"
+  type        = map(number)
+  default = {
+    22 = 2222
+    23 = 2223
+  }
+}
+
+variable "proxy_port" {
+  description = "Port of the allowlist proxy on the Sensor. The Docker daemon and apt on every Honeypot use it. The Makefile sets it for the sensor and honeypots roots"
+  type        = number
+  default     = 3128
+}
+
 variable "honeypot_count" {
   description = "Number of identical Honeypots. They are named honeypot-1 to honeypot-N"
   type        = number

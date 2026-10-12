@@ -1,0 +1,15 @@
+services:
+  cowrie:
+    image: {{ cowrie_image }}
+    restart: unless-stopped
+    ports:
+      - "{{ cowrie_ssh_port }}:2222"
+      - "{{ cowrie_telnet_port }}:2223"
+    volumes:
+      - {{ cowrie_dir }}/etc:/cowrie/cowrie-git/etc:ro
+      - {{ cowrie_dir }}/var:/cowrie/cowrie-git/var
+    cap_drop:
+      - ALL
+    read_only: true
+    security_opt:
+      - no-new-privileges:true

@@ -1,0 +1,22 @@
+acl honeynet src {{ allowlist_proxy_clients }}
+acl allowlisted dstdomain {{ allowlist_proxy_domains | join(' ') }}
+acl SSL_ports port 443
+acl CONNECT method CONNECT
+
+http_port {{ allowlist_proxy_listen_ip }}:{{ allowlist_proxy_port }}
+
+http_access deny !honeynet
+http_access deny CONNECT !SSL_ports
+http_access allow allowlisted
+http_access deny all
+
+# The Honeypots fetch signed packages and images, and nothing else reads
+# them again, so a cache would only hold what apt and Docker verify anyway.
+cache deny all
+
+# A breakout attacker learns nothing about the Honeypot from the proxy.
+via off
+forwarded_for delete
+httpd_suppress_version_string on
+
+coredump_dir /var/spool/squid

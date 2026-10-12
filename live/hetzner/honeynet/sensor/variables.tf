@@ -42,6 +42,20 @@ variable "honeypot_tcp_ports" {
   default     = [21, 22, 23, 80, 445, 1433, 3306]
 }
 
+variable "honeypot_port_redirects" {
+  description = "Public TCP ports that the Sensor forwards to another port on honeypot-1. Cowrie listens on unprivileged ports, so port 22 stays free for the Honeypot's own SSH server"
+  type        = map(number)
+  default = {
+    22 = 2222
+    23 = 2223
+  }
+
+  validation {
+    condition     = alltrue([for public_port in keys(var.honeypot_port_redirects) : can(tonumber(public_port))])
+    error_message = "Every key of honeypot_port_redirects must be a port number."
+  }
+}
+
 variable "proxy_port" {
   description = "Port of the allowlist proxy on the Sensor. Only the Honeynet network can reach it"
   type        = number

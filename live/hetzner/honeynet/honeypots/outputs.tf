@@ -13,6 +13,9 @@ output "ansible_inventory" {
       vars = {
         ssh_hardening_allow_users = ["admin@${var.sensor_private_ip}"]
         sensor_private_ip         = var.sensor_private_ip
+        honeynet_network_ip_range = data.hcloud_network.honeynet.ip_range
+        honeynet_proxy_url        = "http://${var.sensor_private_ip}:${var.proxy_port}"
+        honeypot_port_redirects   = var.honeypot_port_redirects
       }
     }
   }

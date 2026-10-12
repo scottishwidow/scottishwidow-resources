@@ -1,0 +1,13 @@
+{#
+  userland-proxy false keeps published ports on the nftables DNAT path. The
+  userland proxy would open its own connection to the container, and Cowrie
+  would log the Honeypot as the source of every attack.
+#}
+{
+  "proxies": {
+    "http-proxy": "{{ honeynet_proxy_url }}",
+    "https-proxy": "{{ honeynet_proxy_url }}",
+    "no-proxy": "{{ honeypot_docker_no_proxy }}"
+  },
+  "userland-proxy": false
+}

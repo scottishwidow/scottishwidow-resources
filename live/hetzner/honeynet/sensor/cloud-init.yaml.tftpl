@@ -31,7 +31,6 @@ write_files:
       define honeynet = ${network_ip_range}
       define sensor_public_ipv4 = ${public_ipv4}
       define honeypot = ${honeypot_ip}
-      define honeypot_tcp_ports = { ${join(", ", honeypot_tcp_ports)} }
 
       table inet filter {
         chain input {
@@ -50,7 +49,7 @@ write_files:
         # not only the first one.
         chain forward {
           type filter hook forward priority filter; policy drop;
-          ip saddr $honeynet ip daddr != $honeynet ct state new drop
+          ip saddr $honeynet ip daddr != $honeynet ct state new counter drop
           ct status dnat queue num 0 bypass
           ct state established,related accept
         }
@@ -65,7 +64,7 @@ write_files:
       table ip nat {
         chain prerouting {
           type nat hook prerouting priority dstnat; policy accept;
-          ip daddr $sensor_public_ipv4 tcp dport $honeypot_tcp_ports dnat to $honeypot
+          ${indent(10, dnat_rules)}
         }
       }
 

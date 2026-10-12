@@ -1,0 +1,58 @@
+---
+- name: Create the Cowrie config directory
+  ansible.builtin.file:
+    path: "{{ cowrie_dir }}/etc"
+    state: directory
+    owner: root
+    group: root
+    mode: "0755"
+
+# The container masks the directories the image ships, so the session logs,
+# the TTY recordings and the download directory are created here.
+- name: Create the Cowrie session directories
+  ansible.builtin.file:
+    path: "{{ cowrie_dir }}/{{ item }}"
+    state: directory
+    owner: "{{ cowrie_uid }}"
+    group: "{{ cowrie_uid }}"
+    mode: "0750"
+  loop:
+    - var
+    - var/log/cowrie
+    - var/lib/cowrie
+    - var/lib/cowrie/tty
+    - var/lib/cowrie/downloads
+
+- name: Write the Cowrie config
+  ansible.builtin.template:
+    src: cowrie.cfg.j2
+    dest: "{{ cowrie_dir }}/etc/cowrie.cfg"
+    owner: root
+    group: root
+    mode: "0644"
+  notify: Recreate Cowrie
+
+- name: Write the Cowrie password database
+  ansible.builtin.template:
+    src: userdb.txt.j2
+    dest: "{{ cowrie_dir }}/etc/userdb.txt"
+    owner: root
+    group: root
+    mode: "0644"
+  notify: Recreate Cowrie
+
+- name: Write the Cowrie Compose file
+  ansible.builtin.template:
+    src: compose.yaml.j2
+    dest: "{{ cowrie_dir }}/compose.yaml"
+    owner: root
+    group: root
+    mode: "0644"
+  notify: Recreate Cowrie
+
+- name: Start Cowrie
+  ansible.builtin.command:
+    cmd: docker compose up -d
+    chdir: "{{ cowrie_dir }}"
+  register: cowrie_compose_up
+  changed_when: cowrie_compose_up.stderr is search('(Created|Started|Recreated|Pulled)')

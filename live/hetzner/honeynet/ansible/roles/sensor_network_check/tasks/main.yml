@@ -34,7 +34,9 @@
 - name: Require the host network from the Sensor user data
   vars:
     sensor_network_check_forward_rules: "{{ sensor_network_check_forward_chain.stdout_lines | map('trim') | reject('match', '^(table |chain |type |}|$)') | list }}"
-    sensor_network_check_containment_rule: "ip saddr {{ honeynet_network_ip_range }} ip daddr != {{ honeynet_network_ip_range }} ct state new drop"
+    sensor_network_check_containment_rule: >-
+      ^ip saddr {{ honeynet_network_ip_range }} ip daddr != {{ honeynet_network_ip_range }}
+      ct state new counter packets [0-9]+ bytes [0-9]+ drop$
   ansible.builtin.assert:
     that: item.condition
     fail_msg: >-
@@ -46,11 +48,27 @@
       condition: "{{ sensor_network_check_ip_forward.stdout == '1' }}"
     - missing: "DNAT of the honeypot ports to {{ honeypot_1_private_ip }}"
       condition: "{{ sensor_network_check_dnat_chain.stdout is search('dnat to ' ~ honeypot_1_private_ip ~ '$', multiline=true) }}"
-    - missing: "Containment as the first forward rule, with policy drop"
+    - missing: "Containment with a drop counter as the first forward rule, with policy drop"
       condition: >-
         {{ sensor_network_check_forward_chain.stdout is search('policy drop;')
-           and sensor_network_check_forward_rules[:1] == [sensor_network_check_containment_rule] }}
+           and sensor_network_check_forward_rules[:1] | select('search', sensor_network_check_containment_rule) | list | length == 1 }}
     - missing: "The forward rule to queue 0 with bypass"
       condition: "{{ sensor_network_check_forward_rules | select('search', '^ct status dnat queue flags bypass to 0$') | list | length == 1 }}"
   loop_control:
     label: "{{ item.missing }}"
+
+# Cowrie listens on unprivileged ports in a container, so these public ports
+# reach the Honeypot on another port.
+- name: Require the DNAT of the redirected honeypot ports
+  ansible.builtin.assert:
+    that: >-
+      sensor_network_check_dnat_chain.stdout is search('tcp dport ' ~ item.key ~ ' dnat to '
+      ~ honeypot_1_private_ip ~ ':' ~ item.value ~ '$', multiline=true)
+    fail_msg: >-
+      The DNAT of port {{ item.key }} to {{ honeypot_1_private_ip }}:{{ item.value }} is missing on the
+      Sensor. It belongs to the Sensor user data in live/hetzner/honeynet/sensor, not to Ansible.
+      Fix the template and replace the Sensor.
+    quiet: true
+  loop: "{{ honeypot_port_redirects | dict2items }}"
+  loop_control:
+    label: "{{ item.key }}"
