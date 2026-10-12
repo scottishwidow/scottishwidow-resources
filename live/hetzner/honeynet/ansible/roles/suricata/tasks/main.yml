@@ -1,0 +1,103 @@
+---
+- name: Install the library the deb822 repository module needs
+  ansible.builtin.apt:
+    name: python3-debian
+    update_cache: true
+    cache_valid_time: 3600
+
+# The Ubuntu archive carries an older Suricata, so the Sensor takes the
+# stable release from the PPA the Suricata project maintains.
+- name: Add the Suricata stable PPA
+  ansible.builtin.deb822_repository:
+    name: oisf-suricata-stable
+    types: deb
+    uris: https://ppa.launchpadcontent.net/oisf/suricata-stable/ubuntu
+    suites: "{{ suricata_ppa_suite }}"
+    components: main
+    signed_by: "{{ lookup('ansible.builtin.file', 'oisf-suricata-stable.asc') }}"
+    state: present
+  register: suricata_ppa
+
+- name: Read the package index of the PPA
+  ansible.builtin.apt:
+    update_cache: true
+  when: suricata_ppa is changed
+
+- name: Install Suricata
+  ansible.builtin.apt:
+    name: suricata
+    update_cache: true
+    cache_valid_time: 3600
+
+# The package ships no rules, and Suricata refuses a config whose rule file is
+# missing. Rule updates are a separate change, so this runs once.
+- name: Fetch the rules
+  ansible.builtin.command:
+    cmd: suricata-update --no-test
+    creates: /var/lib/suricata/rules/suricata.rules
+
+# af-packet needs the device name and the plays gather no facts, so the device
+# follows from the private IP that the inventory pins.
+- name: Read the interface that holds the private IP
+  ansible.builtin.command:
+    cmd: ip -4 -o addr show to {{ sensor_private_ip }}
+  register: suricata_private_address
+  changed_when: false
+  check_mode: false
+
+- name: Require an interface with the private IP
+  ansible.builtin.assert:
+    that: suricata_private_address.stdout | trim | length > 0
+    fail_msg: >-
+      No interface on the Sensor holds {{ sensor_private_ip }}. The private IP
+      arrives over DHCP, so check that the network attachment is up.
+
+- name: Keep the private interface for the config
+  ansible.builtin.set_fact:
+    suricata_private_interface: "{{ suricata_private_address.stdout.split()[1] }}"
+
+- name: Write the Suricata config
+  ansible.builtin.template:
+    src: suricata.yaml.j2
+    dest: /etc/suricata/suricata.yaml
+    owner: root
+    group: root
+    mode: "0644"
+    validate: suricata -T -c %s
+  notify: Restart Suricata
+
+- name: Create the Suricata service drop-in directory
+  ansible.builtin.file:
+    path: /etc/systemd/system/suricata.service.d
+    state: directory
+    owner: root
+    group: root
+    mode: "0755"
+
+# The packaged service is Type=simple, so the process must stay in the
+# foreground. The package creates the run directory once, at install, and /run
+# is a tmpfs, so systemd creates it on every start instead.
+- name: Set the capture mode of the Suricata service
+  ansible.builtin.copy:
+    content: |
+      [Service]
+      RuntimeDirectory=suricata
+      RuntimeDirectoryMode=0755
+      PIDFile=/run/suricata/suricata.pid
+      ExecStartPre=
+      ExecStartPre=/bin/rm -f /run/suricata/suricata.pid
+      ExecStart=
+      ExecStart=/usr/bin/suricata {{ suricata_capture_arguments[suricata_mode] }} -c /etc/suricata/suricata.yaml --pidfile /run/suricata/suricata.pid
+    dest: /etc/systemd/system/suricata.service.d/10-capture-mode.conf
+    owner: root
+    group: root
+    mode: "0644"
+  notify:
+    - Reload systemd
+    - Restart Suricata
+
+- name: Enable and start Suricata
+  ansible.builtin.systemd_service:
+    name: suricata.service
+    enabled: true
+    state: started

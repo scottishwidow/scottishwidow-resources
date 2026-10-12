@@ -1,0 +1,9 @@
+---
+- name: Reload systemd
+  ansible.builtin.systemd_service:
+    daemon_reload: true
+
+- name: Restart Suricata
+  ansible.builtin.systemd_service:
+    name: suricata.service
+    state: restarted
