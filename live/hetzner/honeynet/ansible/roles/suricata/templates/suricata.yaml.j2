@@ -65,11 +65,12 @@ nfq:
   mode: accept
   fail-open: true
 
-# ExecStop and ExecReload of the packaged service call suricatasc, which needs
-# this socket.
+# ExecStop of the packaged service calls suricatasc, which needs this socket.
+# systemd owns the directory, so the path follows RuntimeDirectory of the
+# service and matches the default that suricatasc assumes.
 unix-command:
   enabled: true
-  filename: /var/run/suricata/suricata-command.socket
+  filename: /run/suricata/suricata-command.socket
 
 default-rule-path: /var/lib/suricata/rules
 rule-files:

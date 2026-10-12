@@ -74,12 +74,20 @@
     group: root
     mode: "0755"
 
+# The packaged service is Type=simple, so the process must stay in the
+# foreground. The package creates the run directory once, at install, and /run
+# is a tmpfs, so systemd creates it on every start instead.
 - name: Set the capture mode of the Suricata service
   ansible.builtin.copy:
     content: |
       [Service]
+      RuntimeDirectory=suricata
+      RuntimeDirectoryMode=0755
+      PIDFile=/run/suricata/suricata.pid
+      ExecStartPre=
+      ExecStartPre=/bin/rm -f /run/suricata/suricata.pid
       ExecStart=
-      ExecStart=/usr/bin/suricata -D {{ suricata_capture_arguments[suricata_mode] }} -c /etc/suricata/suricata.yaml --pidfile /var/run/suricata/suricata.pid
+      ExecStart=/usr/bin/suricata {{ suricata_capture_arguments[suricata_mode] }} -c /etc/suricata/suricata.yaml --pidfile /run/suricata/suricata.pid
     dest: /etc/systemd/system/suricata.service.d/10-capture-mode.conf
     owner: root
     group: root
