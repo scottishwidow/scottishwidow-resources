@@ -82,6 +82,24 @@
   loop: "{{ suricata_owned_directories }}"
   notify: Restart Suricata
 
+- name: Create the local rules directory
+  ansible.builtin.file:
+    path: "{{ suricata_local_rules_path | dirname }}"
+    state: directory
+    owner: root
+    group: root
+    mode: "0755"
+
+# The config check loads every rule file, so the local rules exist first.
+- name: Write the local rules
+  ansible.builtin.template:
+    src: local.rules.j2
+    dest: "{{ suricata_local_rules_path }}"
+    owner: root
+    group: root
+    mode: "0644"
+  notify: Restart Suricata
+
 - name: Write the Suricata config
   ansible.builtin.template:
     src: suricata.yaml.j2

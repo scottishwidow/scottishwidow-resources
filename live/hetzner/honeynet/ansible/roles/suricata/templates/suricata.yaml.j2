@@ -82,6 +82,7 @@ unix-command:
 default-rule-path: /var/lib/suricata/rules
 rule-files:
   - suricata.rules
+  - {{ suricata_local_rules_path }}
 
 classification-file: /etc/suricata/classification.config
 reference-config-file: /etc/suricata/reference.config

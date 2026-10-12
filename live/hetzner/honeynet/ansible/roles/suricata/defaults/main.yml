@@ -28,3 +28,11 @@ suricata_group: suricata
 suricata_owned_directories:
   - /var/log/suricata
   - /var/lib/suricata
+
+# suricata-update rewrites the rules under /var/lib/suricata/rules, so the
+# local rules live outside that tree and load after the fetched rules.
+suricata_local_rules_path: /etc/suricata/rules/local.rules
+
+# Suricata sees the Telnet session after DNAT, so the rules match the port
+# Cowrie listens on, not public port 23.
+suricata_cowrie_telnet_port: "{{ honeypot_port_redirects['23'] }}"

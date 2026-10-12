@@ -10,3 +10,14 @@ verify_cowrie_download_url: http://1.1.1.1/malware.sh
 # and MSSQL modules. Every module refuses them and records the attempt.
 verify_opencanary_username: admin
 verify_opencanary_password: hunter2
+
+# The local Suricata rules on the Sensor match these strings in a Cowrie Telnet
+# session. One rule alerts and one rule drops. A string must not contain a
+# character that a rule content must escape: ; " \ |
+suricata_canary_rules:
+  alert:
+    sid: 1000001
+    content: HONEYNET-CANARY-ALERT-4b1e9c
+  drop:
+    sid: 1000002
+    content: HONEYNET-CANARY-DROP-7d52a0
