@@ -62,8 +62,8 @@
 - name: Require the DNAT of the redirected honeypot ports
   ansible.builtin.assert:
     that: >-
-      {{ sensor_network_check_dnat_chain.stdout is search('tcp dport ' ~ item.key ~ ' dnat to '
-         ~ honeypot_1_private_ip ~ ':' ~ item.value ~ '$', multiline=true) }}
+      sensor_network_check_dnat_chain.stdout is search('tcp dport ' ~ item.key ~ ' dnat to '
+      ~ honeypot_1_private_ip ~ ':' ~ item.value ~ '$', multiline=true)
     fail_msg: >-
       The DNAT of port {{ item.key }} to {{ honeypot_1_private_ip }}:{{ item.value }} is missing on the
       Sensor. It belongs to the Sensor user data in live/hetzner/honeynet/sensor, not to Ansible.

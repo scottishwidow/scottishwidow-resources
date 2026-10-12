@@ -121,13 +121,13 @@
         verify_drops_after: "{{ (verify_containment_after.stdout | regex_findall('counter packets ([0-9]+)')) + ['-1'] }}"
       ansible.builtin.assert:
         that:
-          - verify_cowrie_banner.match_groups | default([]) | length == 1
+          - "'Timeout' not in verify_cowrie_banner.msg | default('')"
           - verify_cowrie_telnet.rc == 0
           - verify_telnet_session.negotiation | default('') is match('ff')
           - "'Timeout' in verify_proxy_port.msg | default('')"
           - verify_drops_after | first | int > verify_drops_before | first | int
         fail_msg: >-
-          port 22 banner={{ verify_cowrie_banner.match_groups | default('none') }};
+          port 22 banner={{ verify_cowrie_banner.msg | default('matched') }};
           port 23 session={{ verify_cowrie_telnet.stderr | default('') | trim }}{{ verify_telnet_session.command_output | default('') }};
           proxy port {{ proxy_port }}={{ verify_proxy_port.msg | default('answered') }};
           Containment drops before={{ verify_drops_before | first }} after={{ verify_drops_after | first }}
@@ -198,9 +198,15 @@
           host keys={{ verify_sshd.stdout_lines | select('match', '^hostkey ') | list }};
           global IPv6={{ verify_ipv6.stdout_lines }}
 
+    # Docker keeps its bridge addresses on the Honeypot, so they are not
+    # addresses of the host itself.
     - name: Require the private IP as the only IPv4 address of a Honeypot
+      vars:
+        verify_host_ipv4: >-
+          {{ verify_ipv4.stdout_lines | reject('search', '^[0-9]+: (docker0|br-|veth)')
+             | map('regex_findall', 'inet ([0-9.]+)/') | flatten | list }}
       ansible.builtin.assert:
-        that: verify_ipv4.stdout | regex_findall('inet ([0-9.]+)/') == [ansible_host]
+        that: verify_host_ipv4 == [ansible_host]
         fail_msg: "global IPv4={{ verify_ipv4.stdout_lines }}"
       when: not verify_is_sensor
 
