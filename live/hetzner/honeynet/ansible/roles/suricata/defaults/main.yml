@@ -1,0 +1,4 @@
+---
+# Must match the Ubuntu release of the sensor_image default in
+# live/hetzner/honeynet/sensor/variables.tf. The two move together.
+suricata_ppa_suite: noble
