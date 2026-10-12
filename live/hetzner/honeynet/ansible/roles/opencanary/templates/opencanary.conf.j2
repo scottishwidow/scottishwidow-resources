@@ -1,0 +1,47 @@
+{
+  "device.node_id": "{{ inventory_hostname }}",
+  "ip.ignorelist": [],
+  "logtype.ignorelist": [],
+
+  "ftp.enabled": true,
+  "ftp.port": {{ opencanary_ftp_port | int }},
+  "ftp.banner": "FTP server ready",
+
+  "http.enabled": true,
+  "http.port": {{ opencanary_http_port | int }},
+  "http.banner": "Apache/2.2.22 (Ubuntu)",
+  "http.skin": "nasLogin",
+  "http.log_unimplemented_method_requests": true,
+  "http.log_redirect_request": true,
+
+  "mssql.enabled": true,
+  "mssql.port": {{ opencanary_mssql_port | int }},
+  "mssql.version": "2012",
+
+  "mysql.enabled": true,
+  "mysql.port": {{ opencanary_mysql_port | int }},
+  "mysql.banner": "5.5.43-0ubuntu0.14.04.1",
+
+  "logger": {
+    "class": "PyLogger",
+    "kwargs": {
+      "formatters": {
+        "plain": {
+          "format": "%(message)s"
+        }
+      },
+      "handlers": {
+        "console": {
+          "class": "logging.StreamHandler",
+          "formatter": "plain",
+          "stream": "ext://sys.stdout"
+        },
+        "file": {
+          "class": "logging.FileHandler",
+          "formatter": "plain",
+          "filename": "{{ opencanary_container_log_dir }}/opencanary.log"
+        }
+      }
+    }
+  }
+}

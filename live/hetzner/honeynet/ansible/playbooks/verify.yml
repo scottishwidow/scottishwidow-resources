@@ -132,6 +132,127 @@
           proxy port {{ proxy_port }}={{ verify_proxy_port.msg | default('answered') }};
           Containment drops before={{ verify_drops_before | first }} after={{ verify_drops_after | first }}
 
+- name: Verify OpenCanary and the Dark Port from the workstation
+  hosts: sensors
+  gather_facts: false
+  become: false
+
+  tasks:
+    - name: Grab the OpenCanary FTP banner on port 21
+      ansible.builtin.wait_for:
+        host: "{{ ansible_host }}"
+        port: 21
+        search_regex: (220 [^\r\n]+)
+        timeout: 30
+      delegate_to: localhost
+      register: verify_opencanary_ftp_banner
+      failed_when: false
+
+    - name: Try an FTP login on port 21
+      ansible.builtin.command:
+        argv:
+          - curl
+          - --silent
+          - --max-time
+          - "20"
+          - --user
+          - "{{ verify_opencanary_username }}:{{ verify_opencanary_password }}"
+          - --output
+          - /dev/null
+          - --write-out
+          - "%{http_code}"
+          - "ftp://{{ ansible_host }}/"
+      delegate_to: localhost
+      register: verify_opencanary_ftp_login
+      changed_when: false
+      failed_when: false
+
+    # follow_redirects is safe by default, so this GET follows / to
+    # /index.html and OpenCanary records both the redirect and the GET.
+    - name: Send an HTTP GET to port 80
+      ansible.builtin.uri:
+        url: "http://{{ ansible_host }}/"
+        timeout: 20
+      delegate_to: localhost
+      register: verify_opencanary_http
+      failed_when: false
+
+    - name: Grab the OpenCanary MySQL banner on port 3306
+      ansible.builtin.wait_for:
+        host: "{{ ansible_host }}"
+        port: 3306
+        search_regex: (5\.5\.43-[-.\w]+)
+        timeout: 30
+      delegate_to: localhost
+      register: verify_opencanary_mysql_banner
+      failed_when: false
+
+    - name: Try a MySQL login on port 3306
+      ansible.builtin.command:
+        argv:
+          - python3
+          - "{{ playbook_dir }}/files/opencanary_mysql_probe.py"
+          - --host
+          - "{{ ansible_host }}"
+          - --username
+          - "{{ verify_opencanary_username }}"
+          - --password
+          - "{{ verify_opencanary_password }}"
+      delegate_to: localhost
+      register: verify_opencanary_mysql
+      changed_when: false
+      failed_when: false
+
+    # MSSQL does not speak first, so TDS needs a client prelogin packet
+    # before the login the honeypot records.
+    - name: Try an MSSQL login on port 1433
+      ansible.builtin.command:
+        argv:
+          - python3
+          - "{{ playbook_dir }}/files/opencanary_mssql_probe.py"
+          - --host
+          - "{{ ansible_host }}"
+          - --username
+          - "{{ verify_opencanary_username }}"
+          - --password
+          - "{{ verify_opencanary_password }}"
+      delegate_to: localhost
+      register: verify_opencanary_mssql
+      changed_when: false
+      failed_when: false
+
+    - name: Probe the Dark Port on the Sensor public IPv4
+      ansible.builtin.wait_for:
+        host: "{{ ansible_host }}"
+        port: 445
+        timeout: 10
+      delegate_to: localhost
+      register: verify_dark_port
+      failed_when: false
+
+    - name: Require OpenCanary on ports 21, 80, 1433 and 3306 and a Dark Port on 445
+      vars:
+        verify_mysql_login: "{{ verify_opencanary_mysql.stdout | default('{}', true) | from_json }}"
+        verify_mssql_login: "{{ verify_opencanary_mssql.stdout | default('{}', true) | from_json }}"
+      ansible.builtin.assert:
+        that:
+          - "'Timeout' not in verify_opencanary_ftp_banner.msg | default('')"
+          - verify_opencanary_ftp_login.stdout == '530'
+          - verify_opencanary_http.status | default(0) == 200
+          - "'Apache/2.2.22' in verify_opencanary_http.server | default('')"
+          - "'Timeout' not in verify_opencanary_mysql_banner.msg | default('')"
+          - verify_mysql_login.error_code | default(0) == 1045
+          - verify_mssql_login.error_number | default(0) == 18456
+          - "'Timeout' in verify_dark_port.msg | default('')"
+        fail_msg: >-
+          port 21 banner={{ verify_opencanary_ftp_banner.msg | default('matched') }};
+          port 21 login={{ verify_opencanary_ftp_login.stdout | default('') }};
+          port 80 status={{ verify_opencanary_http.status | default('') }} server={{ verify_opencanary_http.server | default('') }};
+          port 3306 banner={{ verify_opencanary_mysql_banner.msg | default('matched') }};
+          port 3306 login={{ verify_opencanary_mysql.stderr | default('') | trim }}{{ verify_mysql_login.error_message | default('') }};
+          port 1433 login={{ verify_opencanary_mssql.stderr | default('') | trim }}{{ verify_mssql_login.error_message | default('') }};
+          port 445={{ verify_dark_port.msg | default('answered') }}
+
 - name: Verify every Honeynet host from inside
   hosts: all
   gather_facts: false
@@ -332,3 +453,45 @@
           Cowrie commands={{ verify_cowrie_session.commands | default('none') }};
           allowlisted domain={{ verify_proxy_allowed.stdout | default('') }} {{ verify_proxy_allowed.stderr | default('') | trim }};
           domain not on the allowlist={{ verify_proxy_denied.stdout | default('') }} {{ verify_proxy_denied.stderr | default('') | trim }}
+
+- name: Verify the OpenCanary records from each Honeypot
+  hosts: honeypots
+  gather_facts: false
+
+  vars:
+    verify_opencanary_log: "{{ opencanary_dir }}/var/opencanary.log"
+    verify_workstation_ip: "{{ hostvars['sensor'].verify_workstation_ip }}"
+    # FTP login attempt, HTTP GET, MySQL login attempt and MSSQL SQL-auth login.
+    verify_opencanary_logtypes: [2000, 3000, 8001, 9001]
+
+  tasks:
+    - name: Read the records OpenCanary wrote
+      ansible.builtin.command:
+        argv:
+          - python3
+          - -c
+          - |
+            import json, sys
+            source_hosts, logtypes = set(), set()
+            with open(sys.argv[1]) as log:
+                for line in log:
+                    record = json.loads(line)
+                    source_hosts.add(record.get("src_host", ""))
+                    logtypes.add(record.get("logtype"))
+            print(json.dumps({"source_hosts": sorted(source_hosts), "logtypes": sorted(logtypes)}))
+          - "{{ verify_opencanary_log }}"
+      register: verify_opencanary_records
+      changed_when: false
+      check_mode: false
+
+    - name: Require the attacker address in the OpenCanary log and one record of each logtype
+      vars:
+        verify_opencanary_record: "{{ verify_opencanary_records.stdout | default('{}', true) | from_json }}"
+      ansible.builtin.assert:
+        that:
+          - verify_workstation_ip in verify_opencanary_record.source_hosts | default([])
+          - sensor_private_ip not in verify_opencanary_record.source_hosts | default([])
+          - verify_opencanary_logtypes | difference(verify_opencanary_record.logtypes | default([])) == []
+        fail_msg: >-
+          OpenCanary source addresses={{ verify_opencanary_record.source_hosts | default('none') }};
+          OpenCanary logtypes={{ verify_opencanary_record.logtypes | default('none') }}

@@ -1,0 +1,24 @@
+services:
+  opencanary:
+    image: {{ opencanary_image }}
+    restart: unless-stopped
+    # The image default is "--dev --uid=nobody --gid=nogroup", and dropping
+    # to that uid needs CAP_SETUID, which cap_drop removes. The process stays
+    # root inside a container that holds no capability at all.
+    command: ["--dev"]
+    ports:
+      - "{{ opencanary_ftp_port }}:{{ opencanary_ftp_port }}"
+      - "{{ opencanary_http_port }}:{{ opencanary_http_port }}"
+      - "{{ opencanary_mssql_port }}:{{ opencanary_mssql_port }}"
+      - "{{ opencanary_mysql_port }}:{{ opencanary_mysql_port }}"
+    volumes:
+      - {{ opencanary_dir }}/etc:/etc/opencanaryd:ro
+      - {{ opencanary_dir }}/var:{{ opencanary_container_log_dir }}
+    # opencanaryd writes a pidfile under /run, which read_only refuses.
+    tmpfs:
+      - /run
+    cap_drop:
+      - ALL
+    read_only: true
+    security_opt:
+      - no-new-privileges:true
