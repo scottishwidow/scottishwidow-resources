@@ -1,0 +1,17 @@
+---
+# The Ubuntu archive carries an older Suricata, so the Sensor takes the
+# stable release from the PPA the Suricata project maintains.
+- name: Install the tool that adds a PPA
+  ansible.builtin.apt:
+    name: software-properties-common
+    update_cache: true
+    cache_valid_time: 3600
+
+- name: Add the Suricata stable PPA
+  ansible.builtin.apt_repository:
+    repo: ppa:oisf/suricata-stable
+    state: present
+
+- name: Install Suricata
+  ansible.builtin.apt:
+    name: suricata
