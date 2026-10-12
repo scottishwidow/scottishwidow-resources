@@ -12,6 +12,10 @@ _Avoid_: Lab, sandbox, DMZ
 A host with no public IP that runs emulated services to attract attacks. Nothing on it is trusted.
 _Avoid_: Decoy, trap, target
 
+**Dark Port**:
+A honeypot port that the Sensor forwards although no service answers it. Suricata still inspects the traffic.
+_Avoid_: Closed port, filtered port, unused port
+
 **Sensor**:
 The single Honeynet host with a public IPv4. Every packet between the internet and a Honeypot passes through it, and Suricata on it inspects them.
 _Avoid_: Gateway, router, firewall, IDS box
