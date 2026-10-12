@@ -28,3 +28,68 @@
     name: suricata
     update_cache: true
     cache_valid_time: 3600
+
+# The package ships no rules, and Suricata refuses a config whose rule file is
+# missing. Rule updates are a separate change, so this runs once.
+- name: Fetch the rules
+  ansible.builtin.command:
+    cmd: suricata-update --no-test
+    creates: /var/lib/suricata/rules/suricata.rules
+
+# af-packet needs the device name and the plays gather no facts, so the device
+# follows from the private IP that the inventory pins.
+- name: Read the interface that holds the private IP
+  ansible.builtin.command:
+    cmd: ip -4 -o addr show to {{ sensor_private_ip }}
+  register: suricata_private_address
+  changed_when: false
+  check_mode: false
+
+- name: Require an interface with the private IP
+  ansible.builtin.assert:
+    that: suricata_private_address.stdout | trim | length > 0
+    fail_msg: >-
+      No interface on the Sensor holds {{ sensor_private_ip }}. The private IP
+      arrives over DHCP, so check that the network attachment is up.
+
+- name: Keep the private interface for the config
+  ansible.builtin.set_fact:
+    suricata_private_interface: "{{ suricata_private_address.stdout.split()[1] }}"
+
+- name: Write the Suricata config
+  ansible.builtin.template:
+    src: suricata.yaml.j2
+    dest: /etc/suricata/suricata.yaml
+    owner: root
+    group: root
+    mode: "0644"
+    validate: suricata -T -c %s
+  notify: Restart Suricata
+
+- name: Create the Suricata service drop-in directory
+  ansible.builtin.file:
+    path: /etc/systemd/system/suricata.service.d
+    state: directory
+    owner: root
+    group: root
+    mode: "0755"
+
+- name: Set the capture mode of the Suricata service
+  ansible.builtin.copy:
+    content: |
+      [Service]
+      ExecStart=
+      ExecStart=/usr/bin/suricata -D {{ suricata_capture_arguments[suricata_mode] }} -c /etc/suricata/suricata.yaml --pidfile /var/run/suricata/suricata.pid
+    dest: /etc/systemd/system/suricata.service.d/10-capture-mode.conf
+    owner: root
+    group: root
+    mode: "0644"
+  notify:
+    - Reload systemd
+    - Restart Suricata
+
+- name: Enable and start Suricata
+  ansible.builtin.systemd_service:
+    name: suricata.service
+    enabled: true
+    state: started
