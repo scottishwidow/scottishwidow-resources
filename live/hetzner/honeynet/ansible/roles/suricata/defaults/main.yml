@@ -17,3 +17,14 @@ suricata_capture_arguments:
 # Both modes see the traffic after DNAT, so the Honeypots are HOME_NET and the
 # public IPv4 of the Sensor is not.
 suricata_home_net: "{{ honeynet_network_ip_range }}"
+
+# Suricata starts as root to open the capture and keeps the capture
+# capabilities, then drops to this account for the rest of its run.
+suricata_user: suricata
+suricata_group: suricata
+
+# Suricata writes the logs and reads the rules as suricata_user, so both trees
+# belong to it.
+suricata_owned_directories:
+  - /var/log/suricata
+  - /var/lib/suricata
