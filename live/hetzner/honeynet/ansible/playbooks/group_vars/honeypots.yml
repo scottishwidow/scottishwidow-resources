@@ -9,3 +9,6 @@ ansible_ssh_common_args: >-
 
 # The verify playbook reads the Cowrie session log below this directory.
 cowrie_dir: /opt/cowrie
+
+# The verify playbook reads the OpenCanary log below this directory.
+opencanary_dir: /opt/opencanary

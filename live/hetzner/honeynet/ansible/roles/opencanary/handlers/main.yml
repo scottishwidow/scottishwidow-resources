@@ -1,0 +1,6 @@
+---
+- name: Recreate OpenCanary
+  ansible.builtin.command:
+    cmd: docker compose up -d --force-recreate
+    chdir: "{{ opencanary_dir }}"
+  changed_when: true

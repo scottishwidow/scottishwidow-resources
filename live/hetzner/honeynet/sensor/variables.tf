@@ -43,11 +43,13 @@ variable "honeypot_tcp_ports" {
 }
 
 variable "honeypot_port_redirects" {
-  description = "Public TCP ports that the Sensor forwards to another port on honeypot-1. Cowrie listens on unprivileged ports, so port 22 stays free for the Honeypot's own SSH server"
+  description = "Public TCP ports that the Sensor forwards to another port on honeypot-1. Cowrie and OpenCanary bind no privileged port, so port 22 stays free for the Honeypot's own SSH server"
   type        = map(number)
   default = {
+    21 = 2121
     22 = 2222
     23 = 2223
+    80 = 8080
   }
 
   validation {

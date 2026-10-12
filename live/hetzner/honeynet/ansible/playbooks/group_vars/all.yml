@@ -5,3 +5,8 @@
 verify_cowrie_username: root
 verify_cowrie_password: letmein
 verify_cowrie_download_url: http://1.1.1.1/malware.sh
+
+# The verify playbook offers these credentials to the OpenCanary FTP, MySQL
+# and MSSQL modules. Every module refuses them and records the attempt.
+verify_opencanary_username: admin
+verify_opencanary_password: hunter2

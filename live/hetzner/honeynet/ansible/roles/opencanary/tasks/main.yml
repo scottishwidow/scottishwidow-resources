@@ -1,0 +1,41 @@
+---
+- name: Create the OpenCanary config directory
+  ansible.builtin.file:
+    path: "{{ opencanary_dir }}/etc"
+    state: directory
+    owner: root
+    group: root
+    mode: "0755"
+
+- name: Create the OpenCanary log directory
+  ansible.builtin.file:
+    path: "{{ opencanary_dir }}/var"
+    state: directory
+    owner: root
+    group: root
+    mode: "0755"
+
+- name: Write the OpenCanary config
+  ansible.builtin.template:
+    src: opencanary.conf.j2
+    dest: "{{ opencanary_dir }}/etc/opencanary.conf"
+    owner: root
+    group: root
+    mode: "0644"
+  notify: Recreate OpenCanary
+
+- name: Write the OpenCanary Compose file
+  ansible.builtin.template:
+    src: compose.yaml.j2
+    dest: "{{ opencanary_dir }}/compose.yaml"
+    owner: root
+    group: root
+    mode: "0644"
+  notify: Recreate OpenCanary
+
+- name: Start OpenCanary
+  ansible.builtin.command:
+    cmd: docker compose up -d
+    chdir: "{{ opencanary_dir }}"
+  register: opencanary_compose_up
+  changed_when: opencanary_compose_up.stderr is search('(Created|Started|Recreated|Pulled)')

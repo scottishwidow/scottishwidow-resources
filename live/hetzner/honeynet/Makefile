@@ -23,8 +23,9 @@ export TF_VAR_honeypot_1_private_ip := 10.20.0.11
 export TF_VAR_proxy_port := 3128
 
 # The sensor root forwards these public ports to the mapped port on
-# honeypot-1, and the honeypots root makes Cowrie listen on the mapped ports.
-export TF_VAR_honeypot_port_redirects := {"22":2222,"23":2223}
+# honeypot-1, and the honeypots root makes Cowrie and OpenCanary listen on the
+# mapped ports. Ports 445, 1433 and 3306 are forwarded unchanged.
+export TF_VAR_honeypot_port_redirects := {"21":2121,"22":2222,"23":2223,"80":8080}
 
 .NOTPARALLEL:
 .PHONY: init apply destroy inventory configure verify

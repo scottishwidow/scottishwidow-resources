@@ -33,11 +33,13 @@ variable "honeypot_1_private_ip" {
 }
 
 variable "honeypot_port_redirects" {
-  description = "Public TCP ports that the Sensor forwards to another port on honeypot-1. Cowrie listens on the mapped ports. The Makefile sets it for the sensor and honeypots roots"
+  description = "Public TCP ports that the Sensor forwards to another port on honeypot-1. Cowrie and OpenCanary listen on the mapped ports. The Makefile sets it for the sensor and honeypots roots"
   type        = map(number)
   default = {
+    21 = 2121
     22 = 2222
     23 = 2223
+    80 = 8080
   }
 }
 
