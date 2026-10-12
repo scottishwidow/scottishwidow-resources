@@ -29,6 +29,20 @@
     update_cache: true
     cache_valid_time: 3600
 
+- name: Create the Suricata group
+  ansible.builtin.group:
+    name: "{{ suricata_group }}"
+    system: true
+
+- name: Create the Suricata account
+  ansible.builtin.user:
+    name: "{{ suricata_user }}"
+    group: "{{ suricata_group }}"
+    home: /var/lib/suricata
+    create_home: false
+    shell: /usr/sbin/nologin
+    system: true
+
 # The package ships no rules, and Suricata refuses a config whose rule file is
 # missing. Rule updates are a separate change, so this runs once.
 - name: Fetch the rules
@@ -56,6 +70,18 @@
   ansible.builtin.set_fact:
     suricata_private_interface: "{{ suricata_private_address.stdout.split()[1] }}"
 
+# The package runs Suricata as root, so a Sensor that ran the earlier config
+# holds root owned logs and rules that the account cannot write.
+- name: Give the logs and the rules to the Suricata account
+  ansible.builtin.file:
+    path: "{{ item }}"
+    state: directory
+    owner: "{{ suricata_user }}"
+    group: "{{ suricata_group }}"
+    recurse: true
+  loop: "{{ suricata_owned_directories }}"
+  notify: Restart Suricata
+
 - name: Write the Suricata config
   ansible.builtin.template:
     src: suricata.yaml.j2
@@ -76,16 +102,19 @@
 
 # The packaged service is Type=simple, so the process must stay in the
 # foreground. The package creates the run directory once, at install, and /run
-# is a tmpfs, so systemd creates it on every start instead.
+# is a tmpfs, so systemd creates it on every start instead. systemd owns the
+# directory as root, and Suricata opens the command socket in it after it drops
+# to the account, so the directory changes hands on every start.
 - name: Set the capture mode of the Suricata service
   ansible.builtin.copy:
     content: |
       [Service]
       RuntimeDirectory=suricata
-      RuntimeDirectoryMode=0755
+      RuntimeDirectoryMode=0750
       PIDFile=/run/suricata/suricata.pid
       ExecStartPre=
       ExecStartPre=/bin/rm -f /run/suricata/suricata.pid
+      ExecStartPre=/bin/chown {{ suricata_user }}:{{ suricata_group }} /run/suricata
       ExecStart=
       ExecStart=/usr/bin/suricata {{ suricata_capture_arguments[suricata_mode] }} -c /etc/suricata/suricata.yaml --pidfile /run/suricata/suricata.pid
     dest: /etc/systemd/system/suricata.service.d/10-capture-mode.conf

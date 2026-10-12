@@ -32,6 +32,13 @@ vars:
 
 default-log-dir: /var/log/suricata
 
+# Suricata opens the capture as root, keeps the capture capabilities and then
+# runs as this account, so a flaw in the inspection of hostile traffic does not
+# give an attacker root on the Sensor.
+run-as:
+  user: {{ suricata_user }}
+  group: {{ suricata_group }}
+
 outputs:
   - eve-log:
       enabled: true
