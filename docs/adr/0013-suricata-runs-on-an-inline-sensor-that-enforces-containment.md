@@ -31,7 +31,8 @@ options:
   every new connection from the Honeynet network to an address outside it.
   Replies to inbound connections pass. Package and image updates go through an
   allowlist proxy on the Sensor.
-- The Honeynet collects no malware samples. Dionaea does not download payloads.
+- The Honeynet collects no malware samples. No honeypot on it downloads
+  payloads (ADR-0015).
 
 Suricata is not on the Honeypot, because an attacker who controls the Honeypot
 can stop Suricata, change its rules or change its logs. The Sensor is a host
