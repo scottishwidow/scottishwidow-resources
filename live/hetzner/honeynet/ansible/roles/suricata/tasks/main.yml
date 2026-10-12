@@ -106,17 +106,8 @@
 # directory as root, and Suricata opens the command socket in it after it drops
 # to the account, so the directory changes hands on every start.
 - name: Set the capture mode of the Suricata service
-  ansible.builtin.copy:
-    content: |
-      [Service]
-      RuntimeDirectory=suricata
-      RuntimeDirectoryMode=0750
-      PIDFile=/run/suricata/suricata.pid
-      ExecStartPre=
-      ExecStartPre=/bin/rm -f /run/suricata/suricata.pid
-      ExecStartPre=/bin/chown {{ suricata_user }}:{{ suricata_group }} /run/suricata
-      ExecStart=
-      ExecStart=/usr/bin/suricata {{ suricata_capture_arguments[suricata_mode] }} -c /etc/suricata/suricata.yaml --pidfile /run/suricata/suricata.pid
+  ansible.builtin.template:
+    src: suricata-capture-mode.conf.j2
     dest: /etc/systemd/system/suricata.service.d/10-capture-mode.conf
     owner: root
     group: root

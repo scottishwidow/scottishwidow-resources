@@ -1,0 +1,9 @@
+[Service]
+RuntimeDirectory=suricata
+RuntimeDirectoryMode=0750
+PIDFile=/run/suricata/suricata.pid
+ExecStartPre=
+ExecStartPre=/bin/rm -f /run/suricata/suricata.pid
+ExecStartPre=/bin/chown {{ suricata_user }}:{{ suricata_group }} /run/suricata
+ExecStart=
+ExecStart=/usr/bin/suricata {{ suricata_capture_arguments[suricata_mode] }} -c /etc/suricata/suricata.yaml --pidfile /run/suricata/suricata.pid
