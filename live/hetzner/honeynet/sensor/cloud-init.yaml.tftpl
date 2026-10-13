@@ -8,7 +8,30 @@ users:
     ssh_authorized_keys:
       - ${admin_ssh_public_key}
 
+# The netplan from cloud-init configures eth0 only, so nothing brings up the
+# private interface. Its DHCP routes are ignored to keep the default route on
+# eth0, and the Honeynet range goes to the Hetzner network gateway.
 write_files:
+  - path: /etc/systemd/network/05-honeynet.network
+    owner: root:root
+    permissions: "0644"
+    content: |
+      [Match]
+      Name=en*
+
+      [Network]
+      DHCP=ipv4
+
+      [DHCPv4]
+      UseDNS=no
+      UseGateway=no
+      UseRoutes=no
+
+      [Route]
+      Destination=${network_ip_range}
+      Gateway=${network_gateway_ip}
+      GatewayOnLink=yes
+
   - path: /etc/ssh/sshd_config.d/10-port.conf
     owner: root:root
     permissions: "0644"
@@ -71,6 +94,7 @@ write_files:
 # Ubuntu 24.04 starts sshd through ssh.socket, which listens on port 22 until
 # it is regenerated. Plain ssh.service reads the port from sshd_config.
 runcmd:
+  - systemctl restart systemd-networkd.service
   - sysctl --system
   - systemctl enable --now nftables.service
   - systemctl disable --now ssh.socket
