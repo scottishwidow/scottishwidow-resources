@@ -495,3 +495,332 @@
         fail_msg: >-
           OpenCanary source addresses={{ verify_opencanary_record.source_hosts | default('none') }};
           OpenCanary logtypes={{ verify_opencanary_record.logtypes | default('none') }}
+
+- name: Verify Suricata on the Sensor
+  hosts: sensors
+  gather_facts: false
+
+  vars:
+    verify_eve_log: /var/log/suricata/eve.json
+    verify_suricata_rule_directories:
+      - /var/lib/suricata/rules
+      - /etc/suricata/rules
+    verify_suricata_owned_directories:
+      - /var/lib/suricata
+      - /var/log/suricata
+    verify_suricata_expected_alerts: >-
+      {{ [suricata_canary_rules.alert.sid ~ ' allowed']
+         + ([suricata_canary_rules.drop.sid ~ ' blocked'] if suricata_mode == 'ips' else []) }}
+
+  tasks:
+    - name: Read the account that runs Suricata
+      ansible.builtin.shell:
+        cmd: ps -o user= -p "$(systemctl show --property MainPID --value suricata.service)"
+      register: verify_suricata_account
+      changed_when: false
+      failed_when: false
+      check_mode: false
+
+    - name: Read the NFQUEUE bindings
+      ansible.builtin.command:
+        cmd: cat /proc/net/netfilter/nfnetlink_queue
+      register: verify_nfqueue
+      changed_when: false
+      failed_when: false
+      check_mode: false
+
+    # The first fetch runs as root before the role gives the rule tree to the
+    # account, so the timer run proves that the account can replace those files.
+    - name: Update the rules as the Suricata account
+      ansible.builtin.systemd_service:
+        name: suricata-update.service
+        state: started
+      register: verify_suricata_update
+      changed_when: false
+      ignore_errors: true
+
+    - name: Read the files below the Suricata trees that the account does not own
+      ansible.builtin.command:
+        argv: "{{ ['find'] + verify_suricata_owned_directories + ['!', '-user', 'suricata', '-print'] }}"
+      register: verify_suricata_foreign_files
+      changed_when: false
+      check_mode: false
+
+    - name: Read the rule files that the Suricata account cannot read
+      ansible.builtin.command:
+        argv: "{{ ['runuser', '-u', 'suricata', '--', 'find'] + verify_suricata_rule_directories + ['-type', 'f', '!', '-readable', '-print'] }}"
+      register: verify_suricata_unreadable_rules
+      changed_when: false
+      check_mode: false
+
+    - name: Load the user data rule set in an empty network namespace
+      ansible.builtin.shell:
+        cmd: unshare --net sh -c 'nft -f /etc/nftables.conf && nft --stateless list ruleset'
+      register: verify_user_data_ruleset
+      changed_when: false
+      check_mode: false
+
+    - name: Read the live rule set
+      ansible.builtin.command:
+        cmd: nft --stateless list ruleset
+      register: verify_live_ruleset
+      changed_when: false
+      check_mode: false
+
+    - name: Read the EVE log size and the Sensor time before the probes
+      ansible.builtin.shell:
+        cmd: stat --format %s {{ verify_eve_log }} && date +%s
+      register: verify_eve_start
+      changed_when: false
+      check_mode: false
+
+    - name: Keep the start of the probes
+      ansible.builtin.set_fact:
+        verify_eve_offset: "{{ verify_eve_start.stdout_lines[0] }}"
+        verify_probe_epoch: "{{ verify_eve_start.stdout_lines[1] }}"
+        verify_canary_nonce: verify-{{ verify_eve_start.stdout_lines[1] }}
+
+    - name: Send the canary alert string to Cowrie on port 23
+      ansible.builtin.command:
+        argv:
+          - python3
+          - "{{ playbook_dir }}/files/cowrie_telnet_probe.py"
+          - --host
+          - "{{ ansible_host }}"
+          - --username
+          - "{{ verify_cowrie_username }}"
+          - --password
+          - "{{ verify_cowrie_password }}"
+          - --command
+          - echo {{ suricata_canary_rules.alert.content }} {{ verify_canary_nonce }}
+      delegate_to: localhost
+      become: false
+      register: verify_canary_alert_session
+      changed_when: false
+      failed_when: false
+
+    - name: Send the canary drop string to Cowrie on port 23
+      ansible.builtin.command:
+        argv:
+          - python3
+          - "{{ playbook_dir }}/files/cowrie_telnet_probe.py"
+          - --host
+          - "{{ ansible_host }}"
+          - --username
+          - "{{ verify_cowrie_username }}"
+          - --password
+          - "{{ verify_cowrie_password }}"
+          - --command
+          - echo {{ suricata_canary_rules.drop.content }} {{ verify_canary_nonce }}
+          - --timeout
+          - "20"
+      delegate_to: localhost
+      become: false
+      register: verify_canary_drop_session
+      changed_when: false
+      failed_when: false
+      when: suricata_mode == 'ips'
+
+    - name: Probe the Dark Port again for the EVE check
+      ansible.builtin.wait_for:
+        host: "{{ ansible_host }}"
+        port: 445
+        timeout: 5
+      delegate_to: localhost
+      become: false
+      failed_when: false
+
+    # Suricata writes the flow event of an unanswered connection only when the
+    # flow times out, so this waits for some minutes. logrotate can rotate the
+    # log after the size was read, and then the reader starts at the top.
+    - name: Read the EVE events from the workstation since the probes started
+      ansible.builtin.command:
+        argv:
+          - python3
+          - -c
+          - |
+            import json, sys
+            log_path, offset, workstation_ip = sys.argv[1], int(sys.argv[2]), sys.argv[3]
+            alerts, dark_port_events = set(), set()
+            with open(log_path, "rb") as log:
+                log.seek(0, 2)
+                log.seek(offset if log.tell() >= offset else 0)
+                for line in log:
+                    try:
+                        event = json.loads(line)
+                    except ValueError:
+                        continue
+                    if event.get("src_ip") != workstation_ip:
+                        continue
+                    if event.get("event_type") == "alert":
+                        alerts.add(f'{event["alert"]["signature_id"]} {event["alert"]["action"]}')
+                    if event.get("dest_port") == 445:
+                        dark_port_events.add(event.get("event_type"))
+            print(json.dumps({"alerts": sorted(alerts), "dark_port_events": sorted(dark_port_events)}))
+          - "{{ verify_eve_log }}"
+          - "{{ verify_eve_offset }}"
+          - "{{ verify_workstation_ip }}"
+      register: verify_eve_events
+      changed_when: false
+      check_mode: false
+      retries: 18
+      delay: 10
+      until: >-
+        verify_suricata_expected_alerts
+        | difference((verify_eve_events.stdout | default('{}', true) | from_json).alerts | default([]))
+        == []
+        and (verify_eve_events.stdout | default('{}', true) | from_json).dark_port_events | default([]) | length > 0
+      ignore_errors: true
+
+    # On the first alert of a flow Suricata writes the earlier segments of the
+    # flow too, so the file holds the payload with the canary string.
+    - name: Find the PCAP file of the canary alert flow
+      ansible.builtin.command:
+        argv:
+          - find
+          - /var/log/suricata
+          - -maxdepth
+          - "1"
+          - -name
+          - log.pcap*
+          - -newermt
+          - "@{{ verify_probe_epoch }}"
+          - -exec
+          - grep
+          - --files-with-matches
+          - --text
+          - --fixed-strings
+          - --regexp
+          - "{{ suricata_canary_rules.alert.content }} {{ verify_canary_nonce }}"
+          - "{}"
+          - +
+      register: verify_canary_pcap
+      changed_when: false
+      check_mode: false
+      retries: 6
+      delay: 10
+      until: verify_canary_pcap.stdout | length > 0
+      failed_when: false
+      ignore_errors: true
+
+    - name: Require Suricata as its account, readable rules and the user data rule set
+      vars:
+        verify_nfqueue_numbers: "{{ verify_nfqueue.stdout_lines | map('split') | map('first') | list }}"
+      ansible.builtin.assert:
+        that:
+          - verify_suricata_account.stdout | trim == 'suricata'
+          - suricata_mode != 'ips' or '0' in verify_nfqueue_numbers
+          - verify_suricata_update is succeeded
+          - verify_suricata_foreign_files.stdout_lines == []
+          - verify_suricata_unreadable_rules.stdout_lines == []
+          - verify_live_ruleset.stdout == verify_user_data_ruleset.stdout
+        fail_msg: >-
+          Suricata account={{ verify_suricata_account.stdout | trim }};
+          NFQUEUE bindings={{ verify_nfqueue.stdout_lines }};
+          rule update={{ verify_suricata_update.msg | default('passed') }};
+          files the account does not own={{ verify_suricata_foreign_files.stdout_lines }};
+          rule files the account cannot read={{ verify_suricata_unreadable_rules.stdout_lines }};
+          live rule set is the user data rule set={{ verify_live_ruleset.stdout == verify_user_data_ruleset.stdout }}
+
+    - name: Require the canary alerts, a PCAP file of the alert flow and EVE events from the Dark Port
+      vars:
+        verify_eve: "{{ verify_eve_events.stdout | default('{}', true) | from_json }}"
+        verify_alert_session: "{{ verify_canary_alert_session.stdout | default('{}', true) | from_json }}"
+        verify_drop_session: "{{ verify_canary_drop_session.stdout | default('{}', true) | from_json }}"
+      ansible.builtin.assert:
+        that:
+          - verify_alert_session.command_completed | default(false)
+          - suricata_mode != 'ips' or not verify_drop_session.command_completed | default(true)
+          - verify_suricata_expected_alerts | difference(verify_eve.alerts | default([])) == []
+          - verify_canary_pcap.stdout_lines | length > 0
+          - verify_eve.dark_port_events | default([]) | length > 0
+        fail_msg: >-
+          alert session={{ verify_canary_alert_session.stderr | default('') | trim }}{{ verify_alert_session.command_output | default('') }};
+          drop session completed={{ verify_drop_session.command_completed | default('not run') }};
+          expected alerts={{ verify_suricata_expected_alerts }};
+          EVE alerts={{ verify_eve.alerts | default('none') }};
+          PCAP files of the alert flow={{ verify_canary_pcap.stdout_lines }};
+          EVE events from the Dark Port={{ verify_eve.dark_port_events | default('none') }}
+
+- name: Verify that the Sensor fails open with Suricata stopped in IPS mode
+  hosts: sensors
+  gather_facts: false
+
+  vars:
+    verify_honeypot: "{{ groups['honeypots'] | first }}"
+
+  tasks:
+    - name: Run the checks with Suricata stopped
+      when: suricata_mode == 'ips'
+      block:
+        - name: Stop Suricata
+          ansible.builtin.systemd_service:
+            name: suricata.service
+            state: stopped
+
+        - name: Read the Containment drop counter
+          ansible.builtin.command:
+            cmd: nft list chain inet filter forward
+          register: verify_fail_open_containment_before
+          changed_when: false
+
+        - name: Grab the Cowrie SSH banner on port 22
+          ansible.builtin.wait_for:
+            host: "{{ ansible_host }}"
+            port: 22
+            search_regex: (SSH-2.0-.*)
+            timeout: 30
+          delegate_to: localhost
+          become: false
+          register: verify_fail_open_cowrie
+          failed_when: false
+
+        - name: Grab the OpenCanary FTP banner on port 21
+          ansible.builtin.wait_for:
+            host: "{{ ansible_host }}"
+            port: 21
+            search_regex: (220 [^\r\n]+)
+            timeout: 30
+          delegate_to: localhost
+          become: false
+          register: verify_fail_open_opencanary
+          failed_when: false
+
+        - name: Open a direct TCP connection from the Honeypot to the internet
+          ansible.builtin.wait_for:
+            host: 1.1.1.1
+            port: 443
+            timeout: 10
+          delegate_to: "{{ verify_honeypot }}"
+          become: false
+          register: verify_fail_open_outbound
+          failed_when: false
+
+        - name: Read the Containment drop counter again
+          ansible.builtin.command:
+            cmd: nft list chain inet filter forward
+          register: verify_fail_open_containment_after
+          changed_when: false
+
+      always:
+        - name: Start Suricata again
+          ansible.builtin.systemd_service:
+            name: suricata.service
+            state: started
+
+    - name: Require open honeypot ports and Containment with Suricata stopped
+      when: suricata_mode == 'ips'
+      vars:
+        verify_drops_before: "{{ (verify_fail_open_containment_before.stdout | regex_findall('counter packets ([0-9]+)')) + ['-1'] }}"
+        verify_drops_after: "{{ (verify_fail_open_containment_after.stdout | regex_findall('counter packets ([0-9]+)')) + ['-1'] }}"
+      ansible.builtin.assert:
+        that:
+          - "'Timeout' not in verify_fail_open_cowrie.msg | default('')"
+          - "'Timeout' not in verify_fail_open_opencanary.msg | default('')"
+          - "'Timeout' in verify_fail_open_outbound.msg | default('')"
+          - verify_drops_after | first | int > verify_drops_before | first | int
+        fail_msg: >-
+          port 22 banner={{ verify_fail_open_cowrie.msg | default('matched') }};
+          port 21 banner={{ verify_fail_open_opencanary.msg | default('matched') }};
+          direct outbound from {{ verify_honeypot }}={{ verify_fail_open_outbound.msg | default('connected') }};
+          Containment drops before={{ verify_drops_before | first }} after={{ verify_drops_after | first }}
