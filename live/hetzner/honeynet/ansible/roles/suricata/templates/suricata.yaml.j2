@@ -32,12 +32,15 @@ vars:
 
 default-log-dir: /var/log/suricata
 
-# Suricata opens the capture as root, keeps the capture capabilities and then
-# runs as this account, so a flaw in the inspection of hostile traffic does not
-# give an attacker root on the Sensor.
-run-as:
-  user: {{ suricata_user }}
-  group: {{ suricata_group }}
+# Suricata turns these parsers off by default, so their rules fail to load.
+# suricata-update disables the rules of a protocol only when the config turns it
+# off, and the config test of suricata-update fails on a rule that cannot load.
+app-layer:
+  protocols:
+    modbus:
+      enabled: no
+    dnp3:
+      enabled: no
 
 outputs:
   - eve-log:

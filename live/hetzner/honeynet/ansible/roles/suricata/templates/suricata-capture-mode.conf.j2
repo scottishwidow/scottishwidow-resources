@@ -1,9 +1,7 @@
 [Service]
-RuntimeDirectory=suricata
-RuntimeDirectoryMode=0750
 PIDFile={{ suricata_pid_file }}
 ExecStartPre=
+ExecStartPre=/usr/bin/systemd-tmpfiles --create /etc/tmpfiles.d/suricata.conf
 ExecStartPre=/bin/rm -f {{ suricata_pid_file }}
-ExecStartPre=/bin/chown {{ suricata_user }}:{{ suricata_group }} /run/suricata
 ExecStart=
-ExecStart=/usr/bin/suricata {{ suricata_capture_arguments[suricata_mode] }} -c /etc/suricata/suricata.yaml --pidfile {{ suricata_pid_file }}
+ExecStart=/usr/bin/suricata {{ suricata_capture_arguments[suricata_mode] }} -c /etc/suricata/suricata.yaml --pidfile {{ suricata_pid_file }} --user {{ suricata_user }} --group {{ suricata_group }}
