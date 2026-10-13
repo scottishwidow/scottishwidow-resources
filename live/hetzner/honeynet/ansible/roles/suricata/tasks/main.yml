@@ -44,7 +44,7 @@
     system: true
 
 # The package ships no rules, and Suricata refuses a config whose rule file is
-# missing. Rule updates are a separate change, so this runs once.
+# missing. The suricata-update timer keeps the rules current, so this runs once.
 - name: Fetch the rules
   ansible.builtin.command:
     cmd: suricata-update --no-test
@@ -135,11 +135,22 @@
     group: root
     mode: "0755"
 
+# The package creates the run directory once, at install, and /run is a tmpfs.
+# Suricata opens the command socket in it after it drops to the account.
+# RuntimeDirectory= cannot give the directory to the account, because systemd
+# sets the owner back to the service user before each command it runs. So the
+# service creates the directory from this entry on every start.
+- name: Write the Suricata run directory entry
+  ansible.builtin.template:
+    src: suricata.tmpfiles.j2
+    dest: /etc/tmpfiles.d/suricata.conf
+    owner: root
+    group: root
+    mode: "0644"
+  notify: Restart Suricata
+
 # The packaged service is Type=simple, so the process must stay in the
-# foreground. The package creates the run directory once, at install, and /run
-# is a tmpfs, so systemd creates it on every start instead. systemd owns the
-# directory as root, and Suricata opens the command socket in it after it drops
-# to the account, so the directory changes hands on every start.
+# foreground.
 - name: Set the capture mode of the Suricata service
   ansible.builtin.template:
     src: suricata-capture-mode.conf.j2
@@ -154,5 +165,24 @@
 - name: Enable and start Suricata
   ansible.builtin.systemd_service:
     name: suricata.service
+    enabled: true
+    state: started
+
+- name: Write the rule update units
+  ansible.builtin.template:
+    src: "{{ item }}.j2"
+    dest: /etc/systemd/system/{{ item }}
+    owner: root
+    group: root
+    mode: "0644"
+  loop:
+    - suricata-update.service
+    - suricata-update.timer
+  register: suricata_update_units
+
+- name: Enable and start the rule update timer
+  ansible.builtin.systemd_service:
+    name: suricata-update.timer
+    daemon_reload: "{{ suricata_update_units is changed }}"
     enabled: true
     state: started

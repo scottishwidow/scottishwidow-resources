@@ -1,0 +1,10 @@
+[Unit]
+Description=Update the Suricata rules on a schedule
+
+[Timer]
+OnCalendar={{ suricata_update_schedule }}
+RandomizedDelaySec={{ suricata_update_randomized_delay }}
+Persistent=true
+
+[Install]
+WantedBy=timers.target

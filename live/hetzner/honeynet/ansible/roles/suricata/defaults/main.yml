@@ -19,7 +19,11 @@ suricata_capture_arguments:
 suricata_home_net: "{{ honeynet_network_ip_range }}"
 
 # Suricata starts as root to open the capture and keeps the capture
-# capabilities, then drops to this account for the rest of its run.
+# capabilities, then drops to this account for the rest of its run, so a flaw in
+# the inspection of hostile traffic does not give an attacker root on the
+# Sensor. The service gives the account on the command line, not as run-as in
+# suricata.yaml, because with run-as the config test of suricata-update cannot
+# run as this account.
 suricata_user: suricata
 suricata_group: suricata
 
@@ -49,3 +53,8 @@ suricata_pcap_max_files: 20
 # logrotate rotates the EVE log and the Suricata log daily, so this is also the
 # number of rotated files it keeps.
 suricata_log_retention_days: 14
+
+# ET Open publishes new rules once a day. Persistent runs a missed update at
+# the next boot.
+suricata_update_schedule: daily
+suricata_update_randomized_delay: 1h
