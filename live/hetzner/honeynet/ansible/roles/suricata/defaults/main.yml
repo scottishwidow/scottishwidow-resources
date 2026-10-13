@@ -39,6 +39,14 @@ suricata_local_rules_path: /etc/suricata/rules/local.rules
 # Cowrie listens on, not public port 23.
 suricata_cowrie_telnet_port: "{{ honeypot_port_redirects['23'] }}"
 
+# The queue rule of IPS mode takes only forwarded traffic, so a pass rule keeps
+# the Honeypot traffic to the proxy on the Sensor out of detection in IDS mode
+# too. Without it, stream event rules alert on the apt and Docker downloads, and
+# conditional PCAP writes all of them. A BPF filter on af-packet cannot do this:
+# Suricata compiles it with the MTU as snaplen and so cuts the larger frames
+# that the host delivers.
+suricata_proxy_pass_sid: 1000003
+
 # Suricata writes the packets of alerting flows only, and deletes the oldest
 # file when it opens one past the count. The product of the two is the most
 # disk the PCAP files take.

@@ -23,11 +23,14 @@
     update_cache: true
   when: suricata_ppa is changed
 
+# The package starts Suricata as root with the packaged config. The role starts
+# it later, with its own config and as the Suricata account.
 - name: Install Suricata
   ansible.builtin.apt:
     name: suricata
     update_cache: true
     cache_valid_time: 3600
+    policy_rc_d: 101
 
 - name: Create the Suricata group
   ansible.builtin.group:
