@@ -549,6 +549,7 @@
     - name: Read the rule files that the Suricata account cannot read
       ansible.builtin.command:
         argv: "{{ ['runuser', '-u', 'suricata', '--', 'find'] + verify_suricata_rule_directories + ['-type', 'f', '!', '-readable', '-print'] }}"
+        chdir: /
       register: verify_suricata_unreadable_rules
       changed_when: false
       check_mode: false

@@ -1,2 +1,3 @@
 alert tcp $EXTERNAL_NET any -> $HOME_NET {{ suricata_cowrie_telnet_port }} (msg:"HONEYNET canary alert string sent to Cowrie Telnet"; flow:established,to_server; content:"{{ suricata_canary_rules.alert.content }}"; classtype:misc-activity; sid:{{ suricata_canary_rules.alert.sid }}; rev:1;)
 drop tcp $EXTERNAL_NET any -> $HOME_NET {{ suricata_cowrie_telnet_port }} (msg:"HONEYNET canary drop string sent to Cowrie Telnet"; flow:established,to_server; content:"{{ suricata_canary_rules.drop.content }}"; classtype:misc-activity; sid:{{ suricata_canary_rules.drop.sid }}; rev:1;)
+pass tcp $HOME_NET any -> {{ sensor_private_ip }} {{ proxy_port }} (msg:"HONEYNET Honeypot traffic to the proxy on the Sensor"; sid:{{ suricata_proxy_pass_sid }}; rev:1;)
