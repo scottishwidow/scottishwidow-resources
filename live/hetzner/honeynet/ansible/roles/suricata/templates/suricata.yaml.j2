@@ -53,6 +53,20 @@ outputs:
         - ssh
         - flow
 
+  # In normal mode all threads share one file, so max-files bounds the whole
+  # ring buffer and not each thread. A file name that holds only the second
+  # repeats when two files open in the same second, and the newer file then
+  # overwrites the older one.
+  - pcap-log:
+      enabled: true
+      filename: log.pcap
+      mode: normal
+      conditional: alerts
+      limit: {{ suricata_pcap_file_size_limit }}
+      max-files: {{ suricata_pcap_max_files }}
+      compression: none
+      ts-format: usec
+
 logging:
   default-log-level: notice
   outputs:

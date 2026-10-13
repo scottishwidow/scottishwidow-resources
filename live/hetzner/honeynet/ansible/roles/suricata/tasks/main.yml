@@ -110,6 +110,23 @@
     validate: suricata -T -c %s
   notify: Restart Suricata
 
+- name: Install logrotate
+  ansible.builtin.apt:
+    name: logrotate
+    update_cache: true
+    cache_valid_time: 3600
+
+# The package ships no logrotate config, so without this the logs grow until
+# the disk is full. On SIGHUP Suricata opens the log files again.
+- name: Rotate the Suricata logs
+  ansible.builtin.template:
+    src: suricata.logrotate.j2
+    dest: /etc/logrotate.d/suricata
+    owner: root
+    group: root
+    mode: "0644"
+    validate: logrotate --debug %s
+
 - name: Create the Suricata service drop-in directory
   ansible.builtin.file:
     path: /etc/systemd/system/suricata.service.d

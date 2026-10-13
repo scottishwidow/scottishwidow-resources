@@ -1,0 +1,16 @@
+# The package makes the log directory writable by the Suricata group, and
+# logrotate skips such a directory unless it works as the owner.
+/var/log/suricata/*.json /var/log/suricata/*.log {
+    su {{ suricata_user }} {{ suricata_group }}
+    daily
+    rotate {{ suricata_log_retention_days }}
+    missingok
+    notifempty
+    compress
+    delaycompress
+    create 0640 {{ suricata_user }} {{ suricata_group }}
+    sharedscripts
+    postrotate
+        /bin/kill -HUP "$(cat {{ suricata_pid_file }})"
+    endscript
+}
