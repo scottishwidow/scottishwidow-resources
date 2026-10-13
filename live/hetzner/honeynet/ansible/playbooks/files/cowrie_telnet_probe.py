@@ -108,8 +108,9 @@ def run_probe(arguments: argparse.Namespace) -> dict:
                 lambda text: PROMPT.search(text[before:]) is not None,
                 command_deadline,
             )
+            command_completed = True
         except ProbeError:
-            pass
+            command_completed = False
         output = client.text[before:]
         client.send_line("exit")
     finally:
@@ -118,6 +119,7 @@ def run_probe(arguments: argparse.Namespace) -> dict:
     return {
         "negotiation": client.negotiation.hex(),
         "logged_in": True,
+        "command_completed": command_completed,
         "command_output": output,
     }
 

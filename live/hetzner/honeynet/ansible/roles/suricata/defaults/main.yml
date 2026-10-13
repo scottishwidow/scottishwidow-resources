@@ -3,13 +3,8 @@
 # live/hetzner/honeynet/sensor/variables.tf. The two move together.
 suricata_ppa_suite: noble
 
-# ids reads a copy of the traffic and cannot block. ips reads the queue that
-# the forward chain of the Sensor user data fills, and gives a verdict on each
-# packet.
-suricata_mode: ids
-
 # The queue number is a command line argument, not a setting in suricata.yaml,
-# so the mode selects the arguments of the service.
+# so suricata_mode from group_vars selects the arguments of the service.
 suricata_capture_arguments:
   ids: --af-packet
   ips: -q 0

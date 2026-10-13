@@ -11,6 +11,11 @@ verify_cowrie_download_url: http://1.1.1.1/malware.sh
 verify_opencanary_username: admin
 verify_opencanary_password: hunter2
 
+# ids reads a copy of the traffic and cannot block. ips reads the queue that
+# the forward chain of the Sensor user data fills, and gives a verdict on each
+# packet. The verify playbook selects the Suricata checks for the mode.
+suricata_mode: ids
+
 # The local Suricata rules on the Sensor match these strings in a Cowrie Telnet
 # session. One rule alerts and one rule drops. A string must not contain a
 # character that a rule content must escape: ; " \ |
