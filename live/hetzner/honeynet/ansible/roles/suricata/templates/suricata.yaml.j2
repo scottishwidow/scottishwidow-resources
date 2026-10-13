@@ -47,6 +47,8 @@ outputs:
       enabled: true
       filetype: regular
       filename: eve.json
+      # TODO: add mysql when the PPA ships a Suricata with a MySQL parser.
+      # Suricata 8.0 has no such parser, and the config test fails on the type.
       types:
         - alert
         - anomaly
@@ -54,6 +56,8 @@ outputs:
         - dns
         - tls
         - ssh
+        - smb
+        - ftp
         - flow
 
   # In normal mode all threads share one file, so max-files bounds the whole
