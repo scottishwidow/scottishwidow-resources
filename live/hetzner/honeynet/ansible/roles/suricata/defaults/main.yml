@@ -23,6 +23,9 @@ suricata_home_net: "{{ honeynet_network_ip_range }}"
 suricata_user: suricata
 suricata_group: suricata
 
+# The service drop-in writes the PID here, and the logrotate config signals it.
+suricata_pid_file: /run/suricata/suricata.pid
+
 # Suricata writes the logs and reads the rules as suricata_user, so both trees
 # belong to it.
 suricata_owned_directories:
@@ -36,3 +39,13 @@ suricata_local_rules_path: /etc/suricata/rules/local.rules
 # Suricata sees the Telnet session after DNAT, so the rules match the port
 # Cowrie listens on, not public port 23.
 suricata_cowrie_telnet_port: "{{ honeypot_port_redirects['23'] }}"
+
+# Suricata writes the packets of alerting flows only, and deletes the oldest
+# file when it opens one past the count. The product of the two is the most
+# disk the PCAP files take.
+suricata_pcap_file_size_limit: 100 MiB
+suricata_pcap_max_files: 20
+
+# logrotate rotates the EVE log and the Suricata log daily, so this is also the
+# number of rotated files it keeps.
+suricata_log_retention_days: 14
