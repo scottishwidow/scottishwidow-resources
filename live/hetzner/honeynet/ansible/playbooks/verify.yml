@@ -69,7 +69,7 @@
       register: verify_cowrie_banner
       failed_when: false
 
-    - name: Log in to Cowrie on port 23 and download a file
+    - name: Log in to Cowrie on port 23, download a file and show it
       ansible.builtin.command:
         argv:
           - python3
@@ -83,7 +83,7 @@
           - --password
           - "{{ verify_cowrie_password }}"
           - --command
-          - "wget {{ verify_cowrie_download_url }}"
+          - "wget {{ verify_cowrie_download_url }}; cat {{ verify_cowrie_download_url | basename }}"
       delegate_to: localhost
       become: false
       register: verify_cowrie_telnet
@@ -111,11 +111,23 @@
       register: verify_sinkhole_public
       failed_when: false
 
-    # The Sensor refuses the download, so the command ends before the probe
-    # timeout. The Honeypot play reads the failed download from the Cowrie log.
-    - name: Require Cowrie on ports 22 and 23, closed proxy and Sinkhole ports and a download that ends
+    - name: Read the addresses the Sinkhole listens on
+      ansible.builtin.command:
+        cmd: >-
+          ss --tcp --listening --numeric --no-header
+          ( {{ sinkhole_redirects | selectattr('protocol', 'equalto', 'tcp') | map(attribute='sinkhole_port')
+               | unique | map('regex_replace', '^', 'sport = :') | join(' or ') }} )
+      register: verify_sinkhole_listeners
+      changed_when: false
+      check_mode: false
+
+    # The Sensor sends the download to the Sinkhole, so the file Cowrie shows
+    # holds the Sinkhole marker. The Honeypot play reads the download from the
+    # Cowrie log.
+    - name: Require Cowrie on ports 22 and 23, closed proxy and Sinkhole ports and a download from the Sinkhole
       vars:
         verify_telnet_session: "{{ verify_cowrie_telnet.stdout | default('{}', true) | from_json }}"
+        verify_sinkhole_listen_addresses: "{{ verify_sinkhole_listeners.stdout_lines | map('split') | map(attribute=3) | list }}"
       ansible.builtin.assert:
         that:
           - "'Timeout' not in verify_cowrie_banner.msg | default('')"
@@ -124,11 +136,15 @@
           - verify_telnet_session.command_completed | default(false)
           - "'Timeout' in verify_proxy_port.msg | default('')"
           - verify_sinkhole_public.results | map(attribute='msg', default='') | reject('search', 'Timeout') | list == []
+          - sinkhole_marker in verify_telnet_session.command_output | default('')
+          - verify_sinkhole_listen_addresses | length > 0
+          - verify_sinkhole_listen_addresses | reject('match', (sensor_private_ip | regex_escape) ~ ':') | list == []
         fail_msg: >-
           port 22 banner={{ verify_cowrie_banner.msg | default('matched') }};
           port 23 session={{ verify_cowrie_telnet.stderr | default('') | trim }}{{ verify_telnet_session.command_output | default('') }};
           proxy port {{ proxy_port }}={{ verify_proxy_port.msg | default('answered') }};
-          Sinkhole ports={{ verify_sinkhole_public.results | map(attribute='msg', default='answered') | list }}
+          Sinkhole ports={{ verify_sinkhole_public.results | map(attribute='msg', default='answered') | list }};
+          Sinkhole listen addresses={{ verify_sinkhole_listen_addresses }}
 
 - name: Verify OpenCanary and the Dark Port from the workstation
   hosts: sensors
@@ -329,13 +345,14 @@
         fail_msg: "global IPv4={{ verify_ipv4.stdout_lines }}"
       when: not verify_is_sensor
 
-- name: Verify Containment, the Sinkhole redirect and SSH isolation from each Honeypot
+- name: Verify Containment, the Sinkhole and SSH isolation from each Honeypot
   hosts: honeypots
   gather_facts: false
   become: false
 
   vars:
     verify_peer_honeypots: "{{ groups['honeypots'] | difference([inventory_hostname]) }}"
+    verify_eve_log: /var/log/suricata/eve.json
 
   tasks:
     - name: Read the Containment drop counter
@@ -364,24 +381,71 @@
       changed_when: false
       check_mode: false
 
-    # wait_for retries a refused connection until its timeout, so a single
-    # connect tells a refusal from a timeout.
-    - name: Open an HTTP connection to the internet once
+    - name: Read the EVE log size and the Sensor time before the Sinkhole requests
+      ansible.builtin.shell:
+        cmd: stat --format %s {{ verify_eve_log }} && date +%s
+      delegate_to: sensor
+      become: true
+      register: verify_sinkhole_eve_start
+      changed_when: false
+      check_mode: false
+
+    # The path is new on each run, so the EVE check finds only this request.
+    - name: Keep the path of the Sinkhole requests
+      ansible.builtin.set_fact:
+        verify_sinkhole_path: /verify-sinkhole/{{ inventory_hostname }}/{{ verify_sinkhole_eve_start.stdout_lines[1] }}
+
+    - name: Request a file over HTTP and HTTPS from the internet
+      ansible.builtin.command:
+        argv:
+          - curl
+          - --silent
+          - --show-error
+          - --insecure
+          - --max-time
+          - "20"
+          - "{{ item }}://{{ verify_internet_host }}{{ verify_sinkhole_path }}"
+      loop:
+        - http
+        - https
+      register: verify_sinkhole_requests
+      changed_when: false
+      failed_when: false
+
+    # logrotate can rotate the log after the size was read, and then the reader
+    # starts at the top.
+    - name: Read the EVE http events of the Sinkhole request
       ansible.builtin.command:
         argv:
           - python3
           - -c
           - |
-            import socket, sys
-            try:
-                socket.create_connection((sys.argv[1], 80), timeout=10).close()
-                print("connected")
-            except OSError as error:
-                print(type(error).__name__)
-          - "{{ verify_internet_host }}"
-      register: verify_sinkhole_redirect
+            import json, sys
+            log_path, offset, path = sys.argv[1], int(sys.argv[2]), sys.argv[3]
+            events = []
+            with open(log_path, "rb") as log:
+                log.seek(0, 2)
+                log.seek(offset if log.tell() >= offset else 0)
+                for line in log:
+                    try:
+                        event = json.loads(line)
+                    except ValueError:
+                        continue
+                    if event.get("event_type") == "http" and event.get("http", {}).get("url") == path:
+                        events.append({"src_ip": event.get("src_ip"), "hostname": event["http"].get("hostname")})
+            print(json.dumps(events))
+          - "{{ verify_eve_log }}"
+          - "{{ verify_sinkhole_eve_start.stdout_lines[0] }}"
+          - "{{ verify_sinkhole_path }}"
+      delegate_to: sensor
+      become: true
+      register: verify_sinkhole_eve
       changed_when: false
       check_mode: false
+      retries: 12
+      delay: 5
+      until: verify_sinkhole_eve.stdout | default('[]', true) | from_json | length > 0
+      ignore_errors: true
 
     - name: Open an SSH connection to the other Honeypots
       ansible.builtin.wait_for:
@@ -392,20 +456,26 @@
       register: verify_peer_ssh
       failed_when: false
 
-    - name: Require Containment, a refused Sinkhole port and no SSH between Honeypots
+    - name: Require Containment, the Sinkhole marker over HTTP and HTTPS, its EVE http event and no SSH between Honeypots
       vars:
         verify_drops_before: "{{ (verify_containment_before.stdout | regex_findall('counter packets ([0-9]+)')) + ['-1'] }}"
         verify_drops_after: "{{ (verify_containment_after.stdout | regex_findall('counter packets ([0-9]+)')) + ['-1'] }}"
+        verify_sinkhole_http_events: "{{ verify_sinkhole_eve.stdout | default('[]', true) | from_json }}"
       ansible.builtin.assert:
         that:
           - "'Timeout' in verify_direct_outbound.msg | default('')"
           - verify_drops_after | first | int > verify_drops_before | first | int
-          - verify_sinkhole_redirect.stdout == 'ConnectionRefusedError'
+          - verify_sinkhole_requests.results | map(attribute='stdout', default='') | reject('search', sinkhole_marker) | list == []
+          - >-
+            verify_sinkhole_http_events | selectattr('src_ip', 'equalto', ansible_host)
+            | selectattr('hostname', 'equalto', verify_internet_host) | list | length > 0
           - verify_peer_ssh.results | map(attribute='msg', default='') | reject('search', 'Timeout') | list == []
         fail_msg: >-
           direct outbound to {{ verify_internet_host }}:{{ verify_contained_port }}={{ verify_direct_outbound.msg | default('connected') }};
           Containment drops before={{ verify_drops_before | first }} after={{ verify_drops_after | first }};
-          HTTP to {{ verify_internet_host }}:80={{ verify_sinkhole_redirect.stdout }};
+          Sinkhole HTTP and HTTPS={{ verify_sinkhole_requests.results | map(attribute='stdout', default='') | list }}
+          {{ verify_sinkhole_requests.results | map(attribute='stderr', default='') | list }};
+          EVE http events of {{ verify_sinkhole_path }}={{ verify_sinkhole_http_events }};
           SSH to the other Honeypots={{ verify_peer_ssh.results | map(attribute='msg', default='connected') | list }}
 
 - name: Verify the Cowrie sessions and the allowlist proxy from each Honeypot
@@ -487,7 +557,7 @@
       changed_when: false
       failed_when: false
 
-    - name: Require the attacker address and a failed download in the Cowrie log and an allowlist that refuses
+    - name: Require the attacker address and the download in the Cowrie log and an allowlist that refuses
       vars:
         verify_cowrie_session: "{{ verify_cowrie_sessions.stdout | default('{}', true) | from_json }}"
       ansible.builtin.assert:
@@ -495,8 +565,7 @@
           - verify_workstation_ip in verify_cowrie_session.source_ips | default([])
           - sensor_private_ip not in verify_cowrie_session.source_ips | default([])
           - verify_cowrie_session.commands | default([]) | select('search', verify_cowrie_download_url) | list | length > 0
-          - verify_cowrie_download_url in verify_cowrie_session.failed_downloads | default([])
-          - verify_cowrie_download_url not in verify_cowrie_session.downloads | default([])
+          - verify_cowrie_download_url in verify_cowrie_session.downloads | default([])
           - verify_proxy_allowed.stdout == '200'
           - verify_proxy_denied.stdout == '403'
         fail_msg: >-

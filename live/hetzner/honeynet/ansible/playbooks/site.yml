@@ -8,6 +8,7 @@
     - allowlist_proxy
     - suricata
     - evebox
+    - sinkhole
 
 - name: Harden SSH on every Honeynet host
   hosts: all

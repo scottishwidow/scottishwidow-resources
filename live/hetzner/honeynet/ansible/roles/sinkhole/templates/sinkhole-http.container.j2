@@ -1,0 +1,25 @@
+[Unit]
+Description=Sinkhole HTTP and HTTPS
+
+[Container]
+ContainerName=sinkhole-http
+Image={{ sinkhole_nginx_image }}
+Network=pasta
+PublishPort={{ sinkhole_listen_ip }}:{{ sinkhole_http_port }}:80
+PublishPort={{ sinkhole_listen_ip }}:{{ sinkhole_https_port }}:443
+Volume={{ sinkhole_http_directory }}/nginx.conf:/etc/nginx/nginx.conf:ro
+Volume={{ sinkhole_http_directory }}/tls:/etc/nginx/tls:ro
+ReadOnly=true
+NoNewPrivileges=true
+LogDriver=journald
+
+# The first start pulls the image. The private IP arrives over DHCP, and a
+# user unit cannot wait for the system network-online.target, so a start
+# before the address exists fails and is tried again.
+[Service]
+TimeoutStartSec=300
+Restart=always
+RestartSec=10
+
+[Install]
+WantedBy=default.target

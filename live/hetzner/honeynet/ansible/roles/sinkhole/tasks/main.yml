@@ -1,0 +1,133 @@
+---
+- name: Install rootless Podman and pasta
+  ansible.builtin.apt:
+    name:
+      - podman
+      - passt
+      - uidmap
+    update_cache: true
+    cache_valid_time: 3600
+
+- name: Create the Sinkhole account
+  ansible.builtin.user:
+    name: "{{ sinkhole_user }}"
+    system: true
+    home: "{{ sinkhole_home }}"
+    create_home: true
+    shell: /usr/sbin/nologin
+
+- name: Give the Sinkhole account its subordinate ids
+  ansible.builtin.lineinfile:
+    path: "{{ item }}"
+    regexp: "^{{ sinkhole_user }}:"
+    line: "{{ sinkhole_user }}:{{ sinkhole_subid_start }}:{{ sinkhole_subid_count }}"
+    owner: root
+    group: root
+    mode: "0644"
+  loop:
+    - /etc/subuid
+    - /etc/subgid
+
+# Linger starts the user manager of the account at boot, and the user manager
+# starts the Quadlet units.
+- name: Keep the user manager of the Sinkhole account running
+  ansible.builtin.command:
+    cmd: loginctl enable-linger {{ sinkhole_user }}
+    creates: /var/lib/systemd/linger/{{ sinkhole_user }}
+
+- name: Create the Quadlet directory of the Sinkhole account
+  ansible.builtin.file:
+    path: "{{ item }}"
+    state: directory
+    owner: "{{ sinkhole_user }}"
+    group: "{{ sinkhole_user }}"
+    mode: "0700"
+  loop:
+    - "{{ sinkhole_home }}/.config"
+    - "{{ sinkhole_home }}/.config/containers"
+    - "{{ sinkhole_quadlet_directory }}"
+
+# Root in the container is the Sinkhole account on the Sensor, so the
+# container reads these files through the group and cannot change them.
+- name: Create the Sinkhole HTTP config directories
+  ansible.builtin.file:
+    path: "{{ item }}"
+    state: directory
+    owner: root
+    group: "{{ sinkhole_user }}"
+    mode: "0750"
+  loop:
+    - "{{ sinkhole_http_directory }}"
+    - "{{ sinkhole_http_directory }}/tls"
+
+- name: Generate the self-signed Sinkhole certificate once
+  ansible.builtin.command:
+    argv:
+      - openssl
+      - req
+      - -x509
+      - -newkey
+      - ec
+      - -pkeyopt
+      - ec_paramgen_curve:prime256v1
+      - -noenc
+      - -days
+      - "{{ sinkhole_certificate_days }}"
+      - -subj
+      - "{{ sinkhole_certificate_subject }}"
+      - -keyout
+      - "{{ sinkhole_http_directory }}/tls/sinkhole.key"
+      - -out
+      - "{{ sinkhole_http_directory }}/tls/sinkhole.crt"
+    creates: "{{ sinkhole_http_directory }}/tls/sinkhole.crt"
+  notify: Restart the Sinkhole HTTP service
+
+- name: Let the Sinkhole containers read the certificate and key
+  ansible.builtin.file:
+    path: "{{ sinkhole_http_directory }}/tls/{{ item }}"
+    owner: root
+    group: "{{ sinkhole_user }}"
+    mode: "0640"
+  loop:
+    - sinkhole.crt
+    - sinkhole.key
+
+- name: Write the Sinkhole nginx config
+  ansible.builtin.template:
+    src: nginx.conf.j2
+    dest: "{{ sinkhole_http_directory }}/nginx.conf"
+    owner: root
+    group: "{{ sinkhole_user }}"
+    mode: "0640"
+  notify: Restart the Sinkhole HTTP service
+
+- name: Write the Sinkhole HTTP Quadlet unit
+  ansible.builtin.template:
+    src: sinkhole-http.container.j2
+    dest: "{{ sinkhole_quadlet_directory }}/sinkhole-http.container"
+    owner: root
+    group: "{{ sinkhole_user }}"
+    mode: "0640"
+  notify:
+    - Reload the Sinkhole user units
+    - Restart the Sinkhole HTTP service
+
+- name: Apply the Sinkhole changes
+  ansible.builtin.meta: flush_handlers
+
+# Quadlet generates the service, so it cannot be enabled. The Install section
+# of the unit starts it with the user manager. The handlers tell why these
+# tasks use systemctl.
+- name: Read the state of the Sinkhole HTTP service
+  ansible.builtin.command:
+    cmd: systemctl --user --machine {{ sinkhole_user }}@ is-active sinkhole-http.service  # noqa: command-instead-of-module
+  register: sinkhole_http_state
+  changed_when: false
+  failed_when: false
+  check_mode: false
+
+- name: Start the Sinkhole HTTP service
+  ansible.builtin.command:
+    cmd: systemctl --user --machine {{ sinkhole_user }}@ start sinkhole-http.service  # noqa: command-instead-of-module
+  changed_when: true
+  when: sinkhole_http_state.stdout != 'active'

@@ -1,11 +1,15 @@
 ---
 # The verify playbook opens a Cowrie session with these credentials and runs
 # this download in it. The address needs no resolver and is outside the
-# Honeynet, so the Sensor sends the attempt to the Sinkhole and the download
-# fails while nothing listens there.
+# Honeynet, so the Sensor sends the download to the Sinkhole, and the file
+# holds the Sinkhole marker.
 verify_cowrie_username: root
 verify_cowrie_password: letmein
 verify_cowrie_download_url: http://1.1.1.1/malware.sh
+
+# The Sinkhole answers every HTTP and HTTPS request with a body that holds
+# this marker.
+sinkhole_marker: honeynet-sinkhole
 
 # A Honeypot connection to this address and port leaves the Honeynet with no
 # Sinkhole on the way, so Containment drops it.

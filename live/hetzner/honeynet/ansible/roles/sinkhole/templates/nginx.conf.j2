@@ -1,0 +1,36 @@
+worker_processes 1;
+pid /tmp/nginx.pid;
+error_log stderr warn;
+
+events {
+  worker_connections 1024;
+}
+
+http {
+  access_log /dev/stdout;
+  server_tokens off;
+
+  # With no types, the file extension of the path does not change the
+  # content type of the answer.
+  types {}
+  default_type application/octet-stream;
+
+  # The container root file system is read-only.
+  client_body_temp_path /tmp/client_body;
+  proxy_temp_path /tmp/proxy;
+  fastcgi_temp_path /tmp/fastcgi;
+  uwsgi_temp_path /tmp/uwsgi;
+  scgi_temp_path /tmp/scgi;
+
+  server {
+    listen 80 default_server;
+    listen 443 ssl default_server;
+
+    ssl_certificate /etc/nginx/tls/sinkhole.crt;
+    ssl_certificate_key /etc/nginx/tls/sinkhole.key;
+
+    location / {
+      return 200 "{{ sinkhole_marker }}\n";
+    }
+  }
+}
