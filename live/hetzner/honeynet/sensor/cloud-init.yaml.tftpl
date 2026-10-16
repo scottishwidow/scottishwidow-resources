@@ -53,17 +53,22 @@ write_files:
 
       define honeynet = ${network_ip_range}
       define sensor_public_ipv4 = ${public_ipv4}
+      define sensor_private_ip = ${sensor_private_ip}
       define honeypot = ${honeypot_ip}
 
       table inet filter {
+        # The prerouting chain sends Honeypot HTTP, HTTPS and DNS to the
+        # Sinkhole on this host. Its flows are queued like the forwarded ones.
         chain input {
           type filter hook input priority filter; policy drop;
           iif "lo" accept
+          ip saddr $honeynet ct status dnat queue num 0 bypass
           ct state established,related accept
           ct state invalid drop
           ip protocol icmp accept
           tcp dport ${admin_ssh_port} accept
           ip saddr $honeynet tcp dport ${proxy_port} accept
+          ${indent(10, sinkhole_input_rules)}
         }
 
         # Containment comes first, so no later rule can let a new connection
@@ -83,7 +88,10 @@ write_files:
       }
 
       # The Honeypots' replies need no masquerade: conntrack reverses the
-      # DNAT, so they leave with the Sensor public IPv4 as the source.
+      # DNAT, so they leave with the Sensor public IPv4 as the source. The
+      # Sinkhole DNAT keeps Honeypot HTTP, HTTPS and DNS inside the Honeynet.
+      # When nothing listens on a Sinkhole port, the Sensor refuses the
+      # connection.
       table ip nat {
         chain prerouting {
           type nat hook prerouting priority dstnat; policy accept;

@@ -23,6 +23,14 @@
   check_mode: false
   failed_when: false
 
+- name: Read the input chain
+  ansible.builtin.command:
+    cmd: nft list chain inet filter input
+  register: sensor_network_check_input_chain
+  changed_when: false
+  check_mode: false
+  failed_when: false
+
 - name: Read the DNAT chain
   ansible.builtin.command:
     cmd: nft list chain ip nat prerouting
@@ -72,3 +80,45 @@
   loop: "{{ honeypot_port_redirects | dict2items }}"
   loop_control:
     label: "{{ item.key }}"
+
+# The queue rule comes before the established rule, as in the forward chain,
+# so that in IPS mode Suricata gets every packet of a Sinkhole flow.
+- name: Require the input rule to queue the Sinkhole flows
+  vars:
+    sensor_network_check_input_rules: "{{ sensor_network_check_input_chain.stdout_lines | map('trim') | reject('match', '^(table |chain |type |}|$)') | list }}"
+    sensor_network_check_input_queue_rule: "ip saddr {{ honeynet_network_ip_range }} ct status dnat queue flags bypass to 0"
+    sensor_network_check_input_established_rule: ct state established,related accept
+  ansible.builtin.assert:
+    that:
+      - sensor_network_check_input_queue_rule in sensor_network_check_input_rules
+      - sensor_network_check_input_established_rule in sensor_network_check_input_rules
+      - >-
+        sensor_network_check_input_rules.index(sensor_network_check_input_queue_rule)
+        < sensor_network_check_input_rules.index(sensor_network_check_input_established_rule)
+    fail_msg: >-
+      The input rule to queue 0 with bypass for the Sinkhole flows, before the established rule,
+      is missing on the Sensor. It belongs to the Sensor user data in live/hetzner/honeynet/sensor,
+      not to Ansible. Fix the template and replace the Sensor.
+    quiet: true
+
+- name: Require the Sinkhole DNAT and the input rule for each Sinkhole port
+  ansible.builtin.assert:
+    that:
+      - >-
+        sensor_network_check_dnat_chain.stdout_lines | map('trim')
+        | select('equalto', 'ip saddr ' ~ honeynet_network_ip_range ~ ' ip daddr != ' ~ honeynet_network_ip_range
+          ~ ' ' ~ item.protocol ~ ' dport ' ~ item.port ~ ' dnat to ' ~ sensor_private_ip ~ ':' ~ item.sinkhole_port)
+        | list | length == 1
+      - >-
+        sensor_network_check_input_chain.stdout_lines | map('trim')
+        | select('equalto', 'ip saddr ' ~ honeynet_network_ip_range ~ ' ' ~ item.protocol ~ ' dport ' ~ item.sinkhole_port ~ ' accept')
+        | list | length == 1
+    fail_msg: >-
+      The DNAT of {{ item.protocol }} port {{ item.port }} outside the Honeynet to
+      {{ sensor_private_ip }}:{{ item.sinkhole_port }}, or the input rule that accepts it from the
+      Honeynet network only, is missing on the Sensor. It belongs to the Sensor user data in
+      live/hetzner/honeynet/sensor, not to Ansible. Fix the template and replace the Sensor.
+    quiet: true
+  loop: "{{ sinkhole_redirects }}"
+  loop_control:
+    label: "{{ item.protocol }} {{ item.port }}"

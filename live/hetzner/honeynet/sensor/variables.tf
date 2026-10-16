@@ -64,6 +64,20 @@ variable "proxy_port" {
   default     = 3128
 }
 
+variable "sinkhole_ports" {
+  description = "Ports of the Sinkhole on the Sensor private IP. The Sensor sends new Honeypot connections to HTTP, HTTPS and DNS outside the Honeynet to them. Only the Honeynet network can reach them"
+  type = object({
+    http  = number
+    https = number
+    dns   = number
+  })
+  default = {
+    http  = 10080
+    https = 10443
+    dns   = 10053
+  }
+}
+
 variable "location" {
   description = "Hetzner location of the Sensor and its primary IPv4"
   type        = string

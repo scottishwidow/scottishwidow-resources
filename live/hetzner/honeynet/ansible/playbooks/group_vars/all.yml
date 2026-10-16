@@ -1,10 +1,16 @@
 ---
 # The verify playbook opens a Cowrie session with these credentials and runs
-# this download in it. The address needs no resolver and is routable, so
-# Cowrie tries to reach it and Containment drops the attempt.
+# this download in it. The address needs no resolver and is outside the
+# Honeynet, so the Sensor sends the attempt to the Sinkhole and the download
+# fails while nothing listens there.
 verify_cowrie_username: root
 verify_cowrie_password: letmein
 verify_cowrie_download_url: http://1.1.1.1/malware.sh
+
+# A Honeypot connection to this address and port leaves the Honeynet with no
+# Sinkhole on the way, so Containment drops it.
+verify_internet_host: 1.1.1.1
+verify_contained_port: 22
 
 # The verify playbook offers these credentials to the OpenCanary FTP, MySQL
 # and MSSQL modules. Every module refuses them and records the attempt.
