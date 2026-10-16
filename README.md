@@ -44,13 +44,12 @@ export HONEYNET_HCLOUD_TOKEN=<token>
 
 Each Makefile gives its token to Terraform as `HCLOUD_TOKEN`. It ignores an `HCLOUD_TOKEN` that the shell already exports.
 
-### Management bootstrap
+### Bootstrap a new state bucket
 
-`live/aws/management/bootstrap` owns the management state bucket. Its state is in that bucket, at `mgmt/bootstrap/terraform.tfstate`.
+A bootstrap root can create its state bucket and keep its own state in that bucket. When the bucket does not exist yet, Terraform cannot initialize the S3 backend. Do these steps in this sequence:
 
-For a new environment, the bucket does not exist yet. Do these steps in this sequence:
-
-1. Create `backend_override.tf` in the bootstrap root. Git ignores this file.
+1. In the bootstrap root, set the bucket and key in the `backend "s3"` block.
+2. Create `backend_override.tf` in the bootstrap root. Git ignores this file.
 
    ```hcl
    terraform {
@@ -58,20 +57,20 @@ For a new environment, the bucket does not exist yet. Do these steps in this seq
    }
    ```
 
-2. Create the bucket with local state:
+3. Create the bucket with local state:
 
    ```sh
    terraform init
    terraform apply
    ```
 
-3. Delete `backend_override.tf`. Then move the local state to the bucket:
+4. Delete `backend_override.tf`. Then move the local state to the bucket:
 
    ```sh
    terraform init -migrate-state
    ```
 
-Do not do these steps for an environment that already has its bucket.
+Do not do these steps when the bucket exists. Use `terraform init` and `terraform apply` as usual.
 
 ### Hetzner bootstrap
 
