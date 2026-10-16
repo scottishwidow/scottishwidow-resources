@@ -30,7 +30,7 @@
     update_cache: true
     cache_valid_time: 3600
 
-- name: Point the Docker daemon at the allowlist proxy
+- name: Point the Docker daemon at the allowlist proxy and the Sinkhole DNS
   ansible.builtin.template:
     src: daemon.json.j2
     dest: /etc/docker/daemon.json

@@ -4,6 +4,7 @@
   would log the Honeypot as the source of every attack.
 #}
 {
+  "dns": ["{{ honeypot_docker_dns_server }}"],
   "proxies": {
     "http-proxy": "{{ honeynet_proxy_url }}",
     "https-proxy": "{{ honeynet_proxy_url }}",
