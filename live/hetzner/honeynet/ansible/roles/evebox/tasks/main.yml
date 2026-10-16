@@ -1,0 +1,50 @@
+---
+- name: Install the library the deb822 repository module needs
+  ansible.builtin.apt:
+    name: python3-debian
+    update_cache: true
+    cache_valid_time: 3600
+
+- name: Add the EveBox repository
+  ansible.builtin.deb822_repository:
+    name: evebox
+    types: deb
+    uris: https://evebox.org/files/debian
+    suites: stable
+    components: main
+    signed_by: "{{ lookup('ansible.builtin.file', 'evebox.asc') }}"
+    state: present
+  register: evebox_repository
+
+- name: Read the package index of the EveBox repository
+  ansible.builtin.apt:
+    update_cache: true
+  when: evebox_repository is changed
+
+- name: Install EveBox
+  ansible.builtin.apt:
+    name: evebox
+    update_cache: true
+    cache_valid_time: 3600
+
+- name: Let EveBox read the EVE log
+  ansible.builtin.user:
+    name: evebox
+    groups: "{{ evebox_eve_group }}"
+    append: true
+  notify: Restart EveBox
+
+- name: Write the EveBox config
+  ansible.builtin.template:
+    src: evebox.yaml.j2
+    dest: /etc/evebox/evebox.yaml
+    owner: root
+    group: evebox
+    mode: "0640"
+  notify: Restart EveBox
+
+- name: Enable and start EveBox
+  ansible.builtin.systemd_service:
+    name: evebox.service
+    enabled: true
+    state: started

@@ -1,0 +1,5 @@
+---
+- name: Restart EveBox
+  ansible.builtin.systemd_service:
+    name: evebox.service
+    state: restarted

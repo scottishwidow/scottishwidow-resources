@@ -26,3 +26,8 @@ suricata_canary_rules:
   drop:
     sid: 1000002
     content: HONEYNET-CANARY-DROP-7d52a0
+
+# EveBox on the Sensor listens on this port on localhost only. The operator
+# reaches it through an SSH local forward, and the verify playbook queries its
+# API.
+evebox_port: 5636
