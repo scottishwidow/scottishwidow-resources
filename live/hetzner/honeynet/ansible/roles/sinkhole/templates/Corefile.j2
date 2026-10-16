@@ -1,0 +1,12 @@
+.:{{ sinkhole_dns_port }} {
+  log
+
+  template IN A {
+    answer "{% raw %}{{ .Name }}{% endraw %} 60 IN A {{ sinkhole_dns_answer }}"
+  }
+
+  # The Honeynet has no IPv6, so AAAA and every other type get no answer.
+  template ANY ANY {
+    rcode NOERROR
+  }
+}

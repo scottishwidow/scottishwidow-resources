@@ -112,22 +112,56 @@
     - Reload the Sinkhole user units
     - Restart the Sinkhole HTTP service
 
+- name: Create the Sinkhole DNS config directory
+  ansible.builtin.file:
+    path: "{{ sinkhole_dns_directory }}"
+    state: directory
+    owner: root
+    group: "{{ sinkhole_user }}"
+    mode: "0750"
+
+# CoreDNS runs as an unprivileged uid in the container, not as root, so it
+# reads the Corefile as other.
+- name: Write the Sinkhole Corefile
+  ansible.builtin.template:
+    src: Corefile.j2
+    dest: "{{ sinkhole_dns_directory }}/Corefile"
+    owner: root
+    group: "{{ sinkhole_user }}"
+    mode: "0644"
+  notify: Restart the Sinkhole DNS service
+
+- name: Write the Sinkhole DNS Quadlet unit
+  ansible.builtin.template:
+    src: sinkhole-dns.container.j2
+    dest: "{{ sinkhole_quadlet_directory }}/sinkhole-dns.container"
+    owner: root
+    group: "{{ sinkhole_user }}"
+    mode: "0640"
+  notify:
+    - Reload the Sinkhole user units
+    - Restart the Sinkhole DNS service
+
 - name: Apply the Sinkhole changes
   ansible.builtin.meta: flush_handlers
 
-# Quadlet generates the service, so it cannot be enabled. The Install section
-# of the unit starts it with the user manager. The handlers tell why these
-# tasks use systemctl.
-- name: Read the state of the Sinkhole HTTP service
+# Quadlet generates the services, so they cannot be enabled. The Install
+# section of each unit starts it with the user manager. The handlers tell why
+# these tasks use systemctl.
+- name: Read the state of the Sinkhole services
   ansible.builtin.command:
-    cmd: systemctl --user --machine {{ sinkhole_user }}@ is-active sinkhole-http.service  # noqa: command-instead-of-module
-  register: sinkhole_http_state
+    cmd: systemctl --user --machine {{ sinkhole_user }}@ is-active {{ item }}  # noqa: command-instead-of-module
+  loop: "{{ sinkhole_services }}"
+  register: sinkhole_service_states
   changed_when: false
   failed_when: false
   check_mode: false
 
-- name: Start the Sinkhole HTTP service
+- name: Start the Sinkhole services
   ansible.builtin.command:
-    cmd: systemctl --user --machine {{ sinkhole_user }}@ start sinkhole-http.service  # noqa: command-instead-of-module
+    cmd: systemctl --user --machine {{ sinkhole_user }}@ start {{ item.item }}  # noqa: command-instead-of-module
+  loop: "{{ sinkhole_service_states.results }}"
+  loop_control:
+    label: "{{ item.item }}"
   changed_when: true
-  when: sinkhole_http_state.stdout != 'active'
+  when: item.stdout != 'active'

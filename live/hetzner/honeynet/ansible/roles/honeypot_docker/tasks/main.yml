@@ -8,9 +8,10 @@
   check_mode: false
   failed_when: false
 
-# Containment drops DNS and every other direct outbound connection, so the
-# proxy is the only way apt can reach a mirror. It resolves the mirror name
-# as well, which is why the Honeypots need no resolver.
+# Containment drops every direct outbound connection, and the Sinkhole answers
+# DNS with an address outside the Honeynet, so the proxy is the only way apt
+# can reach a mirror. It resolves the mirror name as well, which is why the
+# Honeypots need no resolver.
 - name: Point apt at the allowlist proxy
   ansible.builtin.template:
     src: apt-proxy.conf.j2
@@ -19,11 +20,13 @@
     group: root
     mode: "0644"
 
-- name: Install Docker and Compose
+# The verify playbook queries the Sinkhole DNS with dig.
+- name: Install Docker, Compose and dig
   ansible.builtin.apt:
     name:
       - docker.io
       - docker-compose-v2
+      - bind9-dnsutils
     update_cache: true
     cache_valid_time: 3600
 

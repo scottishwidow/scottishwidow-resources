@@ -1,5 +1,6 @@
 ---
 sinkhole_nginx_image: docker.io/library/nginx:1.30.6-alpine
+sinkhole_coredns_image: docker.io/coredns/coredns:1.14.7
 
 # Rootless Podman runs the Sinkhole containers as this account. It has no
 # login shell and no sudo, and the attacker can reach its containers.
@@ -16,9 +17,14 @@ sinkhole_subid_count: 65536
 sinkhole_listen_ip: "{{ sensor_private_ip }}"
 sinkhole_http_port: "{{ (sinkhole_redirects | selectattr('port', 'equalto', 80) | first).sinkhole_port }}"
 sinkhole_https_port: "{{ (sinkhole_redirects | selectattr('port', 'equalto', 443) | first).sinkhole_port }}"
+sinkhole_dns_port: "{{ (sinkhole_redirects | selectattr('port', 'equalto', 53) | first).sinkhole_port }}"
 
 sinkhole_http_directory: "{{ sinkhole_home }}/http"
+sinkhole_dns_directory: "{{ sinkhole_home }}/dns"
 sinkhole_quadlet_directory: "{{ sinkhole_home }}/.config/containers/systemd"
+sinkhole_services:
+  - sinkhole-http.service
+  - sinkhole-dns.service
 
 sinkhole_certificate_subject: /CN=localhost
 sinkhole_certificate_days: 3650
