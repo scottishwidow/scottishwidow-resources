@@ -2,18 +2,12 @@
 sinkhole_nginx_image: docker.io/library/nginx:1.30.6-alpine
 sinkhole_coredns_image: docker.io/coredns/coredns:1.14.7
 
-# Rootless Podman runs the Sinkhole containers as this account. It has no
-# login shell and no sudo, and the attacker can reach its containers.
 sinkhole_user: sinkhole
 sinkhole_home: /var/lib/sinkhole
 
-# The container uids map to this range on the Sensor. useradd gives login
-# accounts ranges from 100000, so this range starts far above them.
 sinkhole_subid_start: 1000000
 sinkhole_subid_count: 65536
 
-# Only the Honeynet network reaches the Sinkhole ports through the Sensor DNAT,
-# so the containers publish them on the private IP only.
 sinkhole_listen_ip: "{{ sensor_private_ip }}"
 sinkhole_http_port: "{{ (sinkhole_redirects | selectattr('port', 'equalto', 80) | first).sinkhole_port }}"
 sinkhole_https_port: "{{ (sinkhole_redirects | selectattr('port', 'equalto', 443) | first).sinkhole_port }}"

@@ -3,13 +3,9 @@ cowrie_image: cowrie/cowrie:3.1.1
 
 cowrie_dir: /opt/cowrie
 
-# The Sensor forwards public port 22 to the Cowrie SSH port and public
-# port 23 to the Cowrie Telnet port.
 cowrie_ssh_port: "{{ honeypot_port_redirects['22'] }}"
 cowrie_telnet_port: "{{ honeypot_port_redirects['23'] }}"
 
-# The hostname an attacker sees in the emulated shell.
 cowrie_hostname: svr04
 
-# The image runs Cowrie as this uid, which owns the session logs it writes.
 cowrie_uid: 999

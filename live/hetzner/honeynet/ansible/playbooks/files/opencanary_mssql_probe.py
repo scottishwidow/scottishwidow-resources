@@ -19,11 +19,11 @@ LOGIN7_HEADER_LENGTH = 94
 ERROR_TOKEN = 0xAA
 
 PRELOGIN_OPTIONS = [
-    (0x00, b"\x0b\x00\x00\x00\x00\x00"),  # version 11.0, build 0
-    (0x01, b"\x00"),  # encryption off
-    (0x02, b"\x00"),  # no named instance
-    (0x03, struct.pack("<I", os.getpid())),  # thread id
-    (0x04, b"\x00"),  # MARS off
+    (0x00, b"\x0b\x00\x00\x00\x00\x00"),
+    (0x01, b"\x00"),
+    (0x02, b"\x00"),
+    (0x03, struct.pack("<I", os.getpid())),
+    (0x04, b"\x00"),
 ]
 
 
@@ -65,7 +65,6 @@ def build_prelogin() -> bytes:
 
 
 def obfuscate_password(password: str) -> bytes:
-    # TDS sends the password with its nibbles swapped and XORed with 0xa5.
     return bytes(
         ((byte << 4) & 0xF0 | byte >> 4) ^ 0xA5
         for byte in password.encode("utf-16-le")
@@ -99,21 +98,21 @@ def build_login7(username: str, password: str, hostname: str) -> bytes:
         7,
         os.getpid(),
         0,
-        0x00,  # optFlags1
-        0x00,  # optFlags2
-        0x00,  # typeFlags
-        0x00,  # optFlags3
-        0,  # clientTimeZone
-        0x0409,  # clientLCID
+        0x00,
+        0x00,
+        0x00,
+        0x00,
+        0,
+        0x0409,
         *offsets,
-        b"\x00" * 6,  # ClientID
-        0,  # ibSSPI
-        0,  # cbSSPI, zero so that the server reads this as SQL authentication
-        0,  # ibAtchDBFile
-        0,  # cchAtchDBFile
-        0,  # ibChangePassword
-        0,  # cchChangePassword
-        0,  # cbSSPILong
+        b"\x00" * 6,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
     )
     return header + data
 

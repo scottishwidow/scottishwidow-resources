@@ -1,6 +1,4 @@
 ---
-# cloud-init on the Gateway can end in status "error" while user data still
-# applies, so the checks below verify the result instead of the exit code.
 - name: Wait for cloud-init to finish
   ansible.builtin.command:
     cmd: cloud-init status --wait

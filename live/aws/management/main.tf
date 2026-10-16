@@ -1,16 +1,8 @@
-#########################
-# Common
-#########################
-
 module "vpc" {
   source = "../../../modules/vpc"
   tags   = { env = "management", management = "terraform", Name = "scottishwidow" }
   region = var.aws_region
 }
-
-#########################
-# Nextcloud
-#########################
 
 module "next_cloud" {
   source  = "terraform-aws-modules/ec2-instance/aws"
@@ -68,10 +60,6 @@ module "next_cloud_sg" {
   tags = var.tags
 }
 
-#########################
-# Nextcloud backups
-#########################
-
 module "next_cloud_backup" {
   source = "../../../modules/dlm_backup"
 
@@ -86,10 +74,6 @@ module "next_cloud_backup" {
   snapshot_tags = var.tags
   tags          = var.tags
 }
-
-#########################
-# SSM scratch bucket
-#########################
 
 module "ssm_scratch" {
   source  = "terraform-aws-modules/s3-bucket/aws"

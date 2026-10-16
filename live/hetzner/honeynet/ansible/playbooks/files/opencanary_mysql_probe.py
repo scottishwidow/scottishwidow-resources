@@ -44,10 +44,6 @@ def parse_greeting(payload: bytes) -> tuple[str, bytes]:
     end_of_banner = payload.index(b"\x00", 1)
     banner = payload[1:end_of_banner].decode("utf-8", "replace")
 
-    # Protocol::Handshake, from the banner onwards: 4 bytes thread id, the
-    # first 8 salt bytes, 8 bytes of filler, capabilities, charset and status,
-    # the salt length, 10 reserved bytes, then the rest of the salt. The salt
-    # length counts a trailing NUL that is not part of the salt.
     salt_offset = end_of_banner + 1 + 4
     first_salt = payload[salt_offset : salt_offset + 8]
     salt_length = payload[salt_offset + 16]

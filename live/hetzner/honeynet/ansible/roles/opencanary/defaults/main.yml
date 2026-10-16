@@ -3,16 +3,10 @@ opencanary_image: thinkst/opencanary:0.9.10
 
 opencanary_dir: /opt/opencanary
 
-# The Sensor forwards public port 21 to the OpenCanary FTP port and public
-# port 80 to the OpenCanary HTTP port.
 opencanary_ftp_port: "{{ honeypot_port_redirects['21'] }}"
 opencanary_http_port: "{{ honeypot_port_redirects['80'] }}"
 
-# The Sensor forwards these two unchanged, because they are above 1024 and
-# the container binds no privileged port.
 opencanary_mssql_port: 1433
 opencanary_mysql_port: 3306
 
-# The directory the log mount appears on inside the container. The Compose
-# file and the OpenCanary config must agree on it.
 opencanary_container_log_dir: /var/log/opencanary

@@ -1,63 +1,31 @@
 ---
-# Must match the Ubuntu release of the sensor_image default in
-# live/hetzner/honeynet/sensor/variables.tf. The two move together.
 suricata_ppa_suite: noble
 
-# The queue number is a command line argument, not a setting in suricata.yaml,
-# so suricata_mode from group_vars selects the arguments of the service.
 suricata_capture_arguments:
   ids: --af-packet
   ips: -q 0
 
-# Both modes see the traffic after DNAT, so the Honeypots are HOME_NET and the
-# public IPv4 of the Sensor is not.
 suricata_home_net: "{{ honeynet_network_ip_range }}"
 
-# Suricata starts as root to open the capture and keeps the capture
-# capabilities, then drops to this account for the rest of its run, so a flaw in
-# the inspection of hostile traffic does not give an attacker root on the
-# Sensor. The service gives the account on the command line, not as run-as in
-# suricata.yaml, because with run-as the config test of suricata-update cannot
-# run as this account.
 suricata_user: suricata
 suricata_group: suricata
 
-# The service drop-in writes the PID here, and the logrotate config signals it.
 suricata_pid_file: /run/suricata/suricata.pid
 
-# Suricata writes the logs and reads the rules as suricata_user, so both trees
-# belong to it.
 suricata_owned_directories:
   - /var/log/suricata
   - /var/lib/suricata
 
-# suricata-update rewrites the rules under /var/lib/suricata/rules, so the
-# local rules live outside that tree and load after the fetched rules.
 suricata_local_rules_path: /etc/suricata/rules/local.rules
 
-# Suricata sees the Telnet session after DNAT, so the rules match the port
-# Cowrie listens on, not public port 23.
 suricata_cowrie_telnet_port: "{{ honeypot_port_redirects['23'] }}"
 
-# The queue rule of IPS mode takes only forwarded traffic, so a pass rule keeps
-# the Honeypot traffic to the proxy on the Sensor out of detection in IDS mode
-# too. Without it, stream event rules alert on the apt and Docker downloads, and
-# conditional PCAP writes all of them. A BPF filter on af-packet cannot do this:
-# Suricata compiles it with the MTU as snaplen and so cuts the larger frames
-# that the host delivers.
 suricata_proxy_pass_sid: 1000003
 
-# Suricata writes the packets of alerting flows only, and deletes the oldest
-# file when it opens one past the count. The product of the two is the most
-# disk the PCAP files take.
 suricata_pcap_file_size_limit: 100 MiB
 suricata_pcap_max_files: 20
 
-# logrotate rotates the EVE log and the Suricata log daily, so this is also the
-# number of rotated files it keeps.
 suricata_log_retention_days: 14
 
-# ET Open publishes new rules once a day. Persistent runs a missed update at
-# the next boot.
 suricata_update_schedule: daily
 suricata_update_randomized_delay: 1h

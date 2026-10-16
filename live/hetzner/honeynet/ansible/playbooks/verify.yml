@@ -142,10 +142,6 @@
       changed_when: false
       check_mode: false
 
-    # The Sensor sends both downloads to the Sinkhole, so the files Cowrie
-    # shows hold the Sinkhole marker. The Honeypot play reads the downloads
-    # from the Cowrie log. With more than one protocol, ss prints the protocol
-    # in the first column.
     - name: Require Cowrie on ports 22 and 23, closed proxy and Sinkhole ports and downloads from the Sinkhole
       vars:
         verify_telnet_session: "{{ verify_cowrie_telnet.stdout | default('{}', true) | from_json }}"
@@ -208,8 +204,6 @@
       changed_when: false
       failed_when: false
 
-    # follow_redirects is safe by default, so this GET follows / to
-    # /index.html and OpenCanary records both the redirect and the GET.
     - name: Send an HTTP GET to port 80
       ansible.builtin.uri:
         url: "http://{{ ansible_host }}/"
@@ -244,8 +238,6 @@
       changed_when: false
       failed_when: false
 
-    # MSSQL does not speak first, so TDS needs a client prelogin packet
-    # before the login the honeypot records.
     - name: Try an MSSQL login on port 1433
       ansible.builtin.command:
         argv:
@@ -360,8 +352,6 @@
           host keys={{ verify_sshd.stdout_lines | select('match', '^hostkey ') | list }};
           global IPv6={{ verify_ipv6.stdout_lines }}
 
-    # Docker keeps its bridge addresses on the Honeypot, so they are not
-    # addresses of the host itself.
     - name: Require the private IP as the only IPv4 address of a Honeypot
       vars:
         verify_host_ipv4: >-
@@ -417,7 +407,6 @@
       changed_when: false
       check_mode: false
 
-    # The path is new on each run, so the EVE check finds only this request.
     - name: Keep the path of the Sinkhole requests
       ansible.builtin.set_fact:
         verify_sinkhole_path: /verify-sinkhole/{{ inventory_hostname }}/{{ verify_sinkhole_eve_start.stdout_lines[1] }}
@@ -439,8 +428,6 @@
       changed_when: false
       failed_when: false
 
-    # logrotate can rotate the log after the size was read, and then the reader
-    # starts at the top.
     - name: Read the EVE http events of the Sinkhole request
       ansible.builtin.command:
         argv:
@@ -645,7 +632,6 @@
   vars:
     verify_opencanary_log: "{{ opencanary_dir }}/var/opencanary.log"
     verify_workstation_ip: "{{ hostvars['sensor'].verify_workstation_ip }}"
-    # FTP login attempt, HTTP GET, MySQL login attempt and MSSQL SQL-auth login.
     verify_opencanary_logtypes: [2000, 3000, 8001, 9001]
 
   tasks:
@@ -713,8 +699,6 @@
       failed_when: false
       check_mode: false
 
-    # The first fetch runs as root before the role gives the rule tree to the
-    # account, so the timer run proves that the account can replace those files.
     - name: Update the rules as the Suricata account
       ansible.builtin.systemd_service:
         name: suricata-update.service
@@ -815,9 +799,6 @@
       become: false
       failed_when: false
 
-    # Suricata writes the flow event of an unanswered connection only when the
-    # flow times out, so this waits for some minutes. logrotate can rotate the
-    # log after the size was read, and then the reader starts at the top.
     - name: Read the EVE events from the workstation since the probes started
       ansible.builtin.command:
         argv:
@@ -857,8 +838,6 @@
         and (verify_eve_events.stdout | default('{}', true) | from_json).dark_port_events | default([]) | length > 0
       ignore_errors: true
 
-    # On the first alert of a flow Suricata writes the earlier segments of the
-    # flow too, so the file holds the payload with the canary string.
     - name: Find the PCAP file of the canary alert flow
       ansible.builtin.command:
         argv:
@@ -956,8 +935,6 @@
       changed_when: false
       check_mode: false
 
-    # The forward lives only as long as the remote sleep, so it needs no
-    # cleanup.
     - name: Open EveBox through an SSH local forward from the workstation
       ansible.builtin.shell:
         cmd: >-
@@ -974,7 +951,6 @@
       changed_when: false
       failed_when: false
 
-    # EveBox reads the EVE log some seconds after Suricata writes it.
     - name: Find the canary alert through the EveBox API
       ansible.builtin.uri:
         url: "http://127.0.0.1:{{ evebox_port }}/api/events?{{ {'event_type': 'alert', 'query_string': verify_evebox_canary_query} | urlencode }}"

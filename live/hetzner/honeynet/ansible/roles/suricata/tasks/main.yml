@@ -5,8 +5,6 @@
     update_cache: true
     cache_valid_time: 3600
 
-# The Ubuntu archive carries an older Suricata, so the Sensor takes the
-# stable release from the PPA the Suricata project maintains.
 - name: Add the Suricata stable PPA
   ansible.builtin.deb822_repository:
     name: oisf-suricata-stable
@@ -23,8 +21,6 @@
     update_cache: true
   when: suricata_ppa is changed
 
-# The package starts Suricata as root with the packaged config. The role starts
-# it later, with its own config and as the Suricata account.
 - name: Install Suricata
   ansible.builtin.apt:
     name: suricata
@@ -46,15 +42,11 @@
     shell: /usr/sbin/nologin
     system: true
 
-# The package ships no rules, and Suricata refuses a config whose rule file is
-# missing. The suricata-update timer keeps the rules current, so this runs once.
 - name: Fetch the rules
   ansible.builtin.command:
     cmd: suricata-update --no-test
     creates: /var/lib/suricata/rules/suricata.rules
 
-# af-packet needs the device name and the plays gather no facts, so the device
-# follows from the private IP that the inventory pins.
 - name: Read the interface that holds the private IP
   ansible.builtin.command:
     cmd: ip -4 -o addr show to {{ sensor_private_ip }}
@@ -81,7 +73,6 @@
     group: root
     mode: "0755"
 
-# The config check loads every rule file, so the local rules exist first.
 - name: Write the local rules
   ansible.builtin.template:
     src: local.rules.j2
@@ -101,10 +92,6 @@
     validate: suricata -T -c %s
   notify: Restart Suricata
 
-# The package runs Suricata as root, so a Sensor that ran the earlier config
-# holds root owned logs and rules that the account cannot write. The config
-# check runs as root and creates the EVE log when it is missing, so this comes
-# after it.
 - name: Give the logs and the rules to the Suricata account
   ansible.builtin.file:
     path: "{{ item }}"
@@ -115,8 +102,6 @@
   loop: "{{ suricata_owned_directories }}"
   notify: Restart Suricata
 
-# The package makes the log directory writable by the Suricata group. EveBox
-# joins that group to read the EVE log, and must not change or delete the logs.
 - name: Make the log directory read-only for the Suricata group
   ansible.builtin.file:
     path: /var/log/suricata
@@ -129,8 +114,6 @@
     update_cache: true
     cache_valid_time: 3600
 
-# The package ships no logrotate config, so without this the logs grow until
-# the disk is full. On SIGHUP Suricata opens the log files again.
 - name: Rotate the Suricata logs
   ansible.builtin.template:
     src: suricata.logrotate.j2
@@ -148,11 +131,6 @@
     group: root
     mode: "0755"
 
-# The package creates the run directory once, at install, and /run is a tmpfs.
-# Suricata opens the command socket in it after it drops to the account.
-# RuntimeDirectory= cannot give the directory to the account, because systemd
-# sets the owner back to the service user before each command it runs. So the
-# service creates the directory from this entry on every start.
 - name: Write the Suricata run directory entry
   ansible.builtin.template:
     src: suricata.tmpfiles.j2
@@ -162,8 +140,6 @@
     mode: "0644"
   notify: Restart Suricata
 
-# The packaged service is Type=simple, so the process must stay in the
-# foreground.
 - name: Set the capture mode of the Suricata service
   ansible.builtin.template:
     src: suricata-capture-mode.conf.j2

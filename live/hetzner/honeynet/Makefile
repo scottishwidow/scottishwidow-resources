@@ -4,27 +4,16 @@ TF_ARGS          ?=
 
 REQUIRED_ENV  := AWS_PROFILE HONEYNET_HCLOUD_TOKEN
 
-# bootstrap keeps its state locally and creates the Honeynet SSH key once. It
-# is not part of the bulk targets, so it only runs with `make <target>-bootstrap`.
 APPLY_ORDER   := network sensor honeypots
 DESTROY_ORDER := honeypots sensor network
 ALL_STACKS    := bootstrap $(APPLY_ORDER)
 
-# Only the Honeynet token may reach the Honeynet project. This assignment
-# overrides an HCLOUD_TOKEN inherited from the shell.
 export HCLOUD_TOKEN := $(HONEYNET_HCLOUD_TOKEN)
 
-# The sensor root forwards the honeypot ports to this IP, and the honeypots
-# root gives it to honeypot-1.
 export TF_VAR_honeypot_1_private_ip := 10.20.0.11
 
-# The sensor root opens this port for the Honeynet network only, and the
-# honeypots root points the Docker daemon and apt at it.
 export TF_VAR_proxy_port := 3128
 
-# The sensor root forwards these public ports to the mapped port on
-# honeypot-1, and the honeypots root makes Cowrie and OpenCanary listen on the
-# mapped ports. Ports 445, 1433 and 3306 are forwarded unchanged.
 export TF_VAR_honeypot_port_redirects := {"21":2121,"22":2222,"23":2223,"80":8080}
 
 .NOTPARALLEL:

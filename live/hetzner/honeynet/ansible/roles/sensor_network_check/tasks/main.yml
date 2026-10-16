@@ -1,6 +1,4 @@
 ---
-# cloud-init can end in status "error" while user data still applies, so the
-# checks below verify the result instead of the exit code.
 - name: Wait for cloud-init to finish
   ansible.builtin.command:
     cmd: cloud-init status --wait
@@ -65,8 +63,6 @@
   loop_control:
     label: "{{ item.missing }}"
 
-# Cowrie listens on unprivileged ports in a container, so these public ports
-# reach the Honeypot on another port.
 - name: Require the DNAT of the redirected honeypot ports
   ansible.builtin.assert:
     that: >-
@@ -81,8 +77,6 @@
   loop_control:
     label: "{{ item.key }}"
 
-# The queue rule comes before the established rule, as in the forward chain,
-# so that in IPS mode Suricata gets every packet of a Sinkhole flow.
 - name: Require the input rule to queue the Sinkhole flows
   vars:
     sensor_network_check_input_rules: "{{ sensor_network_check_input_chain.stdout_lines | map('trim') | reject('match', '^(table |chain |type |}|$)') | list }}"

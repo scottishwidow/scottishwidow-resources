@@ -1,7 +1,3 @@
-#########################
-# Common
-#########################
-
 variable "aws_region" {
   type        = string
   description = "AWS Region to deploy to"
@@ -24,10 +20,6 @@ variable "tags" {
   }
 }
 
-#########################
-# Nextcloud
-#########################
-
 variable "next_cloud_instance_name" {
   description = "Name tag for the Nextcloud EC2 instance"
   type        = string
@@ -45,10 +37,6 @@ variable "domain" {
   type        = string
 }
 
-#########################
-# Nextcloud backups
-#########################
-
 variable "next_cloud_backup_schedules" {
   description = "DLM snapshot schedules for the Nextcloud instance. The daily cron runs 30 min after the pg_dumpall timer so the dump lands inside the same snapshot; weekly and monthly are staggered off it so schedules do not collide."
   type = list(object({
@@ -62,10 +50,6 @@ variable "next_cloud_backup_schedules" {
     { name = "monthly", cron_expression = "cron(30 6 1 * ? *)", retain_count = 6 },
   ]
 }
-
-#########################
-# SSM scratch bucket
-#########################
 
 variable "ssm_scratch_bucket_prefix" {
   description = "Name prefix for the aws_ssm scratch bucket. The account ID, region, and `-an` namespace suffix are appended (final name: <prefix>-<account-id>-<region>-an)."

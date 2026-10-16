@@ -7,8 +7,6 @@
     group: root
     mode: "0755"
 
-# The container masks the directories the image ships, so the session logs,
-# the TTY recordings and the download directory are created here.
 - name: Create the Cowrie session directories
   ansible.builtin.file:
     path: "{{ cowrie_dir }}/{{ item }}"

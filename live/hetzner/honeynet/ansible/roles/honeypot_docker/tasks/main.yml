@@ -1,6 +1,4 @@
 ---
-# cloud-init can end in status "error" while user data still applies, and
-# its own apt run holds the dpkg lock until it finishes.
 - name: Wait for cloud-init to finish
   ansible.builtin.command:
     cmd: cloud-init status --wait
@@ -8,10 +6,6 @@
   check_mode: false
   failed_when: false
 
-# Containment drops every direct outbound connection, and the Sinkhole answers
-# DNS with an address outside the Honeynet, so the proxy is the only way apt
-# can reach a mirror. It resolves the mirror name as well, which is why the
-# Honeypots need no resolver.
 - name: Point apt at the allowlist proxy
   ansible.builtin.template:
     src: apt-proxy.conf.j2
@@ -20,7 +14,6 @@
     group: root
     mode: "0644"
 
-# The verify playbook queries the Sinkhole DNS with dig.
 - name: Install Docker, Compose and dig
   ansible.builtin.apt:
     name:
@@ -45,7 +38,5 @@
     enabled: true
     state: started
 
-# The honeypots run in the same play, and they need the daemon to hold the
-# proxy settings before they pull an image.
 - name: Apply the Docker configuration now
   ansible.builtin.meta: flush_handlers

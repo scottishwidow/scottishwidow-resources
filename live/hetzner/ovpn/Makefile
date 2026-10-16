@@ -7,8 +7,6 @@ REQUIRED_ENV  := AWS_PROFILE OVPN_HCLOUD_TOKEN
 APPLY_ORDER   := network openvpn private_hosts
 DESTROY_ORDER := private_hosts openvpn network
 
-# Only the OVPN token may reach the OVPN project. This assignment
-# overrides an HCLOUD_TOKEN inherited from the shell.
 export HCLOUD_TOKEN := $(OVPN_HCLOUD_TOKEN)
 
 .NOTPARALLEL:

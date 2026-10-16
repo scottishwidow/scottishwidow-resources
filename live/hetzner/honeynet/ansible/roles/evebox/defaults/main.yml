@@ -5,10 +5,7 @@ evebox_data_directory: /var/lib/evebox
 
 evebox_eve_log: /var/log/suricata/eve.json
 
-# EveBox keeps the events as long as logrotate keeps the EVE log. The size cap
-# stops a flood of scanner flows from filling the disk of the Sensor first.
 evebox_retention_days: "{{ suricata_log_retention_days }}"
 evebox_retention_size: 10 GB
 
-# Suricata writes the EVE log readable by its group only.
 evebox_eve_group: "{{ suricata_group }}"

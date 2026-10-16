@@ -1,5 +1,3 @@
-# The package makes the log directory writable by the Suricata group, and
-# logrotate skips such a directory unless it works as the owner.
 /var/log/suricata/*.json /var/log/suricata/*.log {
     su {{ suricata_user }} {{ suricata_group }}
     daily

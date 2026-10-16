@@ -28,8 +28,7 @@ resource "aws_dlm_lifecycle_policy" "this" {
       for_each = var.schedules
 
       content {
-        name = schedule.value.name
-        # Must stay false: copying the volume's tags collides with tags_to_add and pushes the policy into ERROR.
+        name      = schedule.value.name
         copy_tags = false
 
         create_rule {
