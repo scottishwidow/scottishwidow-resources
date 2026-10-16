@@ -115,6 +115,14 @@
   loop: "{{ suricata_owned_directories }}"
   notify: Restart Suricata
 
+# The package makes the log directory writable by the Suricata group. EveBox
+# joins that group to read the EVE log, and must not change or delete the logs.
+- name: Make the log directory read-only for the Suricata group
+  ansible.builtin.file:
+    path: /var/log/suricata
+    state: directory
+    mode: "0750"
+
 - name: Install logrotate
   ansible.builtin.apt:
     name: logrotate

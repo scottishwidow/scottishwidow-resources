@@ -743,6 +743,80 @@
           PCAP files of the alert flow={{ verify_canary_pcap.stdout_lines }};
           EVE events from the Dark Port={{ verify_eve.dark_port_events | default('none') }}
 
+- name: Verify EveBox on the Sensor
+  hosts: sensors
+  gather_facts: false
+  become: false
+
+  vars:
+    verify_evebox_tunnel_port: 15636
+    verify_evebox_canary_query: >-
+      alert.signature_id:{{ suricata_canary_rules.alert.sid }}
+      src_ip:{{ verify_workstation_ip }}
+      @after:{{ '%Y-%m-%dT%H:%M:%SZ' | strftime(verify_probe_epoch | int, utc=true) }}
+
+  tasks:
+    - name: Probe the EveBox port on the Sensor public IPv4
+      ansible.builtin.wait_for:
+        host: "{{ ansible_host }}"
+        port: "{{ evebox_port }}"
+        timeout: 10
+      delegate_to: localhost
+      register: verify_evebox_public
+      failed_when: false
+
+    - name: Read the addresses EveBox listens on
+      ansible.builtin.command:
+        cmd: ss --tcp --listening --numeric --no-header sport = :{{ evebox_port }}
+      register: verify_evebox_listeners
+      changed_when: false
+      check_mode: false
+
+    # The forward lives only as long as the remote sleep, so it needs no
+    # cleanup.
+    - name: Open EveBox through an SSH local forward from the workstation
+      ansible.builtin.shell:
+        cmd: >-
+          ssh -f -o BatchMode=yes -o ConnectTimeout=10 -o ExitOnForwardFailure=yes
+          -o StrictHostKeyChecking=accept-new -o UserKnownHostsFile={{ playbook_dir }}/../.known_hosts
+          -o IdentitiesOnly=yes -i {{ lookup('ansible.builtin.config', 'DEFAULT_PRIVATE_KEY_FILE') | expanduser | quote }}
+          -p {{ ansible_port }}
+          -L 127.0.0.1:{{ verify_evebox_tunnel_port }}:127.0.0.1:{{ evebox_port }}
+          admin@{{ ansible_host }} sleep 20
+          && curl --silent --max-time 10 --output /dev/null --write-out '%{http_code}'
+          http://127.0.0.1:{{ verify_evebox_tunnel_port }}/
+      delegate_to: localhost
+      register: verify_evebox_tunnel
+      changed_when: false
+      failed_when: false
+
+    # EveBox reads the EVE log some seconds after Suricata writes it.
+    - name: Find the canary alert through the EveBox API
+      ansible.builtin.uri:
+        url: "http://127.0.0.1:{{ evebox_port }}/api/events?{{ {'event_type': 'alert', 'query_string': verify_evebox_canary_query} | urlencode }}"
+        return_content: true
+      register: verify_evebox_alerts
+      retries: 12
+      delay: 5
+      until: verify_evebox_alerts.json.events | default([]) | length > 0
+      failed_when: false
+
+    - name: Require EveBox on localhost only, through the SSH tunnel, with the canary alert
+      vars:
+        verify_evebox_listen_addresses: "{{ verify_evebox_listeners.stdout_lines | map('split') | map(attribute=3) | list }}"
+      ansible.builtin.assert:
+        that:
+          - "'Timeout' in verify_evebox_public.msg | default('')"
+          - verify_evebox_listen_addresses | length > 0
+          - verify_evebox_listen_addresses | reject('match', '127\\.0\\.0\\.1:') | list == []
+          - verify_evebox_tunnel.stdout == '200'
+          - verify_evebox_alerts.json.events | default([]) | length > 0
+        fail_msg: >-
+          port {{ evebox_port }} on the public IPv4={{ verify_evebox_public.msg | default('answered') }};
+          EveBox listen addresses={{ verify_evebox_listen_addresses }};
+          SSH tunnel={{ verify_evebox_tunnel.stdout }} {{ verify_evebox_tunnel.stderr | trim }};
+          EveBox query '{{ verify_evebox_canary_query }}'={{ verify_evebox_alerts.status | default('') }} {{ verify_evebox_alerts.msg | default('') }}
+
 - name: Verify that the Sensor fails open with Suricata stopped in IPS mode
   hosts: sensors
   gather_facts: false

@@ -7,6 +7,7 @@
     - sensor_network_check
     - allowlist_proxy
     - suricata
+    - evebox
 
 - name: Harden SSH on every Honeynet host
   hosts: all
