@@ -23,3 +23,7 @@ _Avoid_: Gateway, router, firewall, IDS box
 **Containment**:
 The rule that no new connection leaves a Honeypot for the internet. Replies to inbound connections are allowed.
 _Avoid_: Data control, egress filtering, sandboxing
+
+**Sinkhole**:
+The fake internet service that answers a Honeypot's outbound HTTP, HTTPS and DNS in place of the real destination. A connection to the Sinkhole never leaves the Honeynet, so Containment still holds.
+_Avoid_: Fake internet, INetSim, egress proxy
