@@ -1,7 +1,4 @@
 ---
 honeypot_docker_no_proxy: "{{ honeynet_network_ip_range }},localhost,127.0.0.1"
 
-# The Honeypots have no resolver, and the Docker DNS forwards to the host stub
-# resolver when no server is set. This address is outside the Honeynet, so the
-# Sensor sends the queries to the Sinkhole DNS.
 honeypot_docker_dns_server: 8.8.8.8

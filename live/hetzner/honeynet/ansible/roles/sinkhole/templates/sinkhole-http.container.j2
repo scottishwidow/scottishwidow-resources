@@ -13,9 +13,6 @@ ReadOnly=true
 NoNewPrivileges=true
 LogDriver=journald
 
-# The first start pulls the image. The private IP arrives over DHCP, and a
-# user unit cannot wait for the system network-online.target, so a start
-# before the address exists fails and is tried again.
 [Service]
 TimeoutStartSec=300
 Restart=always

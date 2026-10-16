@@ -28,8 +28,6 @@
     - /etc/subuid
     - /etc/subgid
 
-# Linger starts the user manager of the account at boot, and the user manager
-# starts the Quadlet units.
 - name: Keep the user manager of the Sinkhole account running
   ansible.builtin.command:
     cmd: loginctl enable-linger {{ sinkhole_user }}
@@ -47,8 +45,6 @@
     - "{{ sinkhole_home }}/.config/containers"
     - "{{ sinkhole_quadlet_directory }}"
 
-# Root in the container is the Sinkhole account on the Sensor, so the
-# container reads these files through the group and cannot change them.
 - name: Create the Sinkhole HTTP config directories
   ansible.builtin.file:
     path: "{{ item }}"
@@ -120,8 +116,6 @@
     group: "{{ sinkhole_user }}"
     mode: "0750"
 
-# CoreDNS runs as an unprivileged uid in the container, not as root, so it
-# reads the Corefile as other.
 - name: Write the Sinkhole Corefile
   ansible.builtin.template:
     src: Corefile.j2
@@ -145,9 +139,6 @@
 - name: Apply the Sinkhole changes
   ansible.builtin.meta: flush_handlers
 
-# Quadlet generates the services, so they cannot be enabled. The Install
-# section of each unit starts it with the user manager. The handlers tell why
-# these tasks use systemctl.
 - name: Read the state of the Sinkhole services
   ansible.builtin.command:
     cmd: systemctl --user --machine {{ sinkhole_user }}@ is-active {{ item }}  # noqa: command-instead-of-module

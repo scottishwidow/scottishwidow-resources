@@ -1,7 +1,5 @@
 data-directory: {{ evebox_data_directory }}
 
-# Only the SSH local forward reaches the listener, and SSH encrypts it and
-# requires the Honeynet key. So EveBox needs no TLS and no login of its own.
 http:
   host: {{ evebox_listen_host }}
   port: {{ evebox_port }}
@@ -17,8 +15,6 @@ database:
     days: {{ evebox_retention_days }}
     size: "{{ evebox_retention_size }}"
 
-# EveBox can read the log directory but not write it, so the bookmark of the
-# read position lives in the data directory.
 input:
   enabled: true
   paths:

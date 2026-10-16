@@ -32,9 +32,6 @@ vars:
 
 default-log-dir: /var/log/suricata
 
-# Suricata turns these parsers off by default, so their rules fail to load.
-# suricata-update disables the rules of a protocol only when the config turns it
-# off, and the config test of suricata-update fails on a rule that cannot load.
 app-layer:
   protocols:
     modbus:
@@ -60,10 +57,6 @@ outputs:
         - ftp
         - flow
 
-  # In normal mode all threads share one file, so max-files bounds the whole
-  # ring buffer and not each thread. A file name that holds only the second
-  # repeats when two files open in the same second, and the newer file then
-  # overwrites the older one.
   - pcap-log:
       enabled: true
       filename: log.pcap
@@ -93,9 +86,6 @@ nfq:
   mode: accept
   fail-open: true
 
-# ExecStop of the packaged service calls suricatasc, which needs this socket.
-# systemd owns the directory, so the path follows RuntimeDirectory of the
-# service and matches the default that suricatasc assumes.
 unix-command:
   enabled: true
   filename: /run/suricata/suricata-command.socket

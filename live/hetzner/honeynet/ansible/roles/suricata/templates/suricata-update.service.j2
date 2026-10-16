@@ -5,9 +5,6 @@ After=network-online.target suricata.service
 Requisite=suricata.service
 
 [Service]
-# suricata-update tests the new rules with suricata -T and keeps the old rules
-# when the test fails. It runs the reload command only when the rules change.
-# Suricata loads the rules again in place, so the capture does not stop.
 Type=oneshot
 User={{ suricata_user }}
 Group={{ suricata_group }}

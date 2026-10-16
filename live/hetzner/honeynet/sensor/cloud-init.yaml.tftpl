@@ -8,9 +8,6 @@ users:
     ssh_authorized_keys:
       - ${admin_ssh_public_key}
 
-# The netplan from cloud-init configures eth0 only, so nothing brings up the
-# private interface. Its DHCP routes are ignored to keep the default route on
-# eth0, and the Honeynet range goes to the Hetzner network gateway.
 write_files:
   - path: /etc/systemd/network/05-honeynet.network
     owner: root:root
@@ -57,8 +54,6 @@ write_files:
       define honeypot = ${honeypot_ip}
 
       table inet filter {
-        # The prerouting chain sends Honeypot HTTP, HTTPS and DNS to the
-        # Sinkhole on this host. Its flows are queued like the forwarded ones.
         chain input {
           type filter hook input priority filter; policy drop;
           iif "lo" accept
@@ -71,10 +66,6 @@ write_files:
           ${indent(10, sinkhole_input_rules)}
         }
 
-        # Containment comes first, so no later rule can let a new connection
-        # leave the Honeynet. The queue rule comes before the established
-        # rule, so that in IPS mode Suricata gets every packet of a flow and
-        # not only the first one.
         chain forward {
           type filter hook forward priority filter; policy drop;
           ip saddr $honeynet ip daddr != $honeynet ct state new counter drop
@@ -87,11 +78,6 @@ write_files:
         }
       }
 
-      # The Honeypots' replies need no masquerade: conntrack reverses the
-      # DNAT, so they leave with the Sensor public IPv4 as the source. The
-      # Sinkhole DNAT keeps Honeypot HTTP, HTTPS and DNS inside the Honeynet.
-      # When nothing listens on a Sinkhole port, the Sensor refuses the
-      # connection.
       table ip nat {
         chain prerouting {
           type nat hook prerouting priority dstnat; policy accept;
@@ -99,8 +85,6 @@ write_files:
         }
       }
 
-# Ubuntu 24.04 starts sshd through ssh.socket, which listens on port 22 until
-# it is regenerated. Plain ssh.service reads the port from sshd_config.
 runcmd:
   - systemctl restart systemd-networkd.service
   - sysctl --system

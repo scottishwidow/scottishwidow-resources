@@ -1,5 +1,3 @@
-# Findings this repository accepts, with the reason and a review date.
-
 misconfigurations:
   - id: AVD-AWS-0088
     paths:

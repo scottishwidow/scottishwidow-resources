@@ -1,13 +1,10 @@
 ---
 allowlist_proxy_port: "{{ proxy_port }}"
 
-# Squid binds the private IP only, so the proxy never answers on the Sensor
-# public IPv4 even if the nftables input rule is lost.
 allowlist_proxy_listen_ip: "{{ sensor_private_ip }}"
 
 allowlist_proxy_clients: "{{ honeynet_network_ip_range }}"
 
-# A leading dot matches the domain and all its subdomains.
 allowlist_proxy_domains:
   - .archive.ubuntu.com
   - .security.ubuntu.com

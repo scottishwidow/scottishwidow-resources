@@ -1,6 +1,4 @@
 ---
-# The systemd module reaches another user manager only through become_user,
-# which needs acl on the Sensor. systemctl reaches it with --machine.
 - name: Reload the Sinkhole user units
   ansible.builtin.command:
     cmd: systemctl --user --machine {{ sinkhole_user }}@ daemon-reload  # noqa: command-instead-of-module

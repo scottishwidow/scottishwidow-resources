@@ -13,8 +13,6 @@
     group: root
     mode: "0755"
 
-# Squid exits when it cannot bind its listen address, and the private IP
-# arrives over DHCP.
 - name: Make Squid wait for the network
   ansible.builtin.template:
     src: squid-network-online.conf.j2
