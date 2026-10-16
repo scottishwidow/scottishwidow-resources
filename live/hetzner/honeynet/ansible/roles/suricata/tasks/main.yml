@@ -73,18 +73,6 @@
   ansible.builtin.set_fact:
     suricata_private_interface: "{{ suricata_private_address.stdout.split()[1] }}"
 
-# The package runs Suricata as root, so a Sensor that ran the earlier config
-# holds root owned logs and rules that the account cannot write.
-- name: Give the logs and the rules to the Suricata account
-  ansible.builtin.file:
-    path: "{{ item }}"
-    state: directory
-    owner: "{{ suricata_user }}"
-    group: "{{ suricata_group }}"
-    recurse: true
-  loop: "{{ suricata_owned_directories }}"
-  notify: Restart Suricata
-
 - name: Create the local rules directory
   ansible.builtin.file:
     path: "{{ suricata_local_rules_path | dirname }}"
@@ -111,6 +99,20 @@
     group: root
     mode: "0644"
     validate: suricata -T -c %s
+  notify: Restart Suricata
+
+# The package runs Suricata as root, so a Sensor that ran the earlier config
+# holds root owned logs and rules that the account cannot write. The config
+# check runs as root and creates the EVE log when it is missing, so this comes
+# after it.
+- name: Give the logs and the rules to the Suricata account
+  ansible.builtin.file:
+    path: "{{ item }}"
+    state: directory
+    owner: "{{ suricata_user }}"
+    group: "{{ suricata_group }}"
+    recurse: true
+  loop: "{{ suricata_owned_directories }}"
   notify: Restart Suricata
 
 - name: Install logrotate
