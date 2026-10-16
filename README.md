@@ -22,7 +22,8 @@ The Terraform roots keep their state in S3 buckets in `eu-central-1`:
 
 | Roots | State bucket |
 |---|---|
-| `live/aws/management` | `tf-state-scottishwidow-management` |
+| `live/aws/management` | `tf-state-scottishwidow-management`, key `mgmt/terraform.tfstate` |
+| `live/aws/management/bootstrap` | `tf-state-scottishwidow-management`, key `mgmt/bootstrap/terraform.tfstate` |
 | `live/hetzner/ovpn/*` | `tf-state-scottishwidow-hetzner`, keys under `ovpn/` |
 | `live/hetzner/honeynet/*` | `tf-state-scottishwidow-hetzner`, keys under `honeynet/` |
 
@@ -42,6 +43,34 @@ export HONEYNET_HCLOUD_TOKEN=<token>
 ```
 
 Each Makefile gives its token to Terraform as `HCLOUD_TOKEN`. It ignores an `HCLOUD_TOKEN` that the shell already exports.
+
+### Bootstrap a new state bucket
+
+A bootstrap root can create its state bucket and keep its own state in that bucket. When the bucket does not exist yet, Terraform cannot initialize the S3 backend. Do these steps in this sequence:
+
+1. In the bootstrap root, set the bucket and key in the `backend "s3"` block.
+2. Create `backend_override.tf` in the bootstrap root. Git ignores this file.
+
+   ```hcl
+   terraform {
+     backend "local" {}
+   }
+   ```
+
+3. Create the bucket with local state:
+
+   ```sh
+   terraform init
+   terraform apply
+   ```
+
+4. Delete `backend_override.tf`. Then move the local state to the bucket:
+
+   ```sh
+   terraform init -migrate-state
+   ```
+
+Do not do these steps when the bucket exists. Use `terraform init` and `terraform apply` as usual.
 
 ### Hetzner bootstrap
 
