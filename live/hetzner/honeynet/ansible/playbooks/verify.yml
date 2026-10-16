@@ -58,13 +58,6 @@
       ansible.builtin.set_fact:
         verify_workstation_ip: "{{ verify_ssh_connection.stdout.split() | first }}"
 
-    - name: Read the Containment drop counter
-      ansible.builtin.command:
-        cmd: nft list chain inet filter forward
-      register: verify_containment_before
-      changed_when: false
-      check_mode: false
-
     - name: Grab the Cowrie SSH banner on port 22
       ansible.builtin.wait_for:
         host: "{{ ansible_host }}"
@@ -107,30 +100,35 @@
       register: verify_proxy_port
       failed_when: false
 
-    - name: Read the Containment drop counter again
-      ansible.builtin.command:
-        cmd: nft list chain inet filter forward
-      register: verify_containment_after
-      changed_when: false
-      check_mode: false
+    - name: Probe the Sinkhole TCP ports on the Sensor public IPv4
+      ansible.builtin.wait_for:
+        host: "{{ ansible_host }}"
+        port: "{{ item }}"
+        timeout: 10
+      loop: "{{ sinkhole_redirects | selectattr('protocol', 'equalto', 'tcp') | map(attribute='sinkhole_port') | unique | list }}"
+      delegate_to: localhost
+      become: false
+      register: verify_sinkhole_public
+      failed_when: false
 
-    - name: Require Cowrie on ports 22 and 23, a closed proxy port and a contained download
+    # The Sensor refuses the download, so the command ends before the probe
+    # timeout. The Honeypot play reads the failed download from the Cowrie log.
+    - name: Require Cowrie on ports 22 and 23, closed proxy and Sinkhole ports and a download that ends
       vars:
         verify_telnet_session: "{{ verify_cowrie_telnet.stdout | default('{}', true) | from_json }}"
-        verify_drops_before: "{{ (verify_containment_before.stdout | regex_findall('counter packets ([0-9]+)')) + ['-1'] }}"
-        verify_drops_after: "{{ (verify_containment_after.stdout | regex_findall('counter packets ([0-9]+)')) + ['-1'] }}"
       ansible.builtin.assert:
         that:
           - "'Timeout' not in verify_cowrie_banner.msg | default('')"
           - verify_cowrie_telnet.rc == 0
           - verify_telnet_session.negotiation | default('') is match('ff')
+          - verify_telnet_session.command_completed | default(false)
           - "'Timeout' in verify_proxy_port.msg | default('')"
-          - verify_drops_after | first | int > verify_drops_before | first | int
+          - verify_sinkhole_public.results | map(attribute='msg', default='') | reject('search', 'Timeout') | list == []
         fail_msg: >-
           port 22 banner={{ verify_cowrie_banner.msg | default('matched') }};
           port 23 session={{ verify_cowrie_telnet.stderr | default('') | trim }}{{ verify_telnet_session.command_output | default('') }};
           proxy port {{ proxy_port }}={{ verify_proxy_port.msg | default('answered') }};
-          Containment drops before={{ verify_drops_before | first }} after={{ verify_drops_after | first }}
+          Sinkhole ports={{ verify_sinkhole_public.results | map(attribute='msg', default='answered') | list }}
 
 - name: Verify OpenCanary and the Dark Port from the workstation
   hosts: sensors
@@ -331,24 +329,59 @@
         fail_msg: "global IPv4={{ verify_ipv4.stdout_lines }}"
       when: not verify_is_sensor
 
-- name: Verify Containment and SSH isolation from each Honeypot
+- name: Verify Containment, the Sinkhole redirect and SSH isolation from each Honeypot
   hosts: honeypots
   gather_facts: false
   become: false
 
   vars:
-    verify_internet_host: 1.1.1.1
-    verify_internet_port: 443
     verify_peer_honeypots: "{{ groups['honeypots'] | difference([inventory_hostname]) }}"
 
   tasks:
+    - name: Read the Containment drop counter
+      ansible.builtin.command:
+        cmd: nft list chain inet filter forward
+      delegate_to: sensor
+      become: true
+      register: verify_containment_before
+      changed_when: false
+      check_mode: false
+
     - name: Open a direct TCP connection to the internet
       ansible.builtin.wait_for:
         host: "{{ verify_internet_host }}"
-        port: "{{ verify_internet_port }}"
+        port: "{{ verify_contained_port }}"
         timeout: 10
       register: verify_direct_outbound
       failed_when: false
+
+    - name: Read the Containment drop counter again
+      ansible.builtin.command:
+        cmd: nft list chain inet filter forward
+      delegate_to: sensor
+      become: true
+      register: verify_containment_after
+      changed_when: false
+      check_mode: false
+
+    # wait_for retries a refused connection until its timeout, so a single
+    # connect tells a refusal from a timeout.
+    - name: Open an HTTP connection to the internet once
+      ansible.builtin.command:
+        argv:
+          - python3
+          - -c
+          - |
+            import socket, sys
+            try:
+                socket.create_connection((sys.argv[1], 80), timeout=10).close()
+                print("connected")
+            except OSError as error:
+                print(type(error).__name__)
+          - "{{ verify_internet_host }}"
+      register: verify_sinkhole_redirect
+      changed_when: false
+      check_mode: false
 
     - name: Open an SSH connection to the other Honeypots
       ansible.builtin.wait_for:
@@ -359,13 +392,20 @@
       register: verify_peer_ssh
       failed_when: false
 
-    - name: Require Containment and no SSH between Honeypots
+    - name: Require Containment, a refused Sinkhole port and no SSH between Honeypots
+      vars:
+        verify_drops_before: "{{ (verify_containment_before.stdout | regex_findall('counter packets ([0-9]+)')) + ['-1'] }}"
+        verify_drops_after: "{{ (verify_containment_after.stdout | regex_findall('counter packets ([0-9]+)')) + ['-1'] }}"
       ansible.builtin.assert:
         that:
           - "'Timeout' in verify_direct_outbound.msg | default('')"
+          - verify_drops_after | first | int > verify_drops_before | first | int
+          - verify_sinkhole_redirect.stdout == 'ConnectionRefusedError'
           - verify_peer_ssh.results | map(attribute='msg', default='') | reject('search', 'Timeout') | list == []
         fail_msg: >-
-          direct outbound to {{ verify_internet_host }}:{{ verify_internet_port }}={{ verify_direct_outbound.msg | default('connected') }};
+          direct outbound to {{ verify_internet_host }}:{{ verify_contained_port }}={{ verify_direct_outbound.msg | default('connected') }};
+          Containment drops before={{ verify_drops_before | first }} after={{ verify_drops_after | first }};
+          HTTP to {{ verify_internet_host }}:80={{ verify_sinkhole_redirect.stdout }};
           SSH to the other Honeypots={{ verify_peer_ssh.results | map(attribute='msg', default='connected') | list }}
 
 - name: Verify the Cowrie sessions and the allowlist proxy from each Honeypot
@@ -386,7 +426,7 @@
           - -c
           - |
             import json, sys
-            source_ips, commands = set(), []
+            source_ips, commands, downloads, failed_downloads = set(), [], [], []
             with open(sys.argv[1]) as log:
                 for line in log:
                     event = json.loads(line)
@@ -394,7 +434,16 @@
                         source_ips.add(event["src_ip"])
                     if event.get("eventid") == "cowrie.command.input":
                         commands.append(event.get("input", ""))
-            print(json.dumps({"source_ips": sorted(source_ips), "commands": commands}))
+                    if event.get("eventid") == "cowrie.session.file_download":
+                        downloads.append(event.get("url", ""))
+                    if event.get("eventid") == "cowrie.session.file_download.failed":
+                        failed_downloads.append(event.get("url", ""))
+            print(json.dumps({
+                "source_ips": sorted(source_ips),
+                "commands": commands,
+                "downloads": downloads,
+                "failed_downloads": failed_downloads,
+            }))
           - "{{ verify_cowrie_log }}"
       register: verify_cowrie_sessions
       changed_when: false
@@ -438,7 +487,7 @@
       changed_when: false
       failed_when: false
 
-    - name: Require the attacker address in the Cowrie log and an allowlist that refuses
+    - name: Require the attacker address and a failed download in the Cowrie log and an allowlist that refuses
       vars:
         verify_cowrie_session: "{{ verify_cowrie_sessions.stdout | default('{}', true) | from_json }}"
       ansible.builtin.assert:
@@ -446,11 +495,15 @@
           - verify_workstation_ip in verify_cowrie_session.source_ips | default([])
           - sensor_private_ip not in verify_cowrie_session.source_ips | default([])
           - verify_cowrie_session.commands | default([]) | select('search', verify_cowrie_download_url) | list | length > 0
+          - verify_cowrie_download_url in verify_cowrie_session.failed_downloads | default([])
+          - verify_cowrie_download_url not in verify_cowrie_session.downloads | default([])
           - verify_proxy_allowed.stdout == '200'
           - verify_proxy_denied.stdout == '403'
         fail_msg: >-
           Cowrie source addresses={{ verify_cowrie_session.source_ips | default('none') }};
           Cowrie commands={{ verify_cowrie_session.commands | default('none') }};
+          Cowrie downloads={{ verify_cowrie_session.downloads | default('none') }};
+          Cowrie failed downloads={{ verify_cowrie_session.failed_downloads | default('none') }};
           allowlisted domain={{ verify_proxy_allowed.stdout | default('') }} {{ verify_proxy_allowed.stderr | default('') | trim }};
           domain not on the allowlist={{ verify_proxy_denied.stdout | default('') }} {{ verify_proxy_denied.stderr | default('') | trim }}
 
@@ -863,8 +916,8 @@
 
         - name: Open a direct TCP connection from the Honeypot to the internet
           ansible.builtin.wait_for:
-            host: 1.1.1.1
-            port: 443
+            host: "{{ verify_internet_host }}"
+            port: "{{ verify_contained_port }}"
             timeout: 10
           delegate_to: "{{ verify_honeypot }}"
           become: false
