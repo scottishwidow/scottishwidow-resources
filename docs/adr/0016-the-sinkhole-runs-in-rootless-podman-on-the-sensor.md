@@ -17,8 +17,9 @@ Containment. It also says that the attacker cannot reach the Sensor. A sinkhole
 is a service that talks to traffic the attacker controls, so it changes that
 statement.
 
-The Honeypots have no resolver. Docker gives the Cowrie container `8.8.8.8` as
-its resolver, and loaders often use a literal IP in the URL.
+The Honeypots have no resolver. With no server set, the Docker DNS forwards to
+the host stub resolver, so a Cowrie lookup fails. Loaders often use a literal
+IP in the URL.
 
 ## Decision
 
@@ -38,6 +39,8 @@ its resolver, and loaders often use a literal IP in the URL.
   established rule, as in the `forward` chain (ADR-0014).
 - **Ansible generates one self-signed certificate** for nginx and keeps it
   across runs.
+- **The Docker daemon on the Honeypots uses `8.8.8.8` as its DNS server.** The
+  address is outside the Honeynet, so the DNAT sends the queries to CoreDNS.
 - **Only HTTP, HTTPS and DNS go to the Sinkhole.** TFTP and FTP are a separate
   change.
 
