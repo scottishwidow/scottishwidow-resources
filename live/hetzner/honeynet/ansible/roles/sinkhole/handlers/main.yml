@@ -10,3 +10,8 @@
   ansible.builtin.command:
     cmd: systemctl --user --machine {{ sinkhole_user }}@ restart sinkhole-http.service  # noqa: command-instead-of-module
   changed_when: true
+
+- name: Restart the Sinkhole DNS service
+  ansible.builtin.command:
+    cmd: systemctl --user --machine {{ sinkhole_user }}@ restart sinkhole-dns.service  # noqa: command-instead-of-module
+  changed_when: true

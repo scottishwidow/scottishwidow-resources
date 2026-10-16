@@ -7,9 +7,22 @@ verify_cowrie_username: root
 verify_cowrie_password: letmein
 verify_cowrie_download_url: http://1.1.1.1/malware.sh
 
+# The verify playbook also runs this download by hostname. The Sinkhole DNS
+# resolves the name, and the download takes the same path as the address
+# above. The file name must differ from the one above.
+verify_cowrie_hostname_download_url: http://example.com/loader.sh
+verify_dns_query_name: example.com
+verify_dns_query_server: 8.8.8.8
+
 # The Sinkhole answers every HTTP and HTTPS request with a body that holds
 # this marker.
 sinkhole_marker: honeynet-sinkhole
+
+# The Sinkhole answers every DNS A query with this address. It is outside the
+# Honeynet, so the Sensor sends a connection to it through the same DNAT as a
+# literal IP. Cowrie wget refuses an address that is not globally routable, so
+# a documentation range such as TEST-NET-2 cannot be used (ADR-0016).
+sinkhole_dns_answer: 1.1.1.1
 
 # A Honeypot connection to this address and port leaves the Honeynet with no
 # Sinkhole on the way, so Containment drops it.

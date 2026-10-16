@@ -23,7 +23,7 @@ its resolver, and loaders often use a literal IP in the URL.
 ## Decision
 
 - **CoreDNS and nginx are the Sinkhole.** CoreDNS answers every `A` query with
-  `198.51.100.1` (TEST-NET-2) and every `AAAA` query with no answer. nginx
+  `1.1.1.1` and every `AAAA` query with no answer. nginx
   answers every path and method on HTTP and HTTPS with `200`, one fixed body
   that holds the marker `honeynet-sinkhole`, and `application/octet-stream`.
 - **The Sinkhole runs on the Sensor in rootless Podman**, with Quadlet units
@@ -55,6 +55,12 @@ separate network namespace.
 
 The DNS answer is outside the Honeynet, so a hostname and a literal IP take the
 same DNAT path.
+
+The DNS answer is a globally routable address, not TEST-NET-2
+(`198.51.100.0/24`). Cowrie `wget` refuses an address that Python
+`ipaddress` does not mark `is_global`, and the documentation ranges are not
+global. No traffic to the answer leaves the Honeynet: the DNAT sends `tcp 80`
+and `tcp 443` to the Sinkhole, and Containment drops all other ports.
 
 ## Consequences
 
