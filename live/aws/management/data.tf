@@ -5,3 +5,15 @@ data "aws_ssm_parameter" "ubuntu" {
 data "aws_caller_identity" "current" {}
 
 data "aws_region" "current" {}
+
+data "aws_vpc" "management" {
+  tags = {
+    Name = "scottishwidow"
+    env  = "management"
+  }
+}
+
+data "aws_subnet" "public_zone_1" {
+  vpc_id     = data.aws_vpc.management.id
+  cidr_block = "172.16.128.0/19"
+}

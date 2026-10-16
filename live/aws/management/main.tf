@@ -1,7 +1,9 @@
-module "vpc" {
-  source = "../../../modules/vpc"
-  tags   = { env = "management", management = "terraform", Name = "scottishwidow" }
-  region = var.aws_region
+removed {
+  from = module.vpc
+
+  lifecycle {
+    destroy = false
+  }
 }
 
 module "next_cloud" {
@@ -12,7 +14,7 @@ module "next_cloud" {
 
   ami                         = data.aws_ssm_parameter.ubuntu.value
   instance_type               = var.next_cloud_instance_type
-  subnet_id                   = module.vpc.public_zone_1
+  subnet_id                   = data.aws_subnet.public_zone_1.id
   vpc_security_group_ids      = [module.next_cloud_sg.security_group_id]
   associate_public_ip_address = true
 
@@ -50,7 +52,7 @@ module "next_cloud_sg" {
 
   name        = "${var.next_cloud_instance_name}-sg"
   description = "Nextcloud instance: HTTP/HTTPS inbound only"
-  vpc_id      = module.vpc.vpc_id
+  vpc_id      = data.aws_vpc.management.id
 
   ingress_cidr_blocks = ["0.0.0.0/0"]
   ingress_rules       = ["http-80-tcp", "https-443-tcp"]
