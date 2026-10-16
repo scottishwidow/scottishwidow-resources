@@ -53,10 +53,12 @@ After both checkpoints, `mgmt/terraform.tfstate` holds no managed resources.
   MGMT="$REPO/live/aws/management"
   ```
 
-- A restricted work directory outside the repository. State files contain secrets.
+- A restricted work directory outside the repository, on a disk with space for the offline
+  copies. State files contain secrets. A shared plugin cache keeps one copy of the provider.
 
   ```sh
-  WORK="$(mktemp -d)"; chmod 700 "$WORK"; umask 077
+  WORK="$(mktemp -d "$HOME/state-split.XXXXXX")"; chmod 700 "$WORK"; umask 077
+  export TF_PLUGIN_CACHE_DIR="$WORK/plugin-cache"; mkdir "$TF_PLUGIN_CACHE_DIR"
   ```
 
 - The private input `domain`. Supply it to the old root as you do today. Never commit it.
@@ -74,9 +76,10 @@ After both checkpoints, `mgmt/terraform.tfstate` holds no managed resources.
 
   ```sh
   no_resource_changes() {
-    local changed
-    changed=$(terraform -chdir="$1" show -json "$2" | jq -r '.resource_changes[]?
-      | select(.change.actions != ["no-op"]) | "\(.change.actions | join(",")) \(.address)"')
+    local plan changed
+    plan=$(terraform -chdir="$1" show -json "$2") || return 1
+    changed=$(jq -r '.resource_changes[]?
+      | select(.change.actions != ["no-op"]) | "\(.change.actions | join(",")) \(.address)"' <<<"$plan") || return 1
     [ -z "$changed" ] || { printf '%s\n' "$changed" >&2; return 1; }
   }
   ```
