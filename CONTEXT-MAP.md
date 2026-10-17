@@ -24,14 +24,13 @@
   their own keys in the Hetzner state bucket, which the OVPN bootstrap creates.
   The OVPN bootstrap must exist first. This is the only shared resource.
 
-- **Terraform → Ansible**: Terraform (`live/aws/management/`) provisions the instance
-  and supporting resources (EIP, Route 53 record, SSM scratch bucket); Ansible
-  (`live/aws/management/ansible/`) configures Nextcloud AIO on it, standalone (no
-  `remote-exec`). They share no state file — Ansible discovers the instance via
-  dynamic inventory (tags) and reads bucket/region from Terraform outputs.
-- **DNS**: the Route 53 hosted zone is to be imported into and owned by
-  `live/aws/management/` (issue #20). Once the import lands, the manual `UPSERT`
-  procedure documented in `live/aws/management/CONTEXT.md` is no longer accurate.
+- **Terraform → Ansible**: Terraform (`live/aws/management/nextcloud/`) provisions
+  the instance and supporting resources (EIP, backup policy, SSM scratch bucket);
+  Ansible (`live/aws/management/nextcloud/ansible/`) configures Nextcloud AIO on it,
+  standalone (no `remote-exec`). They share no state file — Ansible discovers the
+  instance via dynamic inventory (tags) and reads bucket/region from Terraform outputs.
+- **DNS**: Route 53 is outside Terraform. The operator updates the A record manually
+  with the `UPSERT` procedure in `live/aws/management/CONTEXT.md`.
 - **Scan → Management (reads only)**: Trivy reads every `.tf` file in the repo,
   but it provisions nothing and holds no AWS credentials — it reads *code*, never
   live infrastructure. Its findings reach code scanning as alerts and stop there

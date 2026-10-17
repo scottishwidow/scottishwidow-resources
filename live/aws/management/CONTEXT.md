@@ -4,6 +4,26 @@ The `management` AWS environment. It hosts one self-managed EC2 instance — the
 **Nextcloud instance** — and contains the Terraform that provisions it and the
 standalone Ansible that configures it.
 
+## Terraform roots
+
+`live/aws/management/` is an environment directory. Each root below has its own
+state key in the `tf-state-scottishwidow-management` bucket.
+
+| Root | State key | Owns |
+| --- | --- | --- |
+| `bootstrap/` | `mgmt/bootstrap/terraform.tfstate` | The state bucket and its access-log bucket |
+| `network/` | `mgmt/network/terraform.tfstate` | The VPC, subnets, routes, and internet gateway |
+| `nextcloud/` | `mgmt/nextcloud/terraform.tfstate` | The Nextcloud instance, its security group, the backup policy, and the scratch bucket |
+| `jenkins/` | none | Nothing. An inactive placeholder. |
+
+The Nextcloud root finds the VPC and subnet through data sources. It does not read
+the network state. The Ansible is in `nextcloud/ansible/`.
+
+**Old parent root**: the top-level `*.tf` files in `live/aws/management/` use the
+key `mgmt/terraform.tfstate`. This state has no managed resources. The files keep
+only `removed` blocks, so that the backend stays readable until issue #122 retires
+the root. Do not add resources to it.
+
 ## Language
 
 **Nextcloud instance**:
@@ -62,12 +82,12 @@ _Avoid_: calling it "the backup", or treating it as co-equal with the snapshot.
 
 ## Out-of-band: Route 53 A record
 
-Route 53 is **not** managed by Terraform here (importing the existing zone is out
-of scope — see issue #20). After `terraform apply`, point the `domain` at the EIP
-manually. This is a HITL follow-up step, run once the EIP exists:
+Route 53 is **not** managed by Terraform. No root has Route 53 resources. After a
+`terraform apply` that creates or changes the EIP, point the `domain` at the EIP
+manually. This is a HITL follow-up step:
 
 ```sh
-cd live/management
+cd live/aws/management/nextcloud
 DOMAIN=$(terraform output -raw next_cloud_domain)
 EIP=$(terraform output -raw next_cloud_public_ip)
 aws route53 change-resource-record-sets \
