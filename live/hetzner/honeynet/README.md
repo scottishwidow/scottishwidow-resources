@@ -25,6 +25,7 @@ flowchart LR
                 end
                 suricata["Suricata<br/>IDS: af-packet / IPS: NFQUEUE 0<br/>ET Open + local rules"]
                 evebox["EveBox<br/>127.0.0.1:5636"]
+                logvol[("Log Volume<br/>/srv/honeynet")]
                 squid["Squid allowlist proxy<br/>10.20.0.2:3128"]
                 subgraph sink["Sinkhole (rootless Podman)"]
                     nginx["nginx<br/>:10080 HTTP, :10443 HTTPS<br/>200 + empty shell script"]
@@ -55,6 +56,8 @@ flowchart LR
     fwd -. "NFQUEUE 0 / af-packet" .-> suricata
     inp -. "NFQUEUE 0 / af-packet" .-> suricata
     suricata -->|"eve.json"| evebox
+    suricata -->|"EVE, PCAP"| logvol
+    evebox -->|"database"| logvol
     fw --> sshd_s
     sshd_s -. "ProxyCommand SSH :22" .-> sshd_h
 
@@ -74,6 +77,8 @@ flowchart LR
 | Host | Address | Runs |
 |---|---|---|
 | Sensor | Public IPv4, `10.20.0.2` | nftables, Suricata, EveBox, Squid, Sinkhole (nginx, CoreDNS) |
+
+The Log Volume is attached to the Sensor at `/srv/honeynet`. It holds `/var/log/suricata` and `/var/lib/evebox`, and it stays when Terraform replaces the Sensor.
 | `honeypot-1` | `10.20.0.11`, no public IP | Cowrie, OpenCanary, in Docker |
 
 Every packet between the internet and a Honeypot goes through the Sensor. The Honeypot default route goes to the Hetzner network gateway. The network route sends it to the Sensor.
@@ -118,12 +123,12 @@ Do the [prerequisites](../../../README.md#prerequisites) first. The Honeynet kee
 
    ```sh
    make init
-   make apply      # network, sensor, honeypots
+   make apply      # storage, network, sensor, honeypots
    make configure  # writes the inventory, runs site.yml
    make verify     # runs verify.yml
    ```
 
-`make destroy` removes the roots in the reverse order. It does not remove `bootstrap`.
+`make destroy` removes the roots in the reverse order. It does not remove `bootstrap` or `storage`.
 
 ## Operation
 
@@ -143,6 +148,8 @@ Do the [prerequisites](../../../README.md#prerequisites) first. The Honeynet kee
 - To add a honeypot port, add it to `honeypot_tcp_ports` in the Sensor root. If the port is below 1024, also map it in `TF_VAR_honeypot_port_redirects` in the Makefile.
 - Do not open Containment. Send new outbound protocols to the Sinkhole.
 - The Honeynet collects no malware samples.
+- The Log Volume has delete protection. To delete it, set `delete_protection = false` in `storage`, apply, then run `make destroy-storage`.
+- The Log Volume and the Sensor must be in the same location.
 - Every banner and identity comes from `honeypot_persona` in `ansible/playbooks/group_vars/all.yml`. Do not set a banner in a role.
 
 ## Decisions
@@ -151,4 +158,5 @@ Do the [prerequisites](../../../README.md#prerequisites) first. The Honeynet kee
 - [ADR-0014](../../../docs/adr/0014-a-static-queue-bypass-rule-keeps-the-sensor-network-in-user-data.md): static `queue bypass` rule
 - [ADR-0015](../../../docs/adr/0015-opencanary-replaces-dionaea-and-port-445-becomes-a-dark-port.md): OpenCanary and the Dark Port
 - [ADR-0016](../../../docs/adr/0016-the-sinkhole-runs-in-rootless-podman-on-the-sensor.md): the Sinkhole
+- [ADR-0017](../../../docs/adr/0017-the-sensor-logs-live-on-a-volume-that-outlives-the-sensor.md): the Log Volume
 - [ADR-0017](../../../docs/adr/0017-every-honeypot-service-claims-one-ubuntu-persona.md): the Persona

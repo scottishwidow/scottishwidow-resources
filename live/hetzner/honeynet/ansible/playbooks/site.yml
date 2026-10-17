@@ -5,6 +5,7 @@
 
   roles:
     - sensor_network_check
+    - log_volume
     - allowlist_proxy
     - suricata
     - evebox

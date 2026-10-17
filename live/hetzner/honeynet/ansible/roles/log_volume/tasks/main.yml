@@ -1,0 +1,126 @@
+---
+- name: Read the Log Volume device
+  ansible.builtin.stat:
+    path: "{{ log_volume_device }}"
+  register: log_volume_device_state
+
+- name: Require the Log Volume on the Sensor
+  ansible.builtin.assert:
+    that: log_volume_device_state.stat.exists
+    fail_msg: >-
+      {{ log_volume_device }} is missing on the Sensor. The Log Volume comes from
+      live/hetzner/honeynet/storage and its attachment from live/hetzner/honeynet/sensor.
+      Apply both roots, then run make configure again.
+    quiet: true
+
+- name: Write the Log Volume mount unit
+  ansible.builtin.template:
+    src: volume.mount.j2
+    dest: /etc/systemd/system/{{ log_volume_mount_unit }}
+    owner: root
+    group: root
+    mode: "0644"
+  register: log_volume_mount_unit_file
+
+- name: Mount the Log Volume
+  ansible.builtin.systemd_service:
+    name: "{{ log_volume_mount_unit }}"
+    daemon_reload: "{{ log_volume_mount_unit_file is changed }}"
+    enabled: true
+    state: started
+
+- name: Create the log directories on the Log Volume
+  ansible.builtin.file:
+    path: "{{ item.source }}"
+    state: directory
+  loop: "{{ log_volume_bind_mounts }}"
+  loop_control:
+    label: "{{ item.source }}"
+
+- name: Read which log directories are already on the Log Volume
+  ansible.builtin.command:
+    cmd: findmnt --mountpoint {{ item.target }}
+  loop: "{{ log_volume_bind_mounts }}"
+  loop_control:
+    label: "{{ item.target }}"
+  register: log_volume_bind_states
+  changed_when: false
+  failed_when: false
+  check_mode: false
+
+- name: Find logs on the root disk that are not yet on the Log Volume
+  ansible.builtin.find:
+    paths: "{{ item.item.target }}"
+    file_type: any
+    hidden: true
+  loop: "{{ log_volume_bind_states.results }}"
+  loop_control:
+    label: "{{ item.item.target }}"
+  register: log_volume_root_disk_logs
+  when: item.rc != 0
+
+- name: Keep the log directories to move to the Log Volume
+  ansible.builtin.set_fact:
+    log_volume_migrations: "{{ log_volume_root_disk_logs.results | selectattr('matched', 'defined') | selectattr('matched', 'gt', 0) | map(attribute='item.item') | list }}"
+
+- name: Stop Suricata and EveBox before their logs move
+  ansible.builtin.systemd_service:
+    name: "{{ item.service }}"
+    state: stopped
+  loop: "{{ log_volume_bind_mounts }}"
+  loop_control:
+    label: "{{ item.service }}"
+  when: log_volume_migrations | length > 0
+
+- name: Copy the logs from the root disk to the Log Volume
+  ansible.builtin.command:
+    cmd: cp -a --update=none {{ item.target }}/. {{ item.source }}/
+  loop: "{{ log_volume_migrations }}"
+  loop_control:
+    label: "{{ item.target }}"
+  changed_when: true
+
+- name: Write the bind mount units of the log directories
+  ansible.builtin.template:
+    src: bind.mount.j2
+    dest: /etc/systemd/system/{{ item.target[1:] | replace('/', '-') }}.mount
+    owner: root
+    group: root
+    mode: "0644"
+  loop: "{{ log_volume_bind_mounts }}"
+  loop_control:
+    label: "{{ item.target }}"
+  register: log_volume_bind_unit_files
+
+- name: Create the service drop-in directories
+  ansible.builtin.file:
+    path: /etc/systemd/system/{{ item.service }}.d
+    state: directory
+    owner: root
+    group: root
+    mode: "0755"
+  loop: "{{ log_volume_bind_mounts }}"
+  loop_control:
+    label: "{{ item.service }}"
+
+- name: Make Suricata and EveBox require the Log Volume
+  ansible.builtin.template:
+    src: log-volume.conf.j2
+    dest: /etc/systemd/system/{{ item.service }}.d/20-log-volume.conf
+    owner: root
+    group: root
+    mode: "0644"
+  loop: "{{ log_volume_bind_mounts }}"
+  loop_control:
+    label: "{{ item.service }}"
+  register: log_volume_drop_ins
+
+- name: Mount the log directories from the Log Volume
+  ansible.builtin.systemd_service:
+    name: "{{ item.target[1:] | replace('/', '-') }}.mount"
+    daemon_reload: "{{ log_volume_bind_unit_files is changed or log_volume_drop_ins is changed }}"
+    enabled: true
+    state: started
+  loop: "{{ log_volume_bind_mounts }}"
+  loop_control:
+    label: "{{ item.target }}"

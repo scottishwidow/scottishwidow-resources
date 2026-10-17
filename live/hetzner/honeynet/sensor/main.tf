@@ -47,3 +47,9 @@ module "sensor" {
   user_data       = local.sensor_user_data
   labels          = local.sensor_labels
 }
+
+resource "hcloud_volume_attachment" "sensor_logs" {
+  volume_id = data.hcloud_volume.sensor_logs.id
+  server_id = module.sensor.server_id
+  automount = false
+}

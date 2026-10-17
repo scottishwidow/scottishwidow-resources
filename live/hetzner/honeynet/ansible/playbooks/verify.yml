@@ -723,6 +723,75 @@
           OpenCanary source addresses={{ verify_opencanary_record.source_hosts | default('none') }};
           OpenCanary logtypes={{ verify_opencanary_record.logtypes | default('none') }}
 
+- name: Verify the Log Volume on the Sensor
+  hosts: sensors
+  gather_facts: false
+
+  vars:
+    verify_log_volume_mounts:
+      - where: /srv/honeynet
+        fsroot: /
+      - where: /var/log/suricata
+        fsroot: /suricata
+        service: suricata.service
+      - where: /var/lib/evebox
+        fsroot: /evebox
+        service: evebox.service
+
+  tasks:
+    - name: Read the disk behind the Log Volume device
+      ansible.builtin.command:
+        cmd: readlink -f {{ log_volume_device }}
+      register: verify_log_volume_disk
+      changed_when: false
+      check_mode: false
+
+    - name: Read the Log Volume mounts
+      ansible.builtin.command:
+        cmd: findmnt -n -o SOURCE,FSROOT --mountpoint {{ item.where }}
+      loop: "{{ verify_log_volume_mounts }}"
+      loop_control:
+        label: "{{ item.where }}"
+      register: verify_log_volume_findmnt
+      changed_when: false
+      failed_when: false
+      check_mode: false
+
+    - name: Read the mounts that Suricata and EveBox require
+      ansible.builtin.command:
+        cmd: systemctl show -p RequiresMountsFor --value {{ item.service }}
+      loop: "{{ verify_log_volume_mounts | selectattr('service', 'defined') }}"
+      loop_control:
+        label: "{{ item.service }}"
+      register: verify_log_volume_requires
+      changed_when: false
+      check_mode: false
+
+    - name: Require each log directory on the Log Volume
+      vars:
+        verify_log_volume_mount: "{{ item.stdout.split() }}"
+      ansible.builtin.assert:
+        that:
+          - item.rc == 0
+          - verify_log_volume_mount[0] is match(verify_log_volume_disk.stdout ~ '($|\\[)')
+          - verify_log_volume_mount[1] == item.item.fsroot
+        fail_msg: >-
+          {{ item.item.where }} is mounted from '{{ item.stdout | default('nothing', true) }}',
+          expected {{ verify_log_volume_disk.stdout }} at {{ item.item.fsroot }}
+        quiet: true
+      loop: "{{ verify_log_volume_findmnt.results }}"
+      loop_control:
+        label: "{{ item.item.where }}"
+
+    - name: Require that Suricata and EveBox do not start without the Log Volume
+      ansible.builtin.assert:
+        that: item.item.where in item.stdout.split()
+        fail_msg: "{{ item.item.service }} requires the mounts '{{ item.stdout }}', expected {{ item.item.where }}"
+        quiet: true
+      loop: "{{ verify_log_volume_requires.results }}"
+      loop_control:
+        label: "{{ item.item.service }}"
+
 - name: Verify Suricata on the Sensor
   hosts: sensors
   gather_facts: false

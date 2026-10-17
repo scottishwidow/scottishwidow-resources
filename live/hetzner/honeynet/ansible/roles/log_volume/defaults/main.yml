@@ -1,0 +1,12 @@
+---
+log_volume_mount_point: /srv/honeynet
+
+log_volume_bind_mounts:
+  - source: "{{ log_volume_mount_point }}/suricata"
+    target: /var/log/suricata
+    service: suricata.service
+  - source: "{{ log_volume_mount_point }}/evebox"
+    target: /var/lib/evebox
+    service: evebox.service
+
+log_volume_mount_unit: "{{ log_volume_mount_point[1:] | replace('/', '-') }}.mount"

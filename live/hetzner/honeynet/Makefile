@@ -4,7 +4,7 @@ TF_ARGS          ?=
 
 REQUIRED_ENV  := AWS_PROFILE HONEYNET_HCLOUD_TOKEN
 
-APPLY_ORDER   := network sensor honeypots
+APPLY_ORDER   := storage network sensor honeypots
 DESTROY_ORDER := honeypots sensor network
 ALL_STACKS    := bootstrap $(APPLY_ORDER)
 
