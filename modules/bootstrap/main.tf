@@ -106,6 +106,25 @@ resource "aws_s3_bucket_server_side_encryption_configuration" "access_log_bucket
   }
 }
 
+resource "aws_s3_bucket_lifecycle_configuration" "access_log_bucket" {
+  bucket = aws_s3_bucket.access_log_bucket.id
+
+  rule {
+    id     = "expire-access-logs"
+    status = "Enabled"
+
+    filter {}
+
+    expiration {
+      days = var.access_log_retention_days
+    }
+
+    abort_incomplete_multipart_upload {
+      days_after_initiation = 1
+    }
+  }
+}
+
 resource "aws_s3_bucket_policy" "access_log_bucket" {
   depends_on = [aws_s3_bucket_public_access_block.access_log_bucket]
 
