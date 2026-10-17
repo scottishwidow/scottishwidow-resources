@@ -83,14 +83,17 @@ _Avoid_: calling it "the backup", or treating it as co-equal with the snapshot.
 
 Route 53 is **not** managed by Terraform. No root has Route 53 resources. After a
 `terraform apply` that creates or changes the EIP, point the `domain` at the EIP
-manually. This is a HITL follow-up step:
+manually. This is a HITL follow-up step. The hosted zone is the parent domain of
+`domain`; the command finds its ID.
 
 ```sh
 cd live/aws/management/nextcloud
 DOMAIN=$(terraform output -raw next_cloud_domain)
 EIP=$(terraform output -raw next_cloud_public_ip)
+ZONE_ID=$(aws route53 list-hosted-zones-by-name --dns-name "${DOMAIN#*.}" \
+  --query "HostedZones[?Name=='${DOMAIN#*.}.'].Id" --output text)
 aws route53 change-resource-record-sets \
-  --hosted-zone-id Z01225632CGMCYQJ151NK \
+  --hosted-zone-id "${ZONE_ID##*/}" \
   --change-batch "{\"Changes\":[{\"Action\":\"UPSERT\",\"ResourceRecordSet\":{\"Name\":\"${DOMAIN}\",\"Type\":\"A\",\"TTL\":300,\"ResourceRecords\":[{\"Value\":\"${EIP}\"}]}}]}"
 ```
 

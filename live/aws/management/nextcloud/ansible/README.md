@@ -79,8 +79,9 @@ the scratch bucket.
 
 ## Deploy the AIO mastercontainer
 
-Brings up the Nextcloud AIO mastercontainer in its default built-in-Apache mode,
-base stack only (Apache + Nextcloud + PostgreSQL + Redis). The AIO admin interface
+Brings up the Nextcloud AIO mastercontainer in its default built-in-Apache mode.
+The mastercontainer starts the rest of the stack. Optional containers are selected
+in the AIO admin interface, not by Ansible. The AIO admin interface
 on 8080 is bound to `127.0.0.1` — never internet-exposed. See the
 [`nextcloud_aio` role](roles/nextcloud_aio/README.md).
 

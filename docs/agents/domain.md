@@ -16,16 +16,16 @@ This is a multi-context repo (monorepo). `CONTEXT-MAP.md` at the root points to 
 ```
 /
 ├── CONTEXT-MAP.md
-├── docs/adr/                          ← system-wide decisions
-├── live/
-│   ├── CONTEXT.md                     ← context-specific domain language
-│   └── docs/adr/                      ← context-specific decisions
-└── modules/
-    ├── CONTEXT.md
-    └── docs/adr/
+├── docs/adr/                          ← all decisions
+└── live/
+    ├── aws/management/CONTEXT.md      ← Management domain language
+    └── hetzner/
+        ├── ovpn/CONTEXT.md            ← OVPN domain language
+        └── honeynet/CONTEXT.md        ← Honeynet domain language
 ```
 
-Adjust the structure above as contexts are actually created.
+No context has its own `docs/adr/` yet. Update the structure above when a context is
+added or gets its own ADRs.
 
 ## Use the glossary's vocabulary
 

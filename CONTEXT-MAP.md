@@ -35,9 +35,7 @@
   but it provisions nothing and holds no AWS credentials — it reads *code*, never
   live infrastructure. Its findings reach code scanning as alerts and stop there
   while triage is archived.
-- **ADRs, design docs → nothing**: they are *not* agent input, and the machinery
-  that made them so is deleted. `docs/design/` is where development thinking is
-  worked out and is half-formed by design; feeding it to an agent promoted drafts
-  to facts. A new ADR changes what an agent sees only by changing the Terraform.
-  This is the line ADR-0008 draws, and the corpus assembler is the one place it
+- **ADRs, design docs → nothing**: they are *not* agent input. This is the line
+  ADR-0008 draws. `main` has no agent and no `docs/design/` while triage is
+  archived. If triage is restored, its corpus assembler is the one place the line
   could be quietly crossed — it may contain code and never prose.

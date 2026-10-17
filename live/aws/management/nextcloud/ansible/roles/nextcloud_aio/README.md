@@ -1,9 +1,10 @@
 # `nextcloud_aio` role
 
 Brings up the **Nextcloud AIO mastercontainer** in its default **built-in-Apache**
-mode — base stack only (Apache + Nextcloud + PostgreSQL + Redis), no optional
-containers. See [../../../../CONTEXT.md](../../../../CONTEXT.md) for the AIO / mastercontainer
-language and [ADR-0001](../../../../../../../docs/adr/0001-ansible-over-ssm.md) for the SSM transport.
+mode. The role does not select optional containers. The operator selects them in
+the AIO admin interface, and the mastercontainer keeps that choice in its volume.
+Today Collabora and notify-push are selected. See
+[../../../../CONTEXT.md](../../../../CONTEXT.md) for the AIO / mastercontainer language and [ADR-0001](../../../../../../../docs/adr/0001-ansible-over-ssm.md) for the SSM transport.
 
 ## What it does
 
@@ -31,4 +32,4 @@ See [`defaults/main.yml`](defaults/main.yml). The volume name
 ## Verify
 
 After running `playbooks/nextcloud-aio.yml`, port-forward 8080 over SSM and open
-the AIO setup page — see the project [README](../../README.md#verify-the-aio-mastercontainer).
+the AIO setup page — see the [Ansible README](../../README.md#verify-the-aio-mastercontainer).
