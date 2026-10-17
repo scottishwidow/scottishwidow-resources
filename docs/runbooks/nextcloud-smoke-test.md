@@ -19,8 +19,8 @@ HTTPS. Nothing in this runbook mutates the instance.
 ```sh
 cd live/aws/management/nextcloud
 REGION=eu-central-1
-DOMAIN=$(terraform output -raw next_cloud_domain)        # nextcloud.scottishwidow.click
-EIP=$(terraform output -raw next_cloud_public_ip)        # 52.59.35.139
+DOMAIN=$(terraform output -raw next_cloud_domain)
+EIP=$(terraform output -raw next_cloud_public_ip)
 ```
 
 ## Gotchas (learned the hard way)
@@ -161,7 +161,7 @@ aws ssm get-command-invocation --region "$REGION" --command-id "$CMD_ID" \
 
 Expect:
 - `installed: true`, `maintenance: false`, `needsDbUpgrade: false`.
-- `trusted_domains` includes the public domain (`nextcloud.scottishwidow.click`).
+- `trusted_domains` includes `$DOMAIN`.
 
 ## Step 5 — Public endpoint, DNS, and TLS
 
