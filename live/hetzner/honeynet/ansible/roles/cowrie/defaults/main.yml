@@ -12,9 +12,6 @@ cowrie_uid: 999
 
 cowrie_container_honeyfs_dir: /cowrie/cowrie-git/honeyfs
 
-# Files that replace the bundled contents of fs.pickle. A file only takes
-# effect when its path already exists in the pickle. /etc/os-release is a
-# link there to usr/lib/os-release.
 cowrie_honeyfs_files:
   - etc/debian_version
   - etc/group
@@ -31,8 +28,6 @@ cowrie_honeyfs_files:
   - proc/version
   - usr/lib/os-release
 
-# Cowrie lets a login in only on a listed pair and refuses everything else.
-# Only root is listed: the pickle has no home directory for other users.
 cowrie_userdb:
   - { username: root, password: "123456" }
   - { username: root, password: "12345678" }
