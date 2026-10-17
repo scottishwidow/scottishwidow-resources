@@ -10,6 +10,12 @@ variable "ssh_key_name" {
   default     = "honeynet"
 }
 
+variable "sensor_log_volume_name" {
+  description = "Name of the Log Volume that the storage root creates"
+  type        = string
+  default     = "sensor-logs"
+}
+
 variable "admin_cidrs" {
   description = "CIDRs allowed to reach the Sensor on admin SSH"
   type        = list(string)

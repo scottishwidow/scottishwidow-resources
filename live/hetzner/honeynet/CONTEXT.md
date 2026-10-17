@@ -24,6 +24,10 @@ _Avoid_: Closed port, filtered port, unused port
 The single Honeynet host with a public IPv4. Every packet between the internet and a Honeypot passes through it, and Suricata on it inspects them.
 _Avoid_: Gateway, router, firewall, IDS box
 
+**Log Volume**:
+The Hetzner Volume that holds the Sensor logs and the EveBox database. It outlives the Sensor.
+_Avoid_: Disk, data volume, log disk
+
 **Containment**:
 The rule that no new connection leaves a Honeypot for the internet. Replies to inbound connections are allowed.
 _Avoid_: Data control, egress filtering, sandboxing

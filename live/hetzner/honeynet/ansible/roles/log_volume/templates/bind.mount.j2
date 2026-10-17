@@ -1,0 +1,13 @@
+[Unit]
+Description=Log Volume directory on {{ item.target }}
+Requires={{ log_volume_mount_unit }}
+After={{ log_volume_mount_unit }}
+
+[Mount]
+What={{ item.source }}
+Where={{ item.target }}
+Type=none
+Options=bind
+
+[Install]
+WantedBy=local-fs.target

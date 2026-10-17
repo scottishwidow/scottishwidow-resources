@@ -27,6 +27,15 @@
     update_cache: true
     cache_valid_time: 3600
 
+- name: Give the data directory to the EveBox account
+  ansible.builtin.file:
+    path: "{{ evebox_data_directory }}"
+    state: directory
+    owner: evebox
+    group: evebox
+    recurse: true
+  notify: Restart EveBox
+
 - name: Let EveBox read the EVE log
   ansible.builtin.user:
     name: evebox
