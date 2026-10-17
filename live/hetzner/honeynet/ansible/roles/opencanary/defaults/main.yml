@@ -10,3 +10,9 @@ opencanary_mssql_port: 1433
 opencanary_mysql_port: 3306
 
 opencanary_container_log_dir: /var/log/opencanary
+
+opencanary_skin_files:
+  - 403.html
+  - 404.html
+  - index.html
+  - redirect.html

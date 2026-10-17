@@ -1,13 +1,25 @@
 ---
 verify_cowrie_username: root
 verify_cowrie_password: letmein
+verify_cowrie_denied_password: Tr0ub4dor-not-listed
 verify_cowrie_download_url: http://1.1.1.1/malware.sh
 
 verify_cowrie_hostname_download_url: http://example.com/loader.sh
 verify_dns_query_name: example.com
 verify_dns_query_server: 8.8.8.8
 
-sinkhole_marker: honeynet-sinkhole
+sinkhole_marker: 7f3a9c2e41d0
+
+honeypot_persona:
+  hostname: web01
+  os_name: Ubuntu 22.04.5 LTS
+  kernel_version: 5.15.0-153-generic
+  kernel_build_string: "#163-Ubuntu SMP Thu Aug 7 16:37:18 UTC 2025"
+  ssh_version: SSH-2.0-OpenSSH_8.9p1 Ubuntu-3ubuntu0.13
+  ssh_client_version: OpenSSH_8.9p1 Ubuntu-3ubuntu0.13, OpenSSL 3.0.2 15 Mar 2022
+  ftp_banner: (vsFTPd 3.0.5)
+  http_banner: Apache/2.4.52 (Ubuntu)
+  mysql_banner: 5.5.5-10.6.22-MariaDB-0ubuntu0.22.04.1
 
 sinkhole_dns_answer: 1.1.1.1
 

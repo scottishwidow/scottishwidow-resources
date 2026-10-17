@@ -39,6 +39,25 @@
     mode: "0644"
   notify: Recreate Cowrie
 
+- name: Create the Cowrie file content directories
+  ansible.builtin.file:
+    path: "{{ cowrie_dir }}/honeyfs/{{ item }}"
+    state: directory
+    owner: root
+    group: root
+    mode: "0755"
+  loop: "{{ cowrie_honeyfs_files | map('dirname') | unique }}"
+
+- name: Write the Cowrie file contents
+  ansible.builtin.template:
+    src: honeyfs/{{ item }}.j2
+    dest: "{{ cowrie_dir }}/honeyfs/{{ item }}"
+    owner: root
+    group: root
+    mode: "0644"
+  loop: "{{ cowrie_honeyfs_files }}"
+  notify: Recreate Cowrie
+
 - name: Write the Cowrie Compose file
   ansible.builtin.template:
     src: compose.yaml.j2

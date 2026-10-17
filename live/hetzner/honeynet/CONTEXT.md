@@ -12,6 +12,10 @@ _Avoid_: Lab, sandbox, DMZ
 A host with no public IP that runs emulated services to attract attacks. Nothing on it is trusted.
 _Avoid_: Decoy, trap, target
 
+**Persona**:
+The one host identity that every Honeypot service claims: hostname, OS, kernel and service versions. It is Ubuntu 22.04.
+_Avoid_: Profile, disguise, cover
+
 **Dark Port**:
 A honeypot port that the Sensor forwards although no service answers it. Suricata still inspects the traffic.
 _Avoid_: Closed port, filtered port, unused port

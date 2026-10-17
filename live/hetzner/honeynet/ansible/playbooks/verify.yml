@@ -62,7 +62,7 @@
       ansible.builtin.wait_for:
         host: "{{ ansible_host }}"
         port: 22
-        search_regex: (SSH-2.0-.*)
+        search_regex: "{{ honeypot_persona.ssh_version | regex_escape }}"
         timeout: 30
       delegate_to: localhost
       become: false
@@ -111,6 +111,50 @@
       changed_when: false
       failed_when: false
 
+    - name: Log in to Cowrie on port 23 and read the system identity
+      ansible.builtin.command:
+        argv:
+          - python3
+          - "{{ playbook_dir }}/files/cowrie_telnet_probe.py"
+          - --host
+          - "{{ ansible_host }}"
+          - --port
+          - "23"
+          - --username
+          - "{{ verify_cowrie_username }}"
+          - --password
+          - "{{ verify_cowrie_password }}"
+          - --command
+          - uname -a; hostname; cat /etc/os-release /etc/passwd /proc/version
+      delegate_to: localhost
+      become: false
+      register: verify_cowrie_persona_telnet
+      changed_when: false
+      failed_when: false
+
+    - name: Try a Cowrie login on port 23 with a password that is not in the userdb
+      ansible.builtin.command:
+        argv:
+          - python3
+          - "{{ playbook_dir }}/files/cowrie_telnet_probe.py"
+          - --host
+          - "{{ ansible_host }}"
+          - --port
+          - "23"
+          - --username
+          - "{{ verify_cowrie_username }}"
+          - --password
+          - "{{ verify_cowrie_denied_password }}"
+          - --command
+          - "true"
+          - --timeout
+          - "15"
+      delegate_to: localhost
+      become: false
+      register: verify_cowrie_denied_telnet
+      changed_when: false
+      failed_when: false
+
     - name: Probe the proxy port on the Sensor public IPv4
       ansible.builtin.wait_for:
         host: "{{ ansible_host }}"
@@ -146,6 +190,7 @@
       vars:
         verify_telnet_session: "{{ verify_cowrie_telnet.stdout | default('{}', true) | from_json }}"
         verify_hostname_telnet_session: "{{ verify_cowrie_hostname_telnet.stdout | default('{}', true) | from_json }}"
+        verify_persona_output: "{{ (verify_cowrie_persona_telnet.stdout | default('{}', true) | from_json).command_output | default('') }}"
         verify_sinkhole_listen_addresses: "{{ verify_sinkhole_listeners.stdout_lines | map('split') | map(attribute=4) | list }}"
       ansible.builtin.assert:
         that:
@@ -158,6 +203,14 @@
           - sinkhole_marker in verify_telnet_session.command_output | default('')
           - verify_cowrie_hostname_telnet.rc == 0
           - sinkhole_marker in verify_hostname_telnet_session.command_output | default('')
+          - "'honeynet' not in verify_telnet_session.command_output | default('honeynet')"
+          - verify_cowrie_persona_telnet.rc == 0
+          - honeypot_persona.kernel_version in verify_persona_output
+          - honeypot_persona.hostname in verify_persona_output
+          - honeypot_persona.os_name in verify_persona_output
+          - verify_persona_output is not search('svr04|phil|Debian GNU/Linux')
+          - verify_cowrie_denied_telnet.rc != 0
+          - "'logged_in' not in verify_cowrie_denied_telnet.stdout"
           - verify_sinkhole_listen_addresses | length > 0
           - verify_sinkhole_listeners.stdout_lines | select('match', 'udp') | list | length > 0
           - verify_sinkhole_listen_addresses | reject('match', (sensor_private_ip | regex_escape) ~ ':') | list == []
@@ -165,6 +218,8 @@
           port 22 banner={{ verify_cowrie_banner.msg | default('matched') }};
           port 23 session={{ verify_cowrie_telnet.stderr | default('') | trim }}{{ verify_telnet_session.command_output | default('') }};
           port 23 hostname session={{ verify_cowrie_hostname_telnet.stderr | default('') | trim }}{{ verify_hostname_telnet_session.command_output | default('') }};
+          port 23 persona session={{ verify_cowrie_persona_telnet.stderr | default('') | trim }}{{ verify_persona_output }};
+          port 23 denied login rc={{ verify_cowrie_denied_telnet.rc | default('') }} {{ verify_cowrie_denied_telnet.stderr | default('') | trim }};
           proxy port {{ proxy_port }}={{ verify_proxy_port.msg | default('answered') }};
           Sinkhole ports={{ verify_sinkhole_public.results | map(attribute='msg', default='answered') | list }};
           Sinkhole listeners={{ verify_sinkhole_listeners.stdout_lines }}
@@ -179,7 +234,7 @@
       ansible.builtin.wait_for:
         host: "{{ ansible_host }}"
         port: 21
-        search_regex: (220 [^\r\n]+)
+        search_regex: "220 {{ honeypot_persona.ftp_banner | regex_escape }}"
         timeout: 30
       delegate_to: localhost
       register: verify_opencanary_ftp_banner
@@ -208,6 +263,7 @@
       ansible.builtin.uri:
         url: "http://{{ ansible_host }}/"
         timeout: 20
+        return_content: true
       delegate_to: localhost
       register: verify_opencanary_http
       failed_when: false
@@ -216,7 +272,7 @@
       ansible.builtin.wait_for:
         host: "{{ ansible_host }}"
         port: 3306
-        search_regex: (5\.5\.43-[-.\w]+)
+        search_regex: "{{ honeypot_persona.mysql_banner | regex_escape }}"
         timeout: 30
       delegate_to: localhost
       register: verify_opencanary_mysql_banner
@@ -272,7 +328,8 @@
           - "'Timeout' not in verify_opencanary_ftp_banner.msg | default('')"
           - verify_opencanary_ftp_login.stdout == '530'
           - verify_opencanary_http.status | default(0) == 200
-          - "'Apache/2.2.22' in verify_opencanary_http.server | default('')"
+          - verify_opencanary_http.server | default('') == honeypot_persona.http_banner
+          - "'Network Storage' not in verify_opencanary_http.content | default('Network Storage')"
           - "'Timeout' not in verify_opencanary_mysql_banner.msg | default('')"
           - verify_mysql_login.error_code | default(0) == 1045
           - verify_mssql_login.error_number | default(0) == 18456
@@ -1014,7 +1071,7 @@
           ansible.builtin.wait_for:
             host: "{{ ansible_host }}"
             port: 21
-            search_regex: (220 [^\r\n]+)
+            search_regex: "220 {{ honeypot_persona.ftp_banner | regex_escape }}"
             timeout: 30
           delegate_to: localhost
           become: false

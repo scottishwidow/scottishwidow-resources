@@ -27,7 +27,7 @@ http {
     ssl_certificate_key /etc/nginx/tls/sinkhole.key;
 
     location / {
-      return 200 "{{ sinkhole_marker }}\n";
+      return 200 "#!/bin/sh\n# {{ sinkhole_marker }}\nexit 0\n";
     }
   }
 }

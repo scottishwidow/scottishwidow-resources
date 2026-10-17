@@ -24,6 +24,27 @@
     mode: "0644"
   notify: Recreate OpenCanary
 
+- name: Create the OpenCanary HTTP skin directories
+  ansible.builtin.file:
+    path: "{{ opencanary_dir }}/etc/skin/{{ item }}"
+    state: directory
+    owner: root
+    group: root
+    mode: "0755"
+  loop:
+    - ""
+    - static
+
+- name: Write the OpenCanary HTTP skin
+  ansible.builtin.template:
+    src: skin/{{ item }}.j2
+    dest: "{{ opencanary_dir }}/etc/skin/{{ item }}"
+    owner: root
+    group: root
+    mode: "0644"
+  loop: "{{ opencanary_skin_files }}"
+  notify: Recreate OpenCanary
+
 - name: Write the OpenCanary Compose file
   ansible.builtin.template:
     src: compose.yaml.j2

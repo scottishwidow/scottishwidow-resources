@@ -6,6 +6,47 @@ cowrie_dir: /opt/cowrie
 cowrie_ssh_port: "{{ honeypot_port_redirects['22'] }}"
 cowrie_telnet_port: "{{ honeypot_port_redirects['23'] }}"
 
-cowrie_hostname: svr04
+cowrie_hostname: "{{ honeypot_persona.hostname }}"
 
 cowrie_uid: 999
+
+cowrie_container_honeyfs_dir: /cowrie/cowrie-git/honeyfs
+
+# Files that replace the bundled contents of fs.pickle. A file only takes
+# effect when its path already exists in the pickle. /etc/os-release is a
+# link there to usr/lib/os-release.
+cowrie_honeyfs_files:
+  - etc/debian_version
+  - etc/group
+  - etc/hostname
+  - etc/hosts
+  - etc/issue
+  - etc/issue.net
+  - etc/motd
+  - etc/passwd
+  - etc/resolv.conf
+  - etc/shadow
+  - proc/cpuinfo
+  - proc/meminfo
+  - proc/version
+  - usr/lib/os-release
+
+# Cowrie lets a login in only on a listed pair and refuses everything else.
+# Only root is listed: the pickle has no home directory for other users.
+cowrie_userdb:
+  - { username: root, password: "123456" }
+  - { username: root, password: "12345678" }
+  - { username: root, password: password }
+  - { username: root, password: admin }
+  - { username: root, password: root123 }
+  - { username: root, password: toor }
+  - { username: root, password: letmein }
+  - { username: root, password: qwerty }
+  - { username: root, password: 1qaz2wsx }
+  - { username: root, password: P@ssw0rd }
+  - { username: root, password: Passw0rd }
+  - { username: root, password: changeme }
+  - { username: root, password: ubuntu }
+  - { username: root, password: web01 }
+  - { username: root, password: "1q2w3e4r" }
+  - { username: root, password: "abc123" }
