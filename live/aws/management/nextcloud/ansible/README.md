@@ -13,7 +13,9 @@ ansible/
 │   ├── management.aws_ec2.yml           # dynamic inventory (discovers by tag)
 │   └── group_vars/nextcloud.yml         # aws_ssm connection wiring
 ├── roles/
-│   └── nextcloud_aio/                   # AIO mastercontainer (base stack)
+│   ├── nextcloud_aio/                   # AIO mastercontainer (base stack)
+│   ├── nextcloud_pg_dump/               # nightly escape-hatch pg_dumpall
+│   └── system_swap/                     # swap file on the instance
 └── playbooks/
     ├── ping.yml                         # SSM connectivity tracer
     └── nextcloud-aio.yml                # deploy the AIO mastercontainer

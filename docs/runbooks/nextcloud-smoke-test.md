@@ -1,6 +1,6 @@
 # Runbook: Nextcloud AIO smoke test
 
-Validate that the Nextcloud AIO deployment in `live/management` is functioning
+Validate that the Nextcloud AIO deployment in `live/aws/management/nextcloud` is functioning
 end-to-end and that no container is faulty. Run this after a `terraform apply`, an
 Ansible run, an instance replacement, or any time you want to confirm the stack is
 healthy.
@@ -17,7 +17,7 @@ HTTPS. Nothing in this runbook mutates the instance.
 - `dig`, `curl`, and `openssl` on the control node (the local workstation).
 
 ```sh
-cd live/management
+cd live/aws/management/nextcloud
 REGION=eu-central-1
 DOMAIN=$(terraform output -raw next_cloud_domain)        # nextcloud.scottishwidow.click
 EIP=$(terraform output -raw next_cloud_public_ip)        # 52.59.35.139
@@ -32,10 +32,15 @@ EIP=$(terraform output -raw next_cloud_public_ip)        # 52.59.35.139
 - **Pass `--parameters` as a JSON file, not an inline string.** Docker
   `--format` templates use `{{...}}`, tabs, and nested quotes that the shell
   mangles inside `commands=[...]`. A `file://` JSON payload sidesteps all of it.
-- **`nextcloud-aio-domaincheck` exiting `143` is expected, not a fault.** AIO
-  spins it up as an ephemeral domain-reachability probe and stops it (SIGTERM →
-  128+15 = 143) once the check passes. Verify it was clean (`OOMKilled=false`,
-  empty `Error`) rather than assuming a crash.
+- **Some AIO containers are ephemeral. An exited one is not a fault if it stopped
+  cleanly.** The mastercontainer starts them for one task, and they then stop:
+  - `nextcloud-aio-domaincheck`: the domain-reachability probe. AIO stops it
+    (SIGTERM → 128+15 = 143) when the check passes. It is usually absent.
+  - `nextcloud-aio-watchtower`: updates the mastercontainer. Exits `0`.
+  - `nextcloud-aio-borgbackup`: the AIO built-in backup. Exits `0`.
+
+  Verify that each exited container stopped cleanly (`OOMKilled=false`, empty
+  `Error`). Do not assume a crash.
 
 ## Step 1 — Instance is running
 
@@ -106,19 +111,21 @@ Expect **7 running, all `(healthy)`**:
 | `nextcloud-aio-collabora` | online office | `9980/tcp` |
 
 - `===UNHEALTHY===` must be **empty**.
-- `nextcloud-aio-domaincheck` shows `Exited (143)` — **expected** (see Gotchas).
-- `docker info` reports `running=7` (the 8th container is the exited domaincheck).
+- Only ephemeral containers show `Exited` (see Gotchas). Usually these are
+  `watchtower` and `borgbackup` with `Exited (0)`.
+- `docker info` reports `running=7`. `containers` is 7 plus the number of exited
+  ephemeral containers.
 
-If a container _other_ than domaincheck is exited or unhealthy, that is the fault
+If a container that is not ephemeral is exited or unhealthy, that is the fault
 to investigate — pull its logs with
 `docker logs <name> --tail 100` via the same SSM mechanism.
 
-### Confirm the exited container is benign
+### Confirm the exited containers are benign
 
 ```sh
 cat > /tmp/ssm-dc.json <<'EOF'
 { "commands": [
-  "docker inspect nextcloud-aio-domaincheck --format 'exit={{.State.ExitCode}} oom={{.State.OOMKilled}} err={{.State.Error}}'"
+  "docker ps -a --filter status=exited --format '{{.Names}}' | xargs -r docker inspect --format '{{.Name}} exit={{.State.ExitCode}} oom={{.State.OOMKilled}} err={{.State.Error}}'"
 ] }
 EOF
 CMD_ID=$(aws ssm send-command --region "$REGION" --instance-ids "$IID" \
@@ -129,7 +136,9 @@ aws ssm get-command-invocation --region "$REGION" --command-id "$CMD_ID" \
   --instance-id "$IID" --query 'StandardOutputContent' --output text
 ```
 
-Expect: `exit=143 oom=false err=` — a clean SIGTERM, no OOM, no error.
+Expect one line for each exited container. Each name is an ephemeral container
+from the Gotchas list, with `oom=false` and an empty `err=`. `exit` is `143` for
+`domaincheck` and `0` for the others.
 
 ## Step 4 — Nextcloud application status
 
@@ -183,7 +192,7 @@ The deployment is healthy when **all** hold:
 - [ ] Instance `running`, EIP matches `terraform output`.
 - [ ] SSM `Ping=Online`.
 - [ ] 7 AIO containers running and `(healthy)`; `unhealthy` list empty.
-- [ ] Only `nextcloud-aio-domaincheck` is exited, with `exit=143 oom=false`.
+- [ ] Only ephemeral containers are exited, each with its expected exit code and `oom=false`.
 - [ ] `occ status`: installed, not in maintenance, no pending DB upgrade.
 - [ ] Public domain resolves to the EIP and serves `status.php` over valid TLS.
 

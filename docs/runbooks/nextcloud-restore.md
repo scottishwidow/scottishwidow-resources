@@ -132,7 +132,7 @@ to the damaged-but-known state, having lost nothing.
 cluster itself is corrupt and will not WAL-replay, so the snapshot's database is unusable
 while its *files* are fine.
 
-The dumps are written by the [`nextcloud_pg_dump`](../../live/management/ansible/roles/nextcloud_pg_dump/README.md)
+The dumps are written by the [`nextcloud_pg_dump`](../../live/aws/management/nextcloud/ansible/roles/nextcloud_pg_dump/README.md)
 role to `/var/backups/nextcloud/pg-YYYY-MM-DD.sql.gz` at 04:00 UTC — 30 minutes before the
 04:30 snapshot, and therefore captured *inside* it.
 
