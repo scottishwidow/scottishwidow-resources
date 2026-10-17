@@ -22,8 +22,9 @@ The Terraform roots keep their state in S3 buckets in `eu-central-1`:
 
 | Roots | State bucket |
 |---|---|
-| `live/aws/management` | `tf-state-scottishwidow-management`, key `mgmt/terraform.tfstate` |
 | `live/aws/management/bootstrap` | `tf-state-scottishwidow-management`, key `mgmt/bootstrap/terraform.tfstate` |
+| `live/aws/management/network` | `tf-state-scottishwidow-management`, key `mgmt/network/terraform.tfstate` |
+| `live/aws/management/nextcloud` | `tf-state-scottishwidow-management`, key `mgmt/nextcloud/terraform.tfstate` |
 | `live/hetzner/ovpn/*` | `tf-state-scottishwidow-hetzner`, keys under `ovpn/` |
 | `live/hetzner/honeynet/*` | `tf-state-scottishwidow-hetzner`, keys under `honeynet/` |
 

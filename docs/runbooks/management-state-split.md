@@ -4,6 +4,9 @@ Move `module.vpc` and the Nextcloud modules out of `mgmt/terraform.tfstate` into
 state keys. This runbook is the procedure for #119 (network checkpoint) and #120 (Nextcloud
 checkpoint). The parent issue is #111.
 
+Status: complete. Both checkpoints ran, and #122 retired the old root. The commands that
+use `$MGMT` as a root apply only to revisions before that retirement.
+
 This runbook **writes production state**. Read the whole procedure before you start.
 
 ## Transfer method
