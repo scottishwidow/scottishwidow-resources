@@ -71,7 +71,7 @@ module "next_cloud_backup" {
 
 module "ssm_scratch" {
   source  = "terraform-aws-modules/s3-bucket/aws"
-  version = "5.16.1"
+  version = "5.17.0"
 
   bucket           = format("%s-%s-%s-an", var.ssm_scratch_bucket_prefix, data.aws_caller_identity.current.account_id, data.aws_region.current.region)
   bucket_namespace = "account-regional"
