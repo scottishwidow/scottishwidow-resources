@@ -11,7 +11,7 @@
       - nextcloud_aio_docker_info.rc == 0
     fail_msg: >-
       Docker Engine is not available on the Nextcloud instance. It is installed by
-      user_data at first boot (live/management/user_data.sh), not by Ansible.
+      user_data at first boot (live/aws/management/nextcloud/user_data_next_cloud.sh), not by Ansible.
       `docker info` exited {{ nextcloud_aio_docker_info.rc }}. Confirm the instance
       bootstrapped successfully before re-running this play.
     success_msg: Docker Engine is present and reachable.

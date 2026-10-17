@@ -8,7 +8,7 @@ Runs **after** `nextcloud_aio` (the database container must exist first).
 
 ## This is an escape hatch, not a restore path
 
-The real backup is the EBS snapshot (see [ADR-0003](../../../../docs/adr/0003-ebs-snapshot-backups-via-dlm.md)).
+The real backup is the EBS snapshot (see [ADR-0003](../../../../../../../docs/adr/0003-ebs-snapshot-backups-via-dlm.md)).
 Because the whole instance lives on one volume, a snapshot captures Postgres **and** the
 file blobs at the same instant — coherently.
 
@@ -19,7 +19,7 @@ are invisible to Nextcloud, and files deleted in it are referenced by the databa
 
 Reach for it **only** when the Postgres cluster itself is corrupt and will not WAL-replay,
 and expect to repair with `occ files:scan --all` afterwards. See
-[the restore runbook](../../../../docs/runbooks/nextcloud-restore.md).
+[the restore runbook](../../../../../../../docs/runbooks/nextcloud-restore.md).
 
 ## What it does
 

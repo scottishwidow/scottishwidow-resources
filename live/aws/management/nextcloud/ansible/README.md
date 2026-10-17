@@ -3,7 +3,7 @@
 Standalone Ansible that configures the Nextcloud instance in the `management`
 environment. It reaches the host **only over AWS Systems Manager (SSM)** — there
 is no SSH key and no inbound port 22. See
-[ADR-0001](../../../docs/adr/0001-ansible-over-ssm.md) and [../CONTEXT.md](../CONTEXT.md).
+[ADR-0001](../../../../../docs/adr/0001-ansible-over-ssm.md) and [../../CONTEXT.md](../../CONTEXT.md).
 
 ```
 ansible/
@@ -53,7 +53,7 @@ The scratch bucket name is account-scoped and kept out of version control. Expor
 it from the Terraform output before running:
 
 ```sh
-cd live/management/ansible
+cd live/aws/management/nextcloud/ansible
 export SSM_SCRATCH_BUCKET="$(terraform -chdir=.. output -raw ssm_scratch_bucket_name)"
 # Optional — defaults to eu-central-1:
 export AWS_REGION="$(terraform -chdir=.. output -raw ssm_scratch_bucket_region)"
@@ -62,7 +62,7 @@ export AWS_REGION="$(terraform -chdir=.. output -raw ssm_scratch_bucket_region)"
 ## Run the connectivity tracer
 
 ```sh
-cd live/management/ansible
+cd live/aws/management/nextcloud/ansible
 
 # Confirm the dynamic inventory discovers the instance by tag (no hardcoded ID/IP):
 ansible-inventory --graph
@@ -83,7 +83,7 @@ on 8080 is bound to `127.0.0.1` — never internet-exposed. See the
 [`nextcloud_aio` role](roles/nextcloud_aio/README.md).
 
 ```sh
-cd live/management/ansible
+cd live/aws/management/nextcloud/ansible
 ansible-playbook playbooks/nextcloud-aio.yml
 ```
 

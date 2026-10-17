@@ -2,13 +2,13 @@
 
 Brings up the **Nextcloud AIO mastercontainer** in its default **built-in-Apache**
 mode — base stack only (Apache + Nextcloud + PostgreSQL + Redis), no optional
-containers. See [../../../CONTEXT.md](../../../CONTEXT.md) for the AIO / mastercontainer
-language and [ADR-0001](../../../../docs/adr/0001-ansible-over-ssm.md) for the SSM transport.
+containers. See [../../../../CONTEXT.md](../../../../CONTEXT.md) for the AIO / mastercontainer
+language and [ADR-0001](../../../../../../../docs/adr/0001-ansible-over-ssm.md) for the SSM transport.
 
 ## What it does
 
 1. Asserts Docker Engine is present and reachable, failing clearly if not —
-   Docker is installed by `user_data` at first boot (`live/management/user_data.sh`),
+   Docker is installed by `user_data` at first boot (`live/aws/management/nextcloud/user_data_next_cloud.sh`),
    not by this role.
 2. Installs the Python Docker SDK (`python3-docker`) the `community.docker`
    modules need on the host.
