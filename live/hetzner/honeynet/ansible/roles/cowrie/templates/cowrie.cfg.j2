@@ -1,9 +1,18 @@
 [honeypot]
 hostname = {{ cowrie_hostname }}
+contents_path = {{ cowrie_container_honeyfs_dir }}
 ttylog = true
+
+[shell]
+kernel_version = {{ honeypot_persona.kernel_version }}
+kernel_build_string = {{ honeypot_persona.kernel_build_string }}
+hardware_platform = x86_64
+operating_system = GNU/Linux
+ssh_version = {{ honeypot_persona.ssh_client_version }}
 
 [ssh]
 enabled = true
+version = {{ honeypot_persona.ssh_version }}
 listen_endpoints = tcp:2222:interface=0.0.0.0
 
 [telnet]

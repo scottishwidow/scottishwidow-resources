@@ -4,7 +4,7 @@ Date: 2026-10-12
 
 ## Status
 
-Accepted
+Accepted. [ADR-0017](./0017-every-honeypot-service-claims-one-ubuntu-persona.md) replaces the version banners.
 
 ## Context
 

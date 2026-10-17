@@ -56,7 +56,21 @@
     - "{{ sinkhole_http_directory }}"
     - "{{ sinkhole_http_directory }}/tls"
 
-- name: Generate the self-signed Sinkhole certificate once
+- name: Record the subject of the Sinkhole certificate
+  ansible.builtin.copy:
+    content: "{{ sinkhole_certificate_subject }}\n"
+    dest: "{{ sinkhole_http_directory }}/tls/sinkhole.subject"
+    owner: root
+    group: root
+    mode: "0644"
+  register: sinkhole_certificate_subject_file
+
+- name: Check for the Sinkhole certificate
+  ansible.builtin.stat:
+    path: "{{ sinkhole_http_directory }}/tls/sinkhole.crt"
+  register: sinkhole_certificate_file
+
+- name: Generate the self-signed Sinkhole certificate when it is missing or its subject changed
   ansible.builtin.command:
     argv:
       - openssl
@@ -75,7 +89,7 @@
       - "{{ sinkhole_http_directory }}/tls/sinkhole.key"
       - -out
       - "{{ sinkhole_http_directory }}/tls/sinkhole.crt"
-    creates: "{{ sinkhole_http_directory }}/tls/sinkhole.crt"
+  when: sinkhole_certificate_subject_file is changed or not sinkhole_certificate_file.stat.exists
   notify: Restart the Sinkhole HTTP service
 
 - name: Let the Sinkhole containers read the certificate and key

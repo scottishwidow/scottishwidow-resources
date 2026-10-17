@@ -1,1 +1,3 @@
-*:x:*
+{% for login in cowrie_userdb %}
+{{ login.username }}:x:{{ login.password }}
+{% endfor %}

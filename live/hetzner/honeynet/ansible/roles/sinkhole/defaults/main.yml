@@ -20,5 +20,5 @@ sinkhole_services:
   - sinkhole-http.service
   - sinkhole-dns.service
 
-sinkhole_certificate_subject: /CN=localhost
+sinkhole_certificate_subject: /C=AU/ST=Some-State/O=Internet Widgits Pty Ltd
 sinkhole_certificate_days: 3650

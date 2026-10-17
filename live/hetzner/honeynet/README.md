@@ -27,7 +27,7 @@ flowchart LR
                 evebox["EveBox<br/>127.0.0.1:5636"]
                 squid["Squid allowlist proxy<br/>10.20.0.2:3128"]
                 subgraph sink["Sinkhole (rootless Podman)"]
-                    nginx["nginx<br/>:10080 HTTP, :10443 HTTPS<br/>200 + honeynet-sinkhole"]
+                    nginx["nginx<br/>:10080 HTTP, :10443 HTTPS<br/>200 + empty shell script"]
                     coredns["CoreDNS<br/>:10053<br/>A = 1.1.1.1, AAAA empty"]
                 end
             end
@@ -143,6 +143,7 @@ Do the [prerequisites](../../../README.md#prerequisites) first. The Honeynet kee
 - To add a honeypot port, add it to `honeypot_tcp_ports` in the Sensor root. If the port is below 1024, also map it in `TF_VAR_honeypot_port_redirects` in the Makefile.
 - Do not open Containment. Send new outbound protocols to the Sinkhole.
 - The Honeynet collects no malware samples.
+- Every banner and identity comes from `honeypot_persona` in `ansible/playbooks/group_vars/all.yml`. Do not set a banner in a role.
 
 ## Decisions
 
@@ -150,3 +151,4 @@ Do the [prerequisites](../../../README.md#prerequisites) first. The Honeynet kee
 - [ADR-0014](../../../docs/adr/0014-a-static-queue-bypass-rule-keeps-the-sensor-network-in-user-data.md): static `queue bypass` rule
 - [ADR-0015](../../../docs/adr/0015-opencanary-replaces-dionaea-and-port-445-becomes-a-dark-port.md): OpenCanary and the Dark Port
 - [ADR-0016](../../../docs/adr/0016-the-sinkhole-runs-in-rootless-podman-on-the-sensor.md): the Sinkhole
+- [ADR-0017](../../../docs/adr/0017-every-honeypot-service-claims-one-ubuntu-persona.md): the Persona

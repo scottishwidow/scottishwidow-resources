@@ -5,12 +5,13 @@
 
   "ftp.enabled": true,
   "ftp.port": {{ opencanary_ftp_port | int }},
-  "ftp.banner": "FTP server ready",
+  "ftp.banner": "{{ honeypot_persona.ftp_banner }}",
 
   "http.enabled": true,
   "http.port": {{ opencanary_http_port | int }},
-  "http.banner": "Apache/2.2.22 (Ubuntu)",
-  "http.skin": "nasLogin",
+  "http.banner": "{{ honeypot_persona.http_banner }}",
+  "http.skin": "login",
+  "http.skindir": "/etc/opencanaryd/skin",
   "http.log_unimplemented_method_requests": true,
   "http.log_redirect_request": true,
 
@@ -20,7 +21,7 @@
 
   "mysql.enabled": true,
   "mysql.port": {{ opencanary_mysql_port | int }},
-  "mysql.banner": "5.5.43-0ubuntu0.14.04.1",
+  "mysql.banner": "{{ honeypot_persona.mysql_banner }}",
 
   "logger": {
     "class": "PyLogger",
