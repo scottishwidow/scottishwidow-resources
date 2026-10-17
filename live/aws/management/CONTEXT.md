@@ -19,10 +19,9 @@ state key in the `tf-state-scottishwidow-management` bucket.
 The Nextcloud root finds the VPC and subnet through data sources. It does not read
 the network state. The Ansible is in `nextcloud/ansible/`.
 
-**Old parent root**: the top-level `*.tf` files in `live/aws/management/` use the
-key `mgmt/terraform.tfstate`. This state has no managed resources. The files keep
-only `removed` blocks, so that the backend stays readable until issue #122 retires
-the root. Do not add resources to it.
+**Retired parent root**: the key `mgmt/terraform.tfstate` belonged to the old
+parent root. It has no managed resources and no configuration. Keep the key and its
+object versions as recovery history. Do not initialize a root on it.
 
 ## Language
 
