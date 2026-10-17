@@ -25,3 +25,8 @@ variable "object_lock_enabled" {
   type        = bool
   default     = true
 }
+variable "access_log_retention_days" {
+  description = "Days to keep state bucket access logs before expiration"
+  type        = number
+  default     = 30
+}
