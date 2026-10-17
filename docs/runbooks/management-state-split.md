@@ -280,8 +280,9 @@ Expected: `conserved`. 0 addresses in `source-b.tfstate`. 19 addresses in `nextc
 
 ### B5. Place the private input
 
-Put `domain` in `$NC/secret.auto.tfvars`. Remove it from the old root's input location. Git
-ignores `*.tfvars`. Check that `git -C "$REPO" status --short` does not list the file.
+Put `domain` in `$NC/secret.auto.tfvars`. Git ignores `*.tfvars`. Check that
+`git -C "$REPO" status --short` does not list the file. Keep `domain` in the old root's input
+location until B10: the rollback configuration on `main` still requires it.
 
 ### B6. Plan offline
 
@@ -301,9 +302,18 @@ Do A6 with `REV_B`, `"$NC"`, key `mgmt/nextcloud/terraform.tfstate`, and
 
 ### B8. Push the source
 
-Do A7 with `"$WORK/source-b.tfstate"`. For the old root, the plan deletes its five outputs and
-changes nothing else. Apply that saved plan after `no_resource_changes` passes. Then the old
-root, the network root, and the Nextcloud root each plan with exit `0`.
+```sh
+test "$(aws s3api head-object --bucket "$BUCKET" --key mgmt/terraform.tfstate --query VersionId --output text)" = "$SRC_VERSION"
+terraform -chdir="$MGMT" init -input=false
+terraform -chdir="$MGMT" state push "$WORK/source-b.tfstate"
+terraform -chdir="$MGMT" plan -input=false -out="$WORK/old-outputs.plan"
+no_resource_changes "$MGMT" "$WORK/old-outputs.plan"
+terraform -chdir="$MGMT" apply "$WORK/old-outputs.plan"
+for root in "$MGMT" "$NET" "$NC"; do terraform -chdir="$root" plan -input=false -detailed-exitcode; done
+```
+
+Expected: the version matches. The old-root plan deletes its five outputs and changes nothing
+else. After the apply, the three plans exit `0`.
 
 ### B9. Check the operator paths
 
@@ -321,7 +331,8 @@ Expected: the inventory has one `nextcloud` host. The ping succeeds over SSM.
 ### B10. Integrate and end the freeze
 
 Mark #196 ready and merge it. On `main`, plan all three roots and bootstrap. All exit `0`.
-Record the evidence in #120. Delete `$WORK`. End the freeze. #122 retires the old root.
+Remove `domain` from the old root's input location. Record the evidence in #120. Delete
+`$WORK`. End the freeze. #122 retires the old root.
 
 ## Recovery
 
